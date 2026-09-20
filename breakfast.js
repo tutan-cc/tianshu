@@ -65,16 +65,31 @@
        dur+PW ≤ t < burnAt → 过火（仍可端，普通分）
        t ≥ burnAt          → 糊（端给顾客会把人气走，只能丢垃圾桶）
      burnAt = dur + PW + burn（burn = 糊的宽限时长）                              */
+  /* ── 火候时长平衡（bf-9：按用户实测「白粥煮的太慢了」重做整条梯度）──────────
+     旧值白粥 5.0s。重排原则（不是把白粥一个人改小，而是把 9 样的梯度一起看）：
+       · **最长不超过 ~3.6s**：画面上 9 列可以同时开工，但玩家的注意力只够盯 4~5 口锅，
+         任何一样超过 3.6s 都会退化成「点完就走 → 回来发现糊了」的纯惩罚；
+       · 保留「快 / 中 / 慢」三档可感知：1.2s（果汁）→ 3.4s（白粥），相邻两样至少差 0.2s，
+         玩家能凭手感记住「哪样要等多久」；
+       · 完美窗口按 25%~50% 的比例给：越快的菜窗口占比越大（短菜容错高，不至于必糊）；
+       · 糊的宽限（burn）统一收在 0.7~1.2s：糊得有预警，但拖着不管一定报废。
+     新表（dur = 熟 / pw = 完美窗口 / burn = 过火到糊的宽限；糊点 = dur+pw+burn）：
+       果汁   1.2 / 0.6 / 0.7 → 糊点 2.5s      沙拉   1.5 / 0.6 / 0.8 → 2.9s
+       热牛奶 2.0 / 0.7 / 0.8 → 3.5s           煎蛋   2.2 / 0.7 / 0.9 → 3.8s
+       清汤   2.6 / 0.8 / 1.0 → 4.4s           培根   2.8 / 0.8 / 1.0 → 4.6s
+       包子   3.0 / 0.9 / 1.1 → 5.0s           三明治 3.2 / 0.9 / 1.1 → 5.2s
+       白粥   3.4 / 1.0 / 1.2 → 5.6s（旧：5.0 / 1.2 / 1.6 → 7.8s）
+     白粥仍是**最慢**的一样（保留「熬粥要等」的手感），但 5.0 → 3.4s 之后不再拖垮整局节奏。 */
   var FOOD = {
-    congee:   { n:"白粥",   kind:"pot",     dur:5.0, pw:1.2, burn:1.6, c:"#f2ece0" },
-    milk:     { n:"热牛奶", kind:"pot",     dur:2.6, pw:0.7, burn:0.9, c:"#eef4ff" },
-    soup:     { n:"清汤",   kind:"pot",     dur:3.4, pw:0.9, burn:1.1, c:"#cfe8ff" },
-    egg:      { n:"煎蛋",   kind:"griddle", dur:3.0, pw:0.8, burn:1.0, c:"#ffd76e" },
-    bacon:    { n:"培根",   kind:"griddle", dur:3.6, pw:0.9, burn:1.2, c:"#ff7d6e" },
-    sandwich: { n:"三明治", kind:"griddle", dur:4.4, pw:1.0, burn:1.3, c:"#e0a45c" },
-    bun:      { n:"包子",   kind:"steamer", dur:4.0, pw:1.1, burn:1.4, c:"#f7efe1" },
-    salad:    { n:"沙拉",   kind:"counter", dur:1.8, pw:0.6, burn:0.8, c:"#7fe08a" },
-    juice:    { n:"果汁",   kind:"juicer",  dur:1.5, pw:0.6, burn:0.7, c:"#ffb347" }
+    congee:   { n:"白粥",   kind:"pot",     dur:3.4, pw:1.0, burn:1.2, c:"#f2ece0" },
+    milk:     { n:"热牛奶", kind:"pot",     dur:2.0, pw:0.7, burn:0.8, c:"#eef4ff" },
+    soup:     { n:"清汤",   kind:"pot",     dur:2.6, pw:0.8, burn:1.0, c:"#cfe8ff" },
+    egg:      { n:"煎蛋",   kind:"griddle", dur:2.2, pw:0.7, burn:0.9, c:"#ffd76e" },
+    bacon:    { n:"培根",   kind:"griddle", dur:2.8, pw:0.8, burn:1.0, c:"#ff7d6e" },
+    sandwich: { n:"三明治", kind:"griddle", dur:3.2, pw:0.9, burn:1.1, c:"#e0a45c" },
+    bun:      { n:"包子",   kind:"steamer", dur:3.0, pw:0.9, burn:1.1, c:"#f7efe1" },
+    salad:    { n:"沙拉",   kind:"counter", dur:1.5, pw:0.6, burn:0.8, c:"#7fe08a" },
+    juice:    { n:"果汁",   kind:"juicer",  dur:1.2, pw:0.6, burn:0.7, c:"#ffb347" }
   };
   /* ── 列绑定（用户新操作模型的核心，要求 A1）───────────────────────────────
      FOOD_IDS[i] ↔ 灶位 i ↔ 盘 i：三种东西一一对应、索引稳定、终身不可互换。
@@ -155,6 +170,20 @@
   var SPAWN_START = 2.0;    // 开局顾客间隔（秒）
   var SPAWN_END = 4.0;      // 收官顾客间隔（秒）
   var MAX_CUSTOMERS = 3;    // 同时最多 3 位
+  /* ── 部分上餐：顾客收到「订单里的某一样」→ 耐心回一点（bf-9 用户要求）────────
+     用户原话：「客户要三种早餐，他收到其中某一种的时候，耐心等候的时间会稍微增加」。
+     规则三条（都有断言）：
+       ① 只有**这一样确实在他订单里、而且他还没拿到过**才加；
+          上错菜 / 糊菜在 serveFoodToCustomer 的前两个分支就 return 了，走不到加成那一步
+          —— 乱上菜没有奖励；
+       ② 每成功送到一样 +PARTIAL_PATIENCE_BONUS 秒（只在**还没拿齐**时加：
+          拿齐的那位马上离场，给他加耐心没有意义）；
+       ③ **上限 = 他的初始耐心 patienceMax**：不能靠一样一样地送无限续命。
+          已经顶到初始值（或只剩一点余量）时，多出来的部分直接截掉 —— 到顶就加 0。
+     取 3.5s 的理由：一轮「下锅 → 熟 → 落盘 → 上餐」大约 2~4s，3.5s 刚好抵消掉一次操作，
+     让「一次招待三位、先给每人一样」成为**正收益**的打法；再多（≥5s）就会让三家同时
+     顶满耐心、把「顾客会走」这条压力整个抹掉。 */
+  var PARTIAL_PATIENCE_BONUS = 3.5;   // 每送到一样（订单还没齐）回多少秒耐心
 
   function diffAt(elapsed, cfg) {
     var d = Number(cfg && cfg.duration); if (!(d > 0)) d = 75;
@@ -426,13 +455,45 @@
   var SLOW_MIN_GAP = 0.80;   // 两条「哼，太慢了」之间的最小间隔
   var BF_SOUND_KEY = "bfSoundOn";     // localStorage 键（默认开）
   var BF_AUDIO_DIR = "audio/bf/";     // 素材目录（相对页面，与 art/ 同一套解析口径）
-  var BF_SFX_VOL = { tick:0.35, happy:0.55, slow:0.55 };   // 音量（滴答压低，别吵）
+  var BF_SFX_VOL = {
+    tick:0.35, happy:0.55, slow:0.55,                      // 滴答压低，别吵；两条语音适中
+    /* 下锅音效（bf-9）：9 样食材各一条。素材侧已经统一到 -18 LUFS，
+       这里再按"吵不吵"微调：榨汁机 / 培根油花这类宽频噪声压到 0.42~0.45，
+       闷响类（白粥 / 蒸笼 / 砧板）给 0.50，煎蛋那记"滋啦"最提神给 0.55。 */
+    cook_congee:0.50, cook_milk:0.45, cook_soup:0.45, cook_egg:0.55, cook_bacon:0.42,
+    cook_sandwich:0.45, cook_bun:0.50, cook_salad:0.50, cook_juice:0.42
+  };
+  /* 每样食材 → 它下锅时该响的那条音效（一对一，用户要求的"点果汁响榨汁机"就靠这张表）。
+     文件都在 audio/bf/，由 tools/audio/gen_bf_cook_sfx.py 合成（纯标准库 DSP + ffmpeg 加工）。*/
+  var BF_COOK_FILES = {
+    congee:  "cook_congee.mp3",    // 白粥：下米的沉闷一声 + 搅动
+    milk:    "cook_milk.mp3",      // 热牛奶：倒奶的注流声
+    soup:    "cook_soup.mp3",      // 清汤：汤水入锅的咕咚
+    egg:     "cook_egg.mp3",       // 煎蛋：磕蛋 + 下油锅的滋啦
+    bacon:   "cook_bacon.mp3",     // 培根：持续滋滋 + 油花爆裂
+    sandwich:"cook_sandwich.mp3",  // 三明治：上烤盘的闷响 + 炙烤
+    bun:     "cook_bun.mp3",       // 包子：笼盖轻磕 + 蒸汽
+    salad:   "cook_salad.mp3",     // 沙拉：砧板上快切三下
+    juice:   "cook_juice.mp3"      // 果汁：榨汁机电机嗡鸣
+  };
   var BF_SFX_FILES = {
     tick:  ["tick.mp3"],
-    happy: ["happy.mp3", "happy2.mp3", "happy3.mp3"],      // 变体：随机取，且不连着重复同一条
+    /* 「拿到早餐」的欢呼（bf-9 重做）：6 条**实测上扬**的变体，随机取、且不连着重复同一条。
+       用户挑定之后只留一条即可（单条时 pick() 恒返回 0，不再随机）：
+         happy: ["happy_v3.mp3"]                                        */
+    happy: ["happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3",
+            "happy_v4.mp3", "happy_v5.mp3", "happy_v6.mp3"],
     slow:  ["slow.mp3"]
   };
-  var AUDIO_NAMES = ["tick", "happy", "slow"];
+  /* 下锅通道：名字统一是 cook_<食材id>，一个通道一个文件（挂进同一张表 → 开关 / 回落 / 台账全复用）*/
+  function cookChannel(foodId) { return BF_COOK_FILES[foodId] ? ("cook_" + foodId) : ""; }
+  (function () {
+    for (var f in BF_COOK_FILES) if (Object.prototype.hasOwnProperty.call(BF_COOK_FILES, f))
+      BF_SFX_FILES[cookChannel(f)] = [BF_COOK_FILES[f]];
+  })();
+  var AUDIO_NAMES = ["tick", "happy", "slow",
+                     "cook_congee", "cook_milk", "cook_soup", "cook_egg", "cook_bacon",
+                     "cook_sandwich", "cook_bun", "cook_salad", "cook_juice"];
 
   /* ── 播放引擎（模块级单例；不依赖 DOM，纯逻辑测试里也能跑）─────────────────
      三级回落，任何一级出问题都只是「这一声没响」：
@@ -484,9 +545,13 @@
       return r;
     }
     /** 播一条。**任何异常都不许冒泡**（缺文件 / 没有 Audio / 被策略拦截 → 静默） */
-    function play(name, at) {
+    function play(name, at, skipWhy) {
       if (!BF_SFX_FILES[name]) return null;
       var i = pick(name);
+      /* skipWhy：调用方主动放弃这一声（节流 / 并发满了）→ 只留一条可诊断的记录，不发声。
+         为什么要有这条：下锅音效连续快点时不节流的实测效果是"糊成一片噪音"，
+         而"静默丢掉"又会让验收看不出差别（跟素材缺失长得一样）。 */
+      if (skipWhy) return rec(name, i, false, skipWhy, at);
       if (!enabled()) return rec(name, i, false, "off", at);
       if (typeof sink === "function") {
         var r0 = rec(name, i, true, "sink", at);
@@ -547,7 +612,10 @@
   /** 每局一份的音频台账（跟着 st 走，不进 localStorage）*/
   function newAudioState() {
     return { tickNext:0, lastTickAt:-1e9, lastHappyAt:-1e9, lastSlowAt:-1e9,
-             ticks:0, happies:0, slows:0 };
+             ticks:0, happies:0, slows:0,
+             /* 下锅音效（bf-9）：每样食材上一次响的时刻（同一食材 300ms 节流）+
+                当前"占线"的几条（不同食材可叠，但同时最多 2 条）*/
+             cookLast:{}, cookPlaying:[], cooks:0, cookSkips:0 };
   }
   /** 一帧一次的音频调度：滴答（全局节流）+ 本帧有人跑单时的「哼，太慢了」（只播一次）。
       调用点在 step() 里、顾客账算完之后 —— 所以「顾客离开 / 被服务」当帧就会停滴答。 */
@@ -582,6 +650,46 @@
     a.lastSlowAt = st.elapsed; a.slows++;
     return audio.play("slow", st.elapsed);
   }
+
+  /* ── 下锅音效（bf-9 用户要求：点食材进锅的那一刻，按食材触发）──────────────
+     两条纪律，都是实测出来的（连续快点 9 个桶，不节流会糊成一片噪音）：
+       · **同一食材 300ms 内只响一次**（COOK_MIN_GAP）—— 手抖连点同一样不出双重声；
+       · **不同食材可以叠，但同时最多 2 条**（COOK_MAX_CONCURRENT）—— 保留下锅的"手感密度"，
+         又不至于 9 条一起炸。
+     被节流 / 并发满时不发声，但**留一条 why:"throttle" / "busy" 的记录**（验收与排查要看）。
+     开关关掉（why:"off"）/ 没有 Audio（"no-audio"）/ play 被拦（"blocked"）
+     依旧走 audio.play 那套四级静默回落，玩法与得分完全不受影响。 */
+  var COOK_MIN_GAP = 0.30;          // 同一食材的最小间隔（秒）
+  var COOK_MAX_CONCURRENT = 2;      // 同时最多几条下锅音效
+  var COOK_TAIL_SEC = 0.70;         // 一条音效"占线"多久（素材 0.42~0.66s，取 0.70 兜住）
+
+  /** 点食材下锅 → 按食材响对应的音效。返回 audio 记录（被节流时 ok:false）。 */
+  function playCook(st, foodId) {
+    if (!st || !st.audio) return null;
+    var ch = cookChannel(foodId);
+    if (!ch) return null;
+    var a = st.audio, at = st.elapsed;
+    if (!a.cookLast) a.cookLast = {};
+    if (!a.cookPlaying) a.cookPlaying = [];
+    var last = a.cookLast[foodId];
+    if (typeof last === "number" && at - last < COOK_MIN_GAP - 1e-9) {
+      a.cookSkips = (a.cookSkips || 0) + 1;
+      return audio.play(ch, at, "throttle");
+    }
+    /* 清掉已经播完的占线（按时间戳判，不依赖任何定时器）*/
+    var live = [];
+    for (var i = 0; i < a.cookPlaying.length; i++)
+      if (a.cookPlaying[i].until > at) live.push(a.cookPlaying[i]);
+    a.cookPlaying = live;
+    if (a.cookPlaying.length >= COOK_MAX_CONCURRENT) {
+      a.cookSkips = (a.cookSkips || 0) + 1;
+      return audio.play(ch, at, "busy");
+    }
+    a.cookLast[foodId] = at;
+    a.cookPlaying.push({ ch:ch, food:foodId, until:at + COOK_TAIL_SEC });
+    a.cooks = (a.cooks || 0) + 1;
+    return audio.play(ch, at);
+  }
   /** 开关的两处 UI 共用同一份文案 */
   function soundLabel() { return audio.enabled() ? "🔊 音效" : "🔇 静音"; }
   /** 顶栏按钮 / 图例徽章共用的切换（改了开关 → 同步按钮文案 + 重绘画布上的徽章）*/
@@ -597,6 +705,8 @@
   var audioRules = {
     TICK_AT:TICK_AT, TICK_NEAR:TICK_NEAR, TICK_GAP_FAR:TICK_GAP_FAR, TICK_GAP_NEAR:TICK_GAP_NEAR,
     TICK_MIN_GAP:TICK_MIN_GAP, HAPPY_MIN_GAP:HAPPY_MIN_GAP, SLOW_MIN_GAP:SLOW_MIN_GAP,
+    COOK_MIN_GAP:COOK_MIN_GAP, COOK_MAX_CONCURRENT:COOK_MAX_CONCURRENT, COOK_TAIL_SEC:COOK_TAIL_SEC,
+    COOK_FILES:BF_COOK_FILES, cookChannel:cookChannel, playCook:playCook,
     SOUND_KEY:BF_SOUND_KEY, DIR:BF_AUDIO_DIR, FILES:BF_SFX_FILES, VOL:BF_SFX_VOL, NAMES:AUDIO_NAMES,
     enabled:audio.enabled, setEnabled:audio.setEnabled, toggle:audio.toggle, hook:audio.hook,
     log:audio.log, plays:audio.plays, clear:audio.clear, url:audio.url,
@@ -621,6 +731,8 @@
              autoPlate: cfg.autoPlate !== false },
       running:false, over:false, elapsed:0, score:0,
       served:0, perfect:0, normal:0, hot:0, burnt:0, burntServed:0, wrong:0, angry:0, made:0,
+      partialServes:0, partialBonus:0,          // 部分上餐：次数 / 一共回给顾客多少秒耐心
+      cooks:0,                                  // 本局触发过多少次下锅音效
       heat:{ hot:0, warm:0, cold:0 }, prepped:0, lastPlace:null, expire:0, tossed:0,
       customers:[], stations:[], plates:[], floats:[], smoke:[], seq:1,
       audio:newAudioState(),                       // 音效台账（滴答节奏 / 各通道节流时钟 / 计数）
@@ -769,6 +881,12 @@
     s.serveWin = 0; s.readyAt = 0; s.burntAt = 0;  // 下料即清空上一次的窗口 / 糊焦计时
     s.manual = !!opts.manual;                     // manual = 按住盯火候（不自动落盘，测试/调试用）
     st.made++;
+    /* 下锅那一刻的音效（bf-9 用户要求：「点做果汁的时候触发榨果汁的音效，
+       点煎蛋的时候触发煎蛋的音效」）。触发点**就在这里** —— 料真的进了锅那一瞬间；
+       不是出锅、不是上餐，也不是被拒的时候（锅忙 / 盘占用 / 拖错列在上面就 return 了）。
+       同一食材 300ms 内只响一次、不同食材最多叠 2 条、音量 / 🔊🔇 开关 / 四级静默回落
+       全部走既有的 audio 通道（见 playCook）。 */
+    playCook(st, foodId);
     st.selected = { kind:"station", idx:si };
     var ok = { ok:true, why:"", hint:"", station:si, col:si, food:foodId };
     st.lastPlace = ok;
@@ -847,20 +965,71 @@
     }
     return best;
   }
-  /** 单击盘时「自动挑顾客」（要求 A3）：在正等着这份、且还没拿到这份的顾客里，
-      挑耐心最少的那位（并列时先来的先得）。返回顾客在 st.customers 里的下标，没人要返回 -1。 */
-  function pickCustomerIndexFor(st, foodId) {
-    var best = -1, bestPat = Infinity;
+  /* ── 上餐选人：**全项目唯一口径**（bf-9 用户要求）─────────────────────────
+     用户原话：「做好的早餐会优先给耐心值最低的客人，而不是只能给第一位客人」。
+
+     【排查结论（改前）】三条上餐路径当时分别是什么策略：
+       · 单击某一列专属盘 serveFromColumn()      → 已经走 pickCustomerIndexFor（比**绝对秒数**最小）
+       · 锅里现做、取出即送 takeReady()          → 也走同一个函数（注释里写着"以前另写了一段
+                                                  先来先得的 first-fit，已改"）
+       · 点顾客卡 actCustomer()                  → 玩家**明确点谁就给谁**（这是选择，不是自动挑人）
+       · 「拖拽上餐」这条路径**根本不存在**：能拖的只有底部食材桶 → 中间的锅（onDown/onUp），
+         盘子没有拖拽（所以也没有"拖到谁身上"这回事）。
+     也就是说：规则层写的确实是"绝对耐心最少"，但**手感上就等于"只给第一位"** ——
+     因为所有顾客的耐心都按 1 秒/秒 掉，先来的人天然秒数最少（订单长度只影响初始上限）。
+     两个量在玩家眼里是分开的：卡上画的那条进度条、闪红、滴答、着急脸，用的都是**比例**
+     （patienceRatioOf），而绝对秒数只有内部在看。于是"第一位"和"进度条最短的那位"
+     经常不是同一个人 —— 这正是用户看到的现象。
+
+     【新口径（候选集内三级排序，全部可断言）】
+       候选集 = 订单里有这一样 ∧ 这一样还没拿到 ∧ 没走 ∧ 没生气
+       ① 【救命档】绝对秒数 ≤ SERVE_DANGER_SEC 的候选 → 先排（真的要走了），档内比绝对秒数；
+       ② 【看着最急档】其余候选 → 比**耐心剩余比例**（玩家眼里的「耐心值最低」就是它），
+          最小的先得；
+       ③ 平手 → 绝对秒数更小的先得；再平手 → 座位序（先来的先得）。
+     为什么保留①这一档：只按比例挑，可能挑走一位订单长（上限高）的顾客，
+     而另一位订单短的顾客其实马上要走 —— 那是白送 −8 分。救命档把这种亏兜住。
+     三条路径共用这一个函数，不再各写一份（老版本就是这么分叉出"先来先得"的）。*/
+  var SERVE_DANGER_SEC = 6.0;   // 剩这么少秒数 → 越过比例，绝对优先（可调）
+
+  /** 候选顾客在 st.customers 里的下标（正需要这份、还没拿到、还没走），按座位序 */
+  function serveCandidates(st, foodId) {
+    var out = [];
+    if (!st || !st.customers) return out;
     for (var i = 0; i < st.customers.length; i++) {
       var c = st.customers[i];
       if (!c || c.left || c.angry) continue;
       if (!isFoodInOrder(c.order, foodId)) continue;
       if (c.done.indexOf(foodId) >= 0) continue;
-      var pat = Number(c.patience); if (!isFinite(pat)) pat = 0;
-      if (pat < bestPat - 1e-9) { bestPat = pat; best = i; }
+      out.push(i);
+    }
+    return out;
+  }
+  function patOf(c) { var p = Number(c && c.patience); return isFinite(p) ? p : 0; }
+  /** 三级排序键的两两比较（数组按位比，带浮点容差）*/
+  function keyLess(a, b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] < b[i] - 1e-9) return true;
+      if (a[i] > b[i] + 1e-9) return false;
+    }
+    return false;
+  }
+  /** 挑顾客：返回 st.customers 下标，没人要返回 -1（规则见上）*/
+  function pickServeTarget(st, foodId) {
+    var cands = serveCandidates(st, foodId);
+    if (!cands.length) return -1;
+    var best = -1, bestKey = null;
+    for (var k = 0; k < cands.length; k++) {
+      var i = cands[k], c = st.customers[i];
+      var pat = patOf(c), ratio = patienceRatioOf(c);
+      var danger = (pat <= SERVE_DANGER_SEC + 1e-9) ? 0 : 1;   // 0 = 救命档，排在前面
+      var key = [danger, danger === 0 ? pat : ratio, pat, i];
+      if (!bestKey || keyLess(key, bestKey)) { bestKey = key; best = i; }
     }
     return best;
   }
+  /** 兼容旧名字（单测 / 无头验收 / debug.pickFor 都读它）：语义 = pickServeTarget */
+  function pickCustomerIndexFor(st, foodId) { return pickServeTarget(st, foodId); }
   /** 单击某一列的专属盘 → 出餐（要求 A3）。返回 { ok, kind, why, hint, ... }：
       · 盘空            → no-plate（提示「盘里还空着」）
       · 盘上是糊的      → burnt  （提示「糊了，只能丢掉」→ 只能双击丢）
@@ -946,6 +1115,23 @@
     return { ok:true, kind:"served", food:foodId, served:true, heat:"hot", delta:r.delta,
              perfect:r.perfect, customer:r.customer, score:r };
   }
+  /** 部分上餐的耐心加成（bf-9 用户要求）：成功送到一样、且他还没拿齐 → +N 秒，
+      但**绝不超过他的初始耐心**（patienceMax）。返回**真实加了多少秒**（已经到顶就是 0），
+      调用方把它记进出餐结果里，方便断言与 UI 提示。 */
+  function givePartialPatience(st, c) {
+    if (!c) return 0;
+    var max = Number(c.patienceMax); if (!isFinite(max) || max <= 0) max = 0.01;
+    var cur = Math.max(0, patOf(c));
+    var add = Math.min(PARTIAL_PATIENCE_BONUS, Math.max(0, max - cur));
+    if (add > 0) c.patience = cur + add;
+    c.patienceBonus = round1((c.patienceBonus || 0) + add);      // 这位顾客累计收到多少加成
+    if (st) {
+      st.partialServes = (st.partialServes || 0) + 1;            // 记一次"部分上餐"
+      st.partialBonus = round1((st.partialBonus || 0) + add);    // 本局一共回了多少秒
+      if (add > 0) addFloat(st, "还差 " + remainOf(c) + " 样 · 耐心 +" + round1(add) + "s", PAL.green, 22);
+    }
+    return add;
+  }
   /** 出餐记账核心（盘上出餐与现做灶位出餐共用一套规则）：
       糊菜端上桌 → 顾客当场离开（−5）；上错菜 → −5；对上了 → 热乎档分（14/10/6，过火再 −3）。 */
   function serveFoodToCustomer(st, c, foodId, foodState, tier, cookSec) {
@@ -973,6 +1159,11 @@
     var HEATC = { hot:"#ffd76e", warm:"#ffb347", cold:"#9aa3b8" };
     addFloat(st, (d > 0 ? "+" : "") + d + (perfect ? "" : " 过火"),
              HEATC[tier] || "#cfd2e6", tier === "hot" ? 30 : 24);
+    /* ③ 还没拿齐 → 收到「其中某一样」也给点甜头（bf-9 用户要求）：
+       耐心 +PARTIAL_PATIENCE_BONUS，但上限是他**初始耐心**（givePartialPatience 里截断）。
+       位置有意放在这里：上错菜 / 糊菜在上面两个分支就 return 了，走不到这一行；
+       而已经拿齐的那位马上要离场，也不必再加耐心。 */
+    var partialBonus = (remainOf(c) > 0) ? givePartialPatience(st, c) : 0;
     if (remainOf(c) <= 0) {
       var allPerfect = true;
       for (var i = 0; i < c.order.length; i++) if (!c.perfectList[i]) allPerfect = false;
@@ -988,7 +1179,8 @@
        糊的 / 上错的在上面两个分支就 return 了，不会响（那种情况顾客要走，不该欢呼）。 */
     playHappy(st);
     return { ok:true, kind: perfect ? (tier === "hot" ? "perfect-hot" : "perfect") : "over",
-             food:foodId, state:foodState, heat:tier, delta:d, perfect:perfect, cookSec:cookSec, customer:c };
+             food:foodId, state:foodState, heat:tier, delta:d, perfect:perfect, cookSec:cookSec, customer:c,
+             partialBonus:partialBonus, patience:Math.round(c.patience * 100) / 100 };
   }
   /** 出餐给顾客（pi 省略时自动挑一盘最合适的）。
       取走那一盘 = 它所属的灶位立刻空出来可用（要求 A2）。 */
@@ -1673,6 +1865,64 @@
   /** 声音开关徽章的命中框（绘制与点击共用同一个框）*/
   function soundBox() { return LAY.soundBadge; }
 
+  /* ── Canvas2D.ellipse 的 polyfill（IE11 / Trident 没有这个 API）──────────────
+     背景：tools/e2e/bf.js 的模式 B 探针跑在 mshta(Trident/IE11) 里，
+     实测会弹「对象不支持 ellipse 属性或方法」的脚本错误对话框（行 2387）。
+     项目约束是「ES5 + IE11 也要能画」，所以这里补一个等价实现。
+
+     实现：把椭圆弧按 ≤90° 分段，用**三次贝塞尔**逼近（k = 4/3·tan(Δ/4)）。
+       · 不改 CTM（不用 save/scale/arc/restore）—— 那套会把非等比缩放留在路径上，
+         stroke() 的线宽会被压扁；本项目有 ellipse + stroke 的用法。
+       · 参数语义与原生一致：rotation（弧度）、startAngle / endAngle、counterclockwise。
+       · 半径为 0 / NaN 时直接返回（与原生「什么都不加进路径」一致，也避免 IE 上 arc 抛错）。
+     幂等：原生有 ellipse 就原样不动 —— Chrome / Edge / 无头假 canvas 的外观与行为完全不变。 */
+  var ELLIPSE_K = 4 / 3;
+  function installEllipsePolyfill(proto) {
+    if (!proto) return false;
+    if (typeof proto.ellipse === "function") return false;          // 原生已有 → 绝不覆盖
+    if (typeof proto.bezierCurveTo !== "function" || typeof proto.moveTo !== "function") return false;
+    proto.ellipse = function (x, y, rx, ry, rot, a0, a1, ccw) {
+      var rxa = Math.abs(Number(rx) || 0), rya = Math.abs(Number(ry) || 0);
+      if (!(rxa > 0) || !(rya > 0)) return;
+      x = Number(x) || 0; y = Number(y) || 0;
+      rot = Number(rot) || 0;
+      a0 = Number(a0) || 0; a1 = Number(a1) || 0;
+      var delta = a1 - a0;
+      if (ccw) { if (delta > 0) delta -= Math.PI * 2; if (delta < -Math.PI * 2) delta = -Math.PI * 2; }
+      else { if (delta < 0) delta += Math.PI * 2; if (delta > Math.PI * 2) delta = Math.PI * 2; }
+      if (!delta) return;
+      var n = Math.max(1, Math.ceil(Math.abs(delta) / (Math.PI / 2)));
+      var step = delta / n, k = ELLIPSE_K * Math.tan(step / 4);
+      var cs = Math.cos(rot), sn = Math.sin(rot);
+      /* 椭圆上的点（先算局部坐标，再按 rotation 旋转、平移到 x/y）*/
+      function px(u, v) { return x + u * cs - v * sn; }
+      function py(u, v) { return y + u * sn + v * cs; }
+      var s0 = a0;
+      this.moveTo(px(rxa * Math.cos(s0), rya * Math.sin(s0)),
+                  py(rxa * Math.cos(s0), rya * Math.sin(s0)));
+      for (var i = 0; i < n; i++) {
+        var s = a0 + i * step, e = s + step;
+        var cx1 = rxa * Math.cos(s), cy1 = rya * Math.sin(s);
+        var cx2 = rxa * Math.cos(e), cy2 = rya * Math.sin(e);
+        /* 导数（切线）：d/dθ (rx·cosθ, ry·sinθ) = (-rx·sinθ, ry·cosθ) */
+        var t1u = -rxa * Math.sin(s), t1v = rya * Math.cos(s);
+        var t2u = -rxa * Math.sin(e), t2v = rya * Math.cos(e);
+        var c1u = cx1 + k * t1u, c1v = cy1 + k * t1v;
+        var c2u = cx2 - k * t2u, c2v = cy2 - k * t2v;
+        this.bezierCurveTo(px(c1u, c1v), py(c1u, c1v),
+                           px(c2u, c2v), py(c2u, c2v),
+                           px(cx2, cy2), py(cx2, cy2));
+      }
+    };
+    return true;
+  }
+  /* 模块级先装一次（浏览器里 CanvasRenderingContext2D.prototype 一定在）*/
+  (function () {
+    try {
+      installEllipsePolyfill(root.CanvasRenderingContext2D && root.CanvasRenderingContext2D.prototype);
+    } catch (e) {}
+  })();
+
   function roundRect(g, x, y, w, h, r) {
     if (r > w / 2) r = w / 2; if (r > h / 2) r = h / 2;
     g.beginPath();
@@ -1901,7 +2151,7 @@
     var bar = el("div", "bf-bar");
     bar.appendChild(el("div", "bf-title", "🍳 早餐店 · 拼手速" + (cfg.target ? ("　→ " + cfg.target.name) : "")));
     bar.appendChild(el("div", "bf-tip",
-      "① 点食材 → 自动进它正上方那一列的锅 ｜ ② 点上方专属盘 → 自动送给正在等的顾客（优先最急的） ｜ " +
+      "① 点食材 → 自动进它正上方那一列的锅 ｜ ② 点上方专属盘 → 自动送给最急的顾客（耐心最少 / 快走的那位优先） ｜ " +
       "③ 双击盘 → 丢垃圾桶（不扣分）· 盘上停留超过 " + SERVE_WINDOW.toFixed(1) + "s 会糊，糊了只能双击丢掉"));
     /* 声音开关：早餐店此前没有任何静音 / 音量设置 → 按用户要求用 localStorage.bfSoundOn（默认开），
        这里给一个真实按钮（与「收 摊」同款木牌样式，风格一致）；图例条左端的徽章是同一个开关的第二入口。 */
@@ -1925,6 +2175,7 @@
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     cv.style.width = "100%"; cv.style.height = "auto"; cv.style.display = "block";
     var g = cv.getContext("2d");
+    installEllipsePolyfill(g);            // IE11/Trident 没有 ellipse：这里再兜一次（幂等）
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     var IA = {
@@ -2836,6 +3087,8 @@
     MAX_CUSTOMERS: MAX_CUSTOMERS, MAX_ANGRY: MAX_ANGRY, MAX_PLATES: MAX_PLATES, HOT_MS: HOT_MS,
     PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW, SERVE_WARN_SEC: SERVE_WARN_SEC,
     BURNT_LIFE_MS: BURNT_LIFE_MS, DOUBLE_MS: DOUBLE_MS,
+    /* 绘制兼容层（IE11/Trident 没有 Canvas2D.ellipse）：幂等，原生有就一个字节都不改 */
+    installEllipsePolyfill: installEllipsePolyfill,
     COLS: COLS, COL_N: COL_N, PLATES_TOTAL: PLATES_TOTAL,
     columnOf: columnOf, foodOfColumn: foodOfColumn, colNameOf: colNameOf, kindOfColumn: kindOfColumn,
     plateNameOf: plateNameOf, plateBurntAt: plateBurntAt, plateLeftSec: plateLeftSec, plateExpired: plateExpired,
@@ -2848,7 +3101,10 @@
     isPrepStation: isPrepStation, hasPlate: hasPlate, prepStationIndices: prepStationIndices,
     serveStationIndices: serveStationIndices, isServeWindowOpen: isServeWindowOpen,
     serveFoodToCustomer: serveFoodToCustomer, serveFromColumn: serveFromColumn,
-    pickCustomerIndexFor: pickCustomerIndexFor, pickPlateIndex: pickPlateIndex,
+    pickCustomerIndexFor: pickCustomerIndexFor, pickServeTarget: pickServeTarget,
+    serveCandidates: serveCandidates, SERVE_DANGER_SEC: SERVE_DANGER_SEC,
+    PARTIAL_PATIENCE_BONUS: PARTIAL_PATIENCE_BONUS, givePartialPatience: givePartialPatience,
+    pickPlateIndex: pickPlateIndex,
     serveCustomer: serveCustomer, spawnCustomer: spawnCustomer,
     plateIdxOfStation: plateIdxOfStation, plateOfStation: plateOfStation, stationFree: stationFree, mkPlate: mkPlate,
     refreshPlate: refreshPlate, phaseOf: phaseOf, platePhaseOf: platePhaseOf,
@@ -2928,6 +3184,11 @@
           score:st.score, served:st.served, goal:st.cfg.goal, perfect:st.perfect, normal:st.normal,
           hot:st.hot, heat:{ hot:st.heat.hot || 0, warm:st.heat.warm || 0, cold:st.heat.cold || 0 },
           prepped:st.prepped, autoPlate:!!st.cfg.autoPlate, plateCount:st.plates.length,
+          partialServes:st.partialServes || 0, partialBonus:Math.round((st.partialBonus || 0) * 10) / 10,
+          partialBonusPer:PARTIAL_PATIENCE_BONUS, serveDangerSec:SERVE_DANGER_SEC,
+          /* 下锅音效的次数记在**音频台账** st.audio.cooks 上（playCook 里 a.cooks++，
+             与滴答 / 欢呼的计数放在同一个对象里）—— 这里必须读同一处，否则永远是 0 */
+          cooks:(st.audio ? (st.audio.cooks || 0) : 0),
           prepPlates:PLATES_TOTAL, platesTotal:PLATES_TOTAL, columns:COL_N, colN:COL_N,
           serveWindow:SERVE_WINDOW, plateLife:SERVE_WINDOW, expire:st.expire || 0, tossed:st.tossed || 0,
           windows:st.stations.filter(function (s) { return isServeWindowOpen(s); }).length,
@@ -3184,6 +3445,10 @@
                  ticks:(st && st.audio ? st.audio.ticks : 0),
                  happies:(st && st.audio ? st.audio.happies : 0),
                  slows:(st && st.audio ? st.audio.slows : 0),
+                 cooks:(st && st.audio ? (st.audio.cooks || 0) : 0),
+                 cookSkips:(st && st.audio ? (st.audio.cookSkips || 0) : 0),
+                 cookPlaying:(st && st.audio && st.audio.cookPlaying) ? st.audio.cookPlaying.length : 0,
+                 cookFiles:BF_COOK_FILES, cookGap:COOK_MIN_GAP, cookMax:COOK_MAX_CONCURRENT,
                  badge:(inst && inst.drawn) ? (inst.drawn.soundBadge || null) : null,
                  label:soundLabel(),
                  plays:audio.plays(), log:audio.log() };

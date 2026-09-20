@@ -155,10 +155,50 @@ python -m http.server 8000
 node tools/test/mahjong-logic.js    # 麻将纯逻辑单测（847 项）
 node tools/bf/headless.js           # 早餐店无头验收（350 项）
 node tools/dev/check-inline.js      # index.html 内联脚本语法闸
+node tools/dev/stamp.js --check     # 版本戳校验（不一致 → 退出码 1，适合打包/CI 前跑）
 ```
 
 > 历史报告（`docs/` 下）写于工具还在根目录的时期，其中的 `node _bf_xxx.cjs` 命令
 > 按 `tools/README.md` 的对照表换算即可。
+
+## 版本戳（怎么用 / 怎么刷新）
+
+**为什么有它**：踩过一次很隐蔽的坑 —— 页面 CSS、图片都是新的，但 `breakfast.js`
+走了**浏览器缓存**，新加的「音效」不生效却完全看不出来。所以页面右下角现在常驻一枚水印：
+
+```
+天枢原型 · build 20260920-1738 · ch 84020f · bf 186K · mj 288K · idx 225K · map 68K
+```
+
+标题屏和游戏内**都能看到**（全局水印，不随场景切换消失；不可点击、不挡操作）。
+
+**一眼自查**：
+
+1. **看右下角**。`build` 是三个模块（`mahjong.js` / `breakfast.js` / `map3d.js`）里**最新的修改时间**（本地时区）。
+   如果它**早于**你刚拉取的代码 → 浏览器缓存，**Ctrl+Shift+R** 强刷（或无痕窗口）。
+   （⚠ `build` 取的是**文件系统 mtime**，所以 clone / 解压 / 检出会把它刷成"落地时间"；
+   判断内容有没有变，以 `ch` 指纹为准。）
+2. **控制台一行**：`__BUILD.fingerprint` / `__BUILD.build` / `__BUILD.sizes`
+   —— `ch` 指纹：`index.html` 取**剔掉标记块后**的内容 SHA1，其余三个模块取「字节数 + mtime」，
+   再一起摘 6 位。**任一文件变了指纹必变**；
+   它跟你本地 `node tools/dev/stamp.js --check` 的结果不一致 = 你看到的不是当前代码。
+
+**改了代码要重新盖章**：
+
+```bash
+node tools/dev/stamp.js            # 重新盖章：写进 index.html + 打到控制台
+node tools/dev/stamp.js --check    # 只校验：页面戳 ≠ 当前文件 → 打印警告 + 退出码 1
+```
+
+- **退出码语义**：`0` = 一致；`1` = 不一致（缓存风险）或标记块损坏；`2` = 用法错误/文件缺失。
+  所以 `--check` 适合放在**打包前 / CI** 里当闸门。
+- 脚本只替换 `index.html` 里 `<!-- BUILD-STAMP:BEGIN -->` 与 `<!-- BUILD-STAMP:END -->`
+  之间的内容，**逐字替换且幂等**（内容没变时一个字节都不动，所以不会自己污染自己的 build 时间）；
+  文件里若没有标记块，它会**自动插入一次**到 `</body>` 前并说明。
+- 辅助参数：`--print` 只打印不写盘、`--json` 输出机器可读结果、`--paths` 列出参与指纹的文件。
+
+> 指纹只吃 **size + mtime**，不吃文件内容 —— 所以要真正确认「代码是不是最新的」，
+> 还是 `--check` / `git status` 更权威；水印解决的是「**一眼**看出浏览器里跑的是不是新的」。
 
 ## v0.5 更新（配音！）
 
@@ -216,8 +256,8 @@ node tools/dev/check-inline.js      # index.html 内联脚本语法闸
 
 | 文件 | 说明 |
 |---|---|
-| `index.html` | 单文件原型（数据驱动节点，仿天枢 v1.6 架构） |
-| `breakfast.js` / `mahjong.js` / `map3d.js` | 三个小游戏 / 沙盘模块 |
+| `index.html` | 单文件原型（数据驱动节点，仿天枢 v1.6 架构）。右下角有 `BUILD-STAMP` 版本戳标记块 |
+| `breakfast.js` / `mahjong.js` / `map3d.js` | 三个小游戏 / 沙盘模块（mtime + 大小参与版本戳指纹） |
 | `link-media.ps1` / `pack-media.ps1` | 素材对接 / 打包（素材不入库） |
 | `媒体清单.json` | 素材契约：375 个文件的路径/字节/SHA256/来源（音频 305 · 视频 35 · 剧照 35） |
 | `协作者上手指南.md` | 拿到代码后如何三步跑通 |

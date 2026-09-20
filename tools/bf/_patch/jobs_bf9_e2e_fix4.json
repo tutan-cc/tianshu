@@ -1,0 +1,28 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    await sleep(320);                                   // 离开 300ms 节流窗口\n    var e1 = d.state().elapsed;                         // 时钟真的在走吗（节流判据用的是它）",
+   "to": null,
+   "text": "    d.tick(0.4);                                        // ⚠ 用**游戏时钟**过 300ms 节流窗口\n    var e1 = d.state().elapsed;                         // （墙钟在这台 headless 上只有 ~1/5 速，\n                                                        //   赌 await sleep(320) 会被节流挡住）"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "      if (!os.length) { await sleep(120); continue; }\n      var c = os[0], want = null;\n      for (var i = 0; i < c.order.length; i++) if (c.done.indexOf(c.order[i]) < 0) { want = c.order[i]; break; }\n      if (!want) { await sleep(80); continue; }\n      var col = d.columnOf(want), s = d.stations()[col];\n      if (!s.food && !s.plate) d.drop(want, col);\n      await sleep(90);\n      var s2 = d.stations()[col];",
+   "to": null,
+   "text": "      if (!os.length) { d.tick(0.5); continue; }           // 没人 → 用游戏时钟等新顾客进店\n      var c = os[0], want = null;\n      for (var i = 0; i < c.order.length; i++) if (c.done.indexOf(c.order[i]) < 0) { want = c.order[i]; break; }\n      if (!want) { d.tick(0.2); continue; }\n      var col = d.columnOf(want), s = d.stations()[col];\n      if (!s.food && !s.plate) d.drop(want, col);\n      d.tick(0.12);                                        // 用游戏时钟推（墙钟只有 ~1/5 速）\n      var s2 = d.stations()[col];"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var col = d.columnOf(\"egg\");\n    if (!d.stations()[col].plate && !d.stations()[col].food) d.drop(\"egg\", col);\n    var t0 = Date.now();\n    while (Date.now() - t0 < 8000 && !d.stations()[col].plate) await sleep(70);\n    var plated = !!d.stations()[col].plate;",
+   "to": null,
+   "text": "    var col = d.columnOf(\"egg\");\n    if (!d.stations()[col].plate && !d.stations()[col].food) d.drop(\"egg\", col);\n    /* 用游戏时钟把这份煎蛋推到落盘（与无头用例同一口径；墙钟在这里只有 ~1/5 速） */\n    for (var k = 0; k < 400 && !d.stations()[col].plate; k++) d.tick(1 / 60);\n    var plated = !!d.stations()[col].plate;"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    d.orders().forEach(function(o){ d.setPatience(o.id, 0); });   // 先让场上的人走光\n    await sleep(500);",
+   "to": null,
+   "text": "    d.orders().forEach(function(o){ d.setPatience(o.id, 0); });   // 先让场上的人走光\n    d.tick(0.6);                                                  // 用游戏时钟推他们离场"
+  }
+ ]
+}

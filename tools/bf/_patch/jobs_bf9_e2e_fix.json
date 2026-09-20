@@ -1,0 +1,22 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "  const happyRun = await ev(`(async function(){\n    var d = window.__cs2.bf;\n    function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }\n    d.clearAudio();\n    var t0 = Date.now(), served = false, tries = 0;\n    while (Date.now() - t0 < 20000 && !served && tries++ < 400) {\n      var os = d.orders();",
+   "to": null,
+   "text": "  const happyRun = await ev(`(async function(){\n    var d = window.__cs2.bf;\n    function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }\n    /* ⚠ bf-9 起做菜变快 → 页面 glue 的「75 秒 / 8 位」正式局可能在这一段里就打完（win → dispose），\n       那时 d.state() 是 null，后面全读成 undefined。所以每轮先确认还在跑，不在就用超长局重开。 */\n    function restartLong(){\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      return true;\n    }\n    d.clearAudio();\n    var t0 = Date.now(), served = false, tries = 0, restarts = 0;\n    while (Date.now() - t0 < 20000 && !served && tries++ < 400) {\n      var st0 = d.state();\n      if (!st0 || !st0.running) { restartLong(); restarts++; await sleep(400); continue; }\n      var os = d.orders();"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var plays = d.audio().plays;\n    return JSON.stringify({ served: served, n: plays.filter(function(p){ return /happy_v[1-6]\\\\.mp3$/.test(p.url); }).length, plays: plays });\n  })()`);",
+   "to": null,
+   "text": "    var plays = d.audio().plays;\n    return JSON.stringify({ served: served, restarts: restarts,\n                            n: plays.filter(function(p){ return /happy_v[1-6]\\\\.mp3$/.test(p.url); }).length,\n                            plays: plays });\n  })()`);"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    if (!d.state().running) return JSON.stringify({ err: \"not-running\" });\n    for (var i = 0; i < 9; i++) d.trashCol(i);\n    d.orders().forEach(function(o){ d.setPatience(o.id, 0); });   // 先让场上的人走光",
+   "to": null,
+   "text": "    var st0 = d.state();\n    if (!st0 || !st0.running) {                                   // 上一局打完了 → 用超长局重开\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      await sleep(400);\n    }\n    for (var i = 0; i < 9; i++) d.trashCol(i);\n    d.orders().forEach(function(o){ d.setPatience(o.id, 0); });   // 先让场上的人走光"
+  }
+ ]
+}

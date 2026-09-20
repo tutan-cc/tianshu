@@ -49,7 +49,9 @@ tools/
 │  └─ asr_local.py         本地 SenseVoice 转录
 ├─ dev/          改动工具
 │  ├─ patch-literal.js     逐字字面替换器（唯一性/幂等/备份/语法闸/失败回滚）← 改大文件必须用它
-│  └─ check-inline.js      校验 index.html 内联 <script> 语法
+│  ├─ check-inline.js      校验 index.html 内联 <script> 语法
+│  ├─ stamp.js             版本戳：写/校验 index.html 右下角水印（build + 指纹 + 体积）
+│  └─ cdp.js               极简 Chrome DevTools Protocol 客户端（真浏览器取证：eval/nav/shot）
 ├─ patch/        替换器的数据（不是代码）
 │  ├─ jobs/                13 个 job 定义
 │  └─ text/                13 个替换文本
@@ -68,6 +70,8 @@ tools/
 node tools/test/mahjong-logic.js    # 麻将纯逻辑单测（847 项）
 node tools/bf/headless.js           # 早餐店无头验收（351 项）
 node tools/dev/check-inline.js      # index.html 内联脚本语法闸（改内联胶水层后必跑）
+node tools/dev/stamp.js             # 重新盖版本戳（改了 index.html/模块后跑一次）
+node tools/dev/stamp.js --check     # 戳与文件不一致 → 退出码 1（打包/CI 前的闸门）
 ```
 
 > 想「一条命令跑完全部三层」而不是一条条敲：

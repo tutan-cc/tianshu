@@ -2778,11 +2778,13 @@ function startFight2(it){
   }
   function spendFoeStam(m){ stamFoe = Math.max(0, stamFoe - (m.stam || 0)); }
 
-  /** 对手这一手落空/被闪开/打不出来 → 打开反击窗口。
-      这里**故意不设 foeStun** —— "体干见底打不出来"已经由 foeTurn 的 rest 分支表达过了，
-      两边都设等于让对手白赚一个回合（rest 分支并不扣体干）。 */
+  /** 对手这一手落空/被闪开 → 打开反击窗口；自己体干见底则进入硬直 */
   function whiffOpenCounter(reason){
     counter = true;
+    if(stamFoe <= 0 && !foeStun){
+      foeStun = true;
+      push(`<span style="color:#5dffa0">对手体干被打空 —— 他撑不住了（硬直，本回合打不出东西）</span>`);
+    }
     push(`<span style="color:#ffd76e">${reason} —— 抓住破绽！这一手攻击 ×${FIGHT2_TUNE.COUNTER_MULT}</span>`);
   }
 
@@ -2790,8 +2792,6 @@ function startFight2(it){
   function foeTurn(){
     if(!alive) return;
     phase = "defend"; render();
-    /* 防守只看方向、不看位置：把"完美区"藏起来，免得玩家误以为还要瞄绿区 */
-    $("fight2ZonePerfect").style.display = "none";
     const fm = foeStun ? null : pickFoeMove();
     if(foeStun){
       foeStun = false;
@@ -2857,26 +2857,21 @@ function startFight2(it){
     startTurn();
   }
   function applyFoeDamage(fm, free, why){
-    /* 体干先结算：判定"这一下是否落在硬直期"用的是**受击前**的状态。
-       ⚠ 顺序不能反 —— 先扣体干再判 stunMine 的话，那个"把自己打到归零"的一击
-         永远吃不到 ×2.5（硬直标志是在伤害之后才置上的），等于硬直只对后续攻击生效。
-         测试用"普通态 vs 硬直态同一次攻击"的对比锁住了这个方向。 */
-    stamMine = Math.max(0, stamMine - FIGHT2_TUNE.STAM_ON_TAKE);
-    const wasStunned = stunMine;
-    if(stamMine <= 0 && !stunMine) stunMine = true;
     let dmg = fm.dmg * (fm.x2?2:1);
     if(read > 0) dmg = Math.round(dmg*0.75);
-    if(wasStunned) dmg = Math.round(dmg * FIGHT2_TUNE.STUN_TAKEN_MULT);
+    if(stunMine) dmg = Math.round(dmg * FIGHT2_TUNE.STUN_TAKEN_MULT);
     const blocked = Math.min(guard, dmg); guard -= blocked; dmg -= blocked;
     hp -= dmg;
+    stamMine = Math.max(0, stamMine - FIGHT2_TUNE.STAM_ON_TAKE);
     try{
       if(blocked>0 && dmg===0){ if(!AudioSys.play("sfx-fight-block")) AudioSys.ding(); }
       else if(dmg>0){ if(!AudioSys.play("sfx-fight-hurt")) AudioSys.bad(); }
     }catch(e){}
-    const tag = [why, wasStunned?`硬直 ×${FIGHT2_TUNE.STUN_TAKEN_MULT}`:null, blocked?`格挡抵消 ${blocked}`:null]
+    const tag = [why, stunMine?`硬直 ×${FIGHT2_TUNE.STUN_TAKEN_MULT}`:null, blocked?`格挡抵消 ${blocked}`:null]
       .filter(Boolean).join(" · ");
     push(`<b>${fm.n}</b> ${fm.say} <span style="color:#ff4d6d">你受到 ${dmg} 伤害${tag?`（${tag}）`:""}</span>`);
-    if(stamMine <= 0 && !wasStunned){
+    if(stamMine <= 0 && !stunMine){
+      stunMine = true;
       push(`<span style="color:#ff4d6d">你的体干崩了 —— 下一个回合动不了，而且会被打得更疼</span>`);
     }
     if(hp <= 0) return finish(false);
@@ -3575,13 +3570,5 @@ window.addEventListener("keydown",e=>{
   if($("cont").classList.contains("on")){ e.preventDefault(); advance(); }
 });
 </script>
-<!-- BUILD-STAMP:BEGIN -->
-<!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260920-1851" data-fp="94101e"
-     title="构建版本戳 · build 20260920-1851 · 内容指纹 94101e（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
-     aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260920-1851 · ch 94101e · bf 205K · mj 288K · idx 225K · map 68K</div>
-<script>window.__BUILD={"build":"20260920-1851","fingerprint":"94101e","sizes":{"idx":225,"mj":288,"bf":205,"map":68},"files":{"index.html":229892,"mahjong.js":295035,"breakfast.js":209968,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789901463200,"map3d.js":1789789317181},"idxContentHash":"79c5f208a8e385cb9d93361acf62bd392fefb745","idxContentBytes":228602,"generatedBy":"tools/dev/stamp.js"};</script>
-<!-- BUILD-STAMP:END -->
 </body>
 </html>

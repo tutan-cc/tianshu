@@ -1,0 +1,16 @@
+{
+ "jobs": [
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "const HTA = String.raw`<html><head><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\r\n<script>\r\ntry{ window.moveTo(-4000,-4000); window.resizeTo(220,140); }catch(e){}   // ① 躲到屏幕外",
+   "to": null,
+   "text": "const HTA = String.raw`<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\r\n<meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\r\n<script>\r\ntry{ window.moveTo(-4000,-4000); window.resizeTo(220,140); }catch(e){}   // ① 躲到屏幕外"
+  },
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "  fs.writeFileSync(htaPath, HTA.replace(\"__DIR__\", JSON.stringify(OUT + \"\\\\\")), \"utf8\");",
+   "to": null,
+   "text": "  /* ⚠ 必须带 UTF-8 BOM：mshta 按 ANSI(GBK) 读 .hta，\n     仓库路径里的中文会变乱码 → FSO 建文件抛异常 → 结果文件永远写不出来\n     （这就是模式 B「mshta 探针未产出结果」的真凶，与引擎能力无关）。 */\n  fs.writeFileSync(htaPath, \"\\ufeff\" + HTA.replace(\"__DIR__\", JSON.stringify(OUT + \"\\\\\")), \"utf8\");"
+  }
+ ]
+}

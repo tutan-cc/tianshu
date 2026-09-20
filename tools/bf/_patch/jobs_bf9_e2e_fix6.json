@@ -1,0 +1,28 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    d.tick(0.4);                                        // ⚠ 用**游戏时钟**过 300ms 节流窗口\n    var e1 = d.state().elapsed;                         // （墙钟在这台 headless 上只有 ~1/5 速，\n                                                        //   赌 await sleep(320) 会被节流挡住）",
+   "to": null,
+   "text": "    d.tick(0.8);                                        // ⚠ 用**游戏时钟**：0.8s 同时满足两件事 ——\n                                                        //   · 过了同食材 300ms 节流窗口\n                                                        //   · 前两条的占线窗口（COOK_TAIL_SEC 0.7s）也过期，\n                                                        //     并发额度腾出来，第三下才验得到\"节流\"而不是\"busy\"\n    var e1 = d.state().elapsed;"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    d.clearAudio();\n    var t0 = Date.now(), served = false, tries = 0, restarts = 0;\n    while (Date.now() - t0 < 20000 && !served && tries++ < 400) {\n      var st0 = d.state();\n      if (!st0 || !st0.running) { restartLong(); restarts++; await sleep(400); continue; }\n      var os = d.orders();\n      os.forEach(function(o){ d.setPatience(o.id, 0.95); });     // 这一段别让人跑单\n      /* 没人就自己 push 一个：headless 里 rAF 只有墙钟 ~1/5 速，\n         「等顾客随机进店」会把 20 秒预算全耗在等上面（实测 orders 一直为空）。*/\n      if (!os.length) { d.pushCustomer(); d.tick(0.2); continue; }\n      var c = os[0], want = null;\n      for (var i = 0; i < c.order.length; i++) if (c.done.indexOf(c.order[i]) < 0) { want = c.order[i]; break; }\n      if (!want) { d.tick(0.2); continue; }\n      var col = d.columnOf(want), s = d.stations()[col];\n      if (!s.food && !s.plate) d.drop(want, col);\n      d.tick(0.12);                                        // 用游戏时钟推（墙钟只有 ~1/5 速）\n      var s2 = d.stations()[col];\n      if (s2.plate && s2.plateState !== \"burnt\") { var r = d.serveCol(col); if (r && r.ok) served = true; }\n    }\n    var plays = d.audio().plays;",
+   "to": null,
+   "text": "    var st0 = d.state();\n    var restarts = 0;\n    if (!st0 || !st0.running) { restartLong(); restarts++; }\n    for (var i = 0; i < 9; i++) d.trashCol(i);          // 清空 9 列，保证下得去料\n    d.clearAudio();\n    /* 自己造一位顾客（别赌随机进店：headless 里 rAF 只有墙钟 ~1/5 速），\n       再用游戏时钟把这一单做出来 —— 与 ⑦ 同一套确定性写法。 */\n    var id = d.pushCustomer();\n    var served = false, steps = 0;\n    for (; steps < 900 && !served; steps++) {\n      var o = d.orders().filter(function(x){ return x.id === id; })[0];\n      if (!o) { id = d.pushCustomer(); d.setPatience(id, 0.95); continue; }\n      d.setPatience(id, 0.95);                          // 这一段别让他跑单\n      var want = null;\n      for (var j = 0; j < o.order.length; j++) if (o.done.indexOf(o.order[j]) < 0) { want = o.order[j]; break; }\n      if (!want) { served = true; break; }              // 整单做齐 → 也算走完一次上餐\n      var col = d.columnOf(want), s = d.stations()[col];\n      if (s.plate && s.plateState === \"burnt\") d.trashCol(col);      // 糊了就丢掉重来\n      if (!s.food && !s.plate) d.drop(want, col);\n      d.tick(1 / 60);\n      var s2 = d.stations()[col];\n      if (s2.plate && s2.plateState !== \"burnt\") { var r = d.serveCol(col); if (r && r.ok) served = true; }\n    }\n    var plays = d.audio().plays;"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    return JSON.stringify({ served: served, restarts: restarts,\n                            n: plays.filter(function(p){ return /happy_v[1-6]\\\\.mp3$/.test(p.url); }).length,\n                            plays: plays });\n  })()`);",
+   "to": null,
+   "text": "    return JSON.stringify({ served: served, restarts: restarts, steps: steps,\n                            n: plays.filter(function(p){ return /happy_v[1-6]\\\\.mp3$/.test(p.url); }).length,\n                            running: !!(d.state() && d.state().running),\n                            plays: plays });\n  })()`);"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "  A(jh.served === true, \"真浏览器里完成了一次上餐（happy 断言的前提）\");",
+   "to": null,
+   "text": "  A(jh.served === true, \"真浏览器里完成了一次上餐（happy 断言的前提）\",\n    \"steps=\" + jh.steps + \" · restarts=\" + jh.restarts + \" · running=\" + jh.running);"
+  }
+ ]
+}

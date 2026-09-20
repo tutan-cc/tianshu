@@ -1,0 +1,22 @@
+{
+ "jobs": [
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "function w(name, txt){ var f=fso.CreateTextFile(DIR+name, true); f.Write(txt); f.Close(); }",
+   "to": null,
+   "text": "/* 第三个参数 true = Unicode(UTF-16LE)：默认的 ANSI 写出来 Node 按 UTF-8 读会全是乱码 */\nfunction w(name, txt){ var f=fso.CreateTextFile(DIR+name, true, true); f.Write(txt); f.Close(); }"
+  },
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "      const raw = fs.readFileSync(f, \"utf8\");\r\n      if (raw.trim().endsWith(\"}\") && raw.indexOf('\"checks\"') >= 0) { try { out = JSON.parse(raw); break; } catch (e) {} }",
+   "to": null,
+   "text": "      const raw = fs.readFileSync(f, \"utf16le\").replace(/^\\ufeff/, \"\");   // HTA 侧写的是 UTF-16LE\r\n      if (raw.trim().endsWith(\"}\") && raw.indexOf('\"checks\"') >= 0) { try { out = JSON.parse(raw); break; } catch (e) {} }"
+  },
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "    const b = fs.readFileSync(b64f, \"utf8\").trim();",
+   "to": null,
+   "text": "    const b = fs.readFileSync(b64f, \"utf16le\").trim();    // 同上：UTF-16LE，trim 去掉 BOM"
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var pick = d.pickFor(\"egg\");\n    d.clearAudio();\n    clickBox(window.Breakfast.plateBox(col));                // ← 真实鼠标点这一列的专属盘\n    await sleep(150);",
+   "to": null,
+   "text": "    var pick = d.pickFor(\"egg\");\n    /* 部分上餐的计数是**本局累计**的（⑤ 那段也可能上过餐）→ 这里记快照，断言\"这一次\"的增量 */\n    var ps0 = d.state().partialServes, pb0 = d.state().partialBonus;\n    d.clearAudio();\n    clickBox(window.Breakfast.plateBox(col));                // ← 真实鼠标点这一列的专属盘\n    await sleep(150);"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "                            partialServes: d.state().partialServes, partialBonus: d.state().partialBonus,",
+   "to": null,
+   "text": "                            partialServes: d.state().partialServes, partialBonus: d.state().partialBonus,\n                            dServes: d.state().partialServes - ps0,\n                            dBonus: Math.round((d.state().partialBonus - pb0) * 10) / 10,"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "  A(jp2.patience > 5 && jp2.patience < 9 && jp2.partialServes === 1 && jp2.partialBonus === 3.5,\n    \"真浏览器：他还缺一样 → 部分上餐回 +3.5s 耐心（5 → \" + jp2.patience + \"，上限 \" + jp2.max + \"）\",\n    JSON.stringify({ patience: jp2.patience, max: jp2.max, serves: jp2.partialServes, bonus: jp2.partialBonus }));",
+   "to": null,
+   "text": "  A(jp2.patience > 5 && jp2.patience < 9 && jp2.dServes === 1 && jp2.dBonus === 3.5,\n    \"真浏览器：他还缺一样 → 部分上餐回 +3.5s 耐心（5 → \" + jp2.patience + \"，上限 \" + jp2.max + \"）\",\n    JSON.stringify({ patience: jp2.patience, max: jp2.max, 本次次数: jp2.dServes, 本次秒数: jp2.dBonus,\n                     本局累计: jp2.partialServes + \"/\" + jp2.partialBonus + \"s\" }));"
+  }
+ ]
+}

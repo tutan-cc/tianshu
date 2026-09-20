@@ -1,0 +1,16 @@
+{
+ "jobs": [
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "/* ── 模式 B：mshta / Trident(IE11) 降级探针 ──\r\n   内容全 ASCII（避免 HTA 编码问题）；只测「同一份 breakfast.js 在真实浏览器引擎里能不能\r\n   加载 / 开局 / 画非空白 / 用 debug API 打完整局」，截图走 canvas.toDataURL。 */\r\nconst HTA = String.raw`<html><head><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\r\n<script>\r\nvar fso = new ActiveXObject(\"Scripting.FileSystemObject\");\r\nvar DIR = __DIR__;\r\nfunction w(name, txt){ var f=fso.CreateTextFile(DIR+name, true); f.Write(txt); f.Close(); }\r\nfunction b64(name, dataUrl){ try{ w(name, dataUrl.split(\",\")[1]); }catch(e){ w(name, \"ERR:\"+e.message); } }\r\nfunction run(){",
+   "to": null,
+   "text": "/* ── 模式 B：mshta / Trident(IE11) 降级探针 ──\r\n   内容全 ASCII（避免 HTA 编码问题）；只测「同一份 breakfast.js 在真实浏览器引擎里能不能\r\n   加载 / 开局 / 画非空白 / 用 debug API 打完整局」，截图走 canvas.toDataURL。\r\n\r\n   ⚠⚠ 两条硬纪律（用户实测被弹窗打断过，必须一直保留）：\r\n     ① **不许弹到用户脸上**：脚本一解析就把窗口挪到屏幕外并缩到最小；\r\n     ② **不许弹「脚本发生错误」对话框**：window.onerror 里 return true 会抑制 IE 的模态报错框，\r\n        同时把错误写进结果文件并关窗（这样异步失败也能被验收看见，而不是卡一个对话框）。 */\r\nconst HTA = String.raw`<html><head><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\r\n<script>\r\ntry{ window.moveTo(-4000,-4000); window.resizeTo(220,140); }catch(e){}   // ① 躲到屏幕外\r\nvar fso = new ActiveXObject(\"Scripting.FileSystemObject\");\r\nvar DIR = __DIR__;\r\nvar __done = false;\r\nfunction w(name, txt){ var f=fso.CreateTextFile(DIR+name, true); f.Write(txt); f.Close(); }\r\nfunction b64(name, dataUrl){ try{ w(name, dataUrl.split(\",\")[1]); }catch(e){ w(name, \"ERR:\"+e.message); } }\r\n/* 兜底收尾：只写一次、只关一次；onerror 返回 true 抑制 IE 的模态报错框 ② */\r\nfunction fatal(msg, url, line){\r\n  try{\r\n    if(!__done){\r\n      __done = true;\r\n      var res = { success:false, checks:[], errors:[\"未捕获的脚本错误：\" + msg + \" @\" + url + \":\" + line],\r\n                  info:{ fatal:true, line:line } };\r\n      try{ w(\"_bf_trident_out.txt\", JSON.stringify(res)); }catch(e){}\r\n    }\r\n  }catch(e){}\r\n  try{ window.close(); }catch(e){}\r\n  return true;\r\n}\r\nwindow.onerror = function(msg, url, line){ return fatal(msg, url, line); };\r\nfunction run(){"
+  },
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "  function finish(){\r\n    var res = { success: out.errors.length===0, checks: out.checks, errors: out.errors, info: out };\r\n    w(\"_bf_trident_out.txt\", JSON.stringify(res));\r\n    try{ window.close(); }catch(e){}\r\n  }\r\n}\r\nwindow.onload = run;",
+   "to": null,
+   "text": "  function finish(){\r\n    if(__done) return;                       // 重入保护：onerror 与正常路径只写一次\r\n    __done = true;\r\n    try{\r\n      var res = { success: out.errors.length===0, checks: out.checks, errors: out.errors, info: out };\r\n      w(\"_bf_trident_out.txt\", JSON.stringify(res));\r\n    }catch(e){}\r\n    try{ window.close(); }catch(e){}         // 跑完立刻关窗，绝不留窗口在桌面上\r\n  }\r\n}\r\n/* ③ 一定收尾：run() 包 try/catch + 55 秒看门狗（bf.js 那边最多等 60 秒）*/\r\nwindow.onload = function(){\r\n  try{ setTimeout(function(){ fatal(\"看门狗超时（55s）\", \"watchdog\", 0); }, 55000); }catch(e){}\r\n  try{ run(); }\r\n  catch(e){ fatal(e && e.message ? e.message : String(e), \"run\", 0); }\r\n};"
+  }
+ ]
+}

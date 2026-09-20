@@ -1,0 +1,9 @@
+{
+ "jobs": [
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  /* 控制点也要落在「圆外一点」的合理位置（kappa ≈ 0.5523 的经典近似值）*/\n  const k = Math.abs(c1.segs[0][0][0] - 40);\n  assert.ok(k > 0.5 && k < 0.6, \"第一段控制点偏移 ≈ 0.5523·r（贝塞尔近似系数）：\" + k.toFixed(4));",
+   "text": "  /* 控制点要落在「贝塞尔近似」该在的位置：第一段从 θ=0 出发、沿 +y 切出，\n     所以 kappa 体现在**纵坐标**偏移上（c1 = (x+rx, y + k·ry)，k ≈ 0.5523）*/\n  const kappa = Math.abs(c1.segs[0][0][1] - 20) / 30;\n  assert.ok(kappa > 0.5 && kappa < 0.6,\n    \"第一段控制点纵偏移 / r ≈ 0.5523（贝塞尔近似系数）：\" + kappa.toFixed(4));"
+  }
+ ]
+}

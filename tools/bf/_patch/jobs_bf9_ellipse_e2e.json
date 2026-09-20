@@ -1,0 +1,9 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "  /* ── 收尾 ── */\n  await ev(\"(function(){ try{ window.__cs2.bf.close(); }catch(e){} return 1; })()\");",
+   "text": "  /* ── ⑧ 兼容性（bf-9 补）：Chrome 里 ellipse 仍是原生实现 → 外观与行为完全不变 ──\n     IE11/Trident 没有 Canvas2D.ellipse（HTA 探针会弹「对象不支持 ellipse」），\n     所以 breakfast.js 装了一个幂等 polyfill；Chrome 这条路径必须**一个字节都没动**。 */\n  const ellipseState = await ev(`(function(){\n    var proto = window.CanvasRenderingContext2D && window.CanvasRenderingContext2D.prototype;\n    if (!proto || typeof proto.ellipse !== \"function\") return \"no-ellipse\";\n    return (String(proto.ellipse).indexOf(\"[native code]\") >= 0) ? \"native\" : \"patched\";\n  })()`);\n  A(ellipseState === \"native\",\n    \"Chrome：CanvasRenderingContext2D.prototype.ellipse 仍是原生实现（polyfill 只对 IE11 生效）\",\n    String(ellipseState));\n\n  /* ── 收尾 ── */\n  await ev(\"(function(){ try{ window.__cs2.bf.close(); }catch(e){} return 1; })()\");"
+  }
+ ]
+}

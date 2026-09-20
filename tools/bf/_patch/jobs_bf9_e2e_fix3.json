@@ -1,0 +1,46 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    function ensureRunning(){\n      if (d.state().running) return \"running\";\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      return \"restarted\";\n    }",
+   "to": null,
+   "text": "    function showOverlay(){\n      var o = document.getElementById(\"bfGame\");\n      if (o && o.classList) o.classList.add(\"on\");\n    }\n    function ensureRunning(){\n      var st = d.state();\n      if (st && st.running) return \"running\";\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      showOverlay();          // dispose() 会把覆盖层摘掉 → 不补回来画布就是 0×0，点击全落空\n      return \"restarted\";\n    }"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var mode = ensureRunning();\n    for (var i = 0; i < 9; i++) d.trashCol(i);          // 清空 9 列，保证点得下去\n    d.setSound(true);\n    d.clearAudio();\n    var r1 = clickBox(window.Breakfast.bucketBox(8));    // 果汁机那一桶\n    await sleep(150);",
+   "to": null,
+   "text": "    var mode = ensureRunning();\n    for (var i = 0; i < 9; i++) d.trashCol(i);          // 清空 9 列，保证点得下去\n    d.setSound(true);\n    d.clearAudio();\n    var e0 = d.state().elapsed;\n    var r1 = clickBox(window.Breakfast.bucketBox(8));    // 果汁机那一桶\n    await sleep(150);"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    await sleep(320);                                   // 离开 300ms 节流窗口\n    var r2 = clickBox(window.Breakfast.bucketBox(3));    // 煎蛋那一桶\n    await sleep(150);",
+   "to": null,
+   "text": "    await sleep(320);                                   // 离开 300ms 节流窗口\n    var e1 = d.state().elapsed;                         // 时钟真的在走吗（节流判据用的是它）\n    var r2 = clickBox(window.Breakfast.bucketBox(3));    // 煎蛋那一桶\n    await sleep(150);\n    var e2 = d.state().elapsed;"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    return JSON.stringify({ mode: mode, rc:[r1, r2], juice: juice.length, juiceFood: juiceFood,",
+   "to": null,
+   "text": "    return JSON.stringify({ mode: mode, rc:[r1, r2], juice: juice.length, juiceFood: juiceFood,\n                            e0: e0, e1: e1, e2: e2, running: !!d.state().running,\n                            cvW: (function(){ var c = document.querySelector(\"canvas.bf-cv\");\n                                              return c ? Math.round(c.getBoundingClientRect().width) : -1; })(),"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var st0 = d.state();\n    if (!st0 || !st0.running) {                                   // 上一局打完了 → 用超长局重开\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      await sleep(400);\n    }",
+   "to": null,
+   "text": "    var st0 = d.state();\n    if (!st0 || !st0.running) {                                   // 上一局打完了 → 用超长局重开\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      var ov = document.getElementById(\"bfGame\");                 // dispose 摘掉的覆盖层要补回来\n      if (ov && ov.classList) ov.classList.add(\"on\");\n      await sleep(400);\n    }"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    function restartLong(){\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      return true;\n    }",
+   "to": null,
+   "text": "    function restartLong(){\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      var ov = document.getElementById(\"bfGame\");     // dispose() 顺手摘掉了覆盖层，补回来\n      if (ov && ov.classList) ov.classList.add(\"on\");\n      await sleep(300);                               // 让新局真的跑几帧（顾客要进来）\n      return true;\n    }"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "  A(jc.juice === 1, \"真浏览器：点「果汁」桶 → 真的播了 audio/bf/cook_juice.mp3\",\n    \"juice=\" + jc.juice + \" · 锅里=\" + jc.juiceFood + \" · \" + JSON.stringify(jc.plays || []));",
+   "to": null,
+   "text": "  A(jc.juice === 1, \"真浏览器：点「果汁」桶 → 真的播了 audio/bf/cook_juice.mp3\",\n    \"juice=\" + jc.juice + \" · 锅里=\" + jc.juiceFood + \" · mode=\" + jc.mode +\n    \" · 画布宽=\" + jc.cvW + \" · \" + JSON.stringify(jc.plays || []));\n  A(jc.e1 > jc.e0 && jc.e2 >= jc.e1 && jc.running === true,\n    \"真浏览器：这一局的时钟真的在走（rAF 在推帧，节流判据才成立）\",\n    \"elapsed \" + jc.e0 + \" → \" + jc.e1 + \" → \" + jc.e2 + \" · running=\" + jc.running + \" · mode=\" + jc.mode);"
+  }
+ ]
+}

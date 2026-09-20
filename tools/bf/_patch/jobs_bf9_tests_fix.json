@@ -1,0 +1,16 @@
+{
+ "jobs": [
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  assert.equal(R.cookState(\"egg\", 2.199), \"raw\", \"差 1ms 到 2.2 仍是生\");\r\n  assert.equal(R.cookState(\"egg\", 2.2), \"perfect\", \"2.2 恰好进完美窗口\");\r\n  // 窗口内部 / 右侧边界\r\n  assert.equal(R.cookState(\"egg\", 2.5), \"perfect\", \"窗口正中\");\r\n  assert.equal(R.cookState(\"egg\", 2.899), \"perfect\", \"差 1ms 到 2.9 仍是恰好\");\r\n  assert.equal(R.cookState(\"egg\", 2.9), \"over\", \"2.9 出窗口 → 过火（普通分，不糊）\");\r\n  assert.equal(R.cookState(\"egg\", 3.799), \"over\", \"差 1ms 到 3.8 仍可端\");\r\n  assert.equal(R.cookState(\"egg\", 3.8), \"burnt\", \"3.8 起就是糊\");\r\n  assert.equal(R.cookState(\"egg\", 9.0), \"burnt\");",
+   "to": null,
+   "text": "  assert.equal(R.cookState(\"egg\", 2.199), \"raw\", \"差 1ms 到 2.2 仍是生\");\r\n  assert.equal(R.cookState(\"egg\", 2.2), \"perfect\", \"2.2 恰好进完美窗口\");\r\n  /* ⚠ 边界值必须**算出来**再比：2.2 + 0.7 在双精度里是 2.9000000000000004，\r\n     字面量 2.9 反而落在窗口内侧（旧表 3.0+0.8 恰好等于 3.8，所以老用例没暴露这点）。 */\r\n  const END = F.dur + F.pw, BRN = F.dur + F.pw + F.burn;\r\n  assert.ok(Math.abs(END - 2.9) < 1e-9, \"完美窗口右界 = 2.9s（2.2 + 0.7）\");\r\n  assert.ok(Math.abs(BRN - 3.8) < 1e-9, \"糊点 = 3.8s（2.2 + 0.7 + 0.9）\");\r\n  assert.equal(R.cookState(\"egg\", 2.5), \"perfect\", \"窗口正中\");\r\n  assert.equal(R.cookState(\"egg\", END - 0.001), \"perfect\", \"差 1ms 出窗口仍是恰好\");\r\n  assert.equal(R.cookState(\"egg\", END), \"over\", \"出窗口 → 过火（普通分，不糊）\");\r\n  assert.equal(R.cookState(\"egg\", BRN - 0.001), \"over\", \"差 1ms 到糊点仍可端\");\r\n  assert.equal(R.cookState(\"egg\", BRN), \"burnt\", \"到糊点就是糊\");\r\n  assert.equal(R.cookState(\"egg\", 9.0), \"burnt\");"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  st = plateState();\n  const cb = R.spawnCustomer(st, [\"egg\", \"juice\"]);\n  cb.patienceMax = 30; cb.patience = 12;\n  const colB = cookWalk(st, \"egg\", \"burnt\");\n  assert.equal(R.takePlate(st, colB), true, \"糊的也能落到盘上\");",
+   "to": null,
+   "text": "  st = plateState();\n  const cb = R.spawnCustomer(st, [\"egg\", \"juice\"]);\n  cb.patienceMax = 30;\n  const colB = cookWalk(st, \"egg\", \"burnt\");     // ⚠ 这一段按真实帧推进 ≈3.8s+，耐心会掉\n  cb.patience = 12;                              // 所以耐心要摆到「上餐前一刻」再定值\n  assert.equal(R.takePlate(st, colB), true, \"糊的也能落到盘上\");"
+  }
+ ]
+}

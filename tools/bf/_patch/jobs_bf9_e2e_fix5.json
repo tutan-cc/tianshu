@@ -1,0 +1,28 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "      if (!os.length) { d.tick(0.5); continue; }           // 没人 → 用游戏时钟等新顾客进店",
+   "to": null,
+   "text": "      /* 没人就自己 push 一个：headless 里 rAF 只有墙钟 ~1/5 速，\n         「等顾客随机进店」会把 20 秒预算全耗在等上面（实测 orders 一直为空）。*/\n      if (!os.length) { d.pushCustomer(); d.tick(0.2); continue; }"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    d.trashCol(8);\n    var n0 = d.audio().plays.filter(function(p){ return /cook_juice\\.mp3$/.test(p.url); }).length;\n    clickBox(window.Breakfast.bucketBox(8));              // 这一下响\n    d.trashCol(8);\n    clickBox(window.Breakfast.bucketBox(8));              // 紧接着再点 → 节流，不响\n    await sleep(80);\n    var n1 = d.audio().plays.filter(function(p){ return /cook_juice\\.mp3$/.test(p.url); }).length;\n    var thr = d.audio().log.filter(function(r){ return r.why === \"throttle\"; }).length;",
+   "to": null,
+   "text": "    d.trashCol(8);\n    var n0 = d.audio().plays.filter(function(p){ return /cook_juice\\.mp3$/.test(p.url); }).length;\n    clickBox(window.Breakfast.bucketBox(8));              // 这一下响\n    var f1 = d.stations()[8].food;                        // 诊断：这一下真的下锅了吗\n    d.trashCol(8);\n    clickBox(window.Breakfast.bucketBox(8));              // 紧接着再点 → 节流，不响\n    var f2 = d.stations()[8].food;                        // 诊断：第二下呢\n    await sleep(80);\n    var n1 = d.audio().plays.filter(function(p){ return /cook_juice\\.mp3$/.test(p.url); }).length;\n    var thr = d.audio().log.filter(function(r){ return r.why === \"throttle\"; }).length;\n    var tail = d.audio().log.slice(-8).map(function(r){ return r.name + \":\" + (r.why || \"ok\"); });"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "                            cooks: d.state().cooks, gap: d.audio().cookGap, max: d.audio().cookMax,\n                            plays: d.audio().plays.map(function(p){ return p.url; }) });",
+   "to": null,
+   "text": "                            cooks: d.state().cooks, gap: d.audio().cookGap, max: d.audio().cookMax,\n                            f1: f1, f2: f2, tail: tail, on: d.audio().on,\n                            plays: d.audio().plays.map(function(p){ return p.url; }) });"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "  A(jc.n1 === jc.n0 + 1 && jc.throttle >= 1,\n    \"真浏览器：同一食材 300ms 内连点 → 只多响一声（被节流的那次留了记录）\",\n    \"juice \" + jc.n0 + \" → \" + jc.n1 + \" · throttle=\" + jc.throttle);",
+   "to": null,
+   "text": "  A(jc.n1 === jc.n0 + 1 && jc.throttle >= 1,\n    \"真浏览器：同一食材 300ms 内连点 → 只多响一声（被节流的那次留了记录）\",\n    \"juice \" + jc.n0 + \" → \" + jc.n1 + \" · throttle=\" + jc.throttle +\n    \" · 锅里 \" + jc.f1 + \"→\" + jc.f2 + \" · 开关=\" + jc.on + \" · 台账尾 \" + JSON.stringify(jc.tail));"
+  }
+ ]
+}

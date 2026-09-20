@@ -1,0 +1,40 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    function clickBox(b){\n      var cv = document.querySelector(\"canvas.bf-cv\");\n      if (!cv) return \"no-canvas\";\n      var r = cv.getBoundingClientRect();\n      var V = window.Breakfast.ui.VIEW;",
+   "to": null,
+   "text": "    function clickBox(b){\n      var cv = document.querySelector(\"canvas.bf-cv\");\n      if (!cv) return \"no-canvas\";\n      var r = cv.getBoundingClientRect();\n      var V = window.Breakfast.VIEW;               // ⚠ VIEW 挂在 api 上，不在 ui 上\n      if (!V || !V.w) return \"no-view\";"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var r1 = clickBox(d.bucketBox(8));                  // 果汁机那一桶",
+   "to": null,
+   "text": "    var r1 = clickBox(window.Breakfast.bucketBox(8));    // 果汁机那一桶"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var r2 = clickBox(d.bucketBox(3));                  // 煎蛋那一桶",
+   "to": null,
+   "text": "    var r2 = clickBox(window.Breakfast.bucketBox(3));    // 煎蛋那一桶"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    clickBox(d.bucketBox(8));                            // 这一下响\n    d.trashCol(8);\n    clickBox(d.bucketBox(8));                            // 紧接着再点 → 节流，不响",
+   "to": null,
+   "text": "    clickBox(window.Breakfast.bucketBox(8));              // 这一下响\n    d.trashCol(8);\n    clickBox(window.Breakfast.bucketBox(8));              // 紧接着再点 → 节流，不响"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    function clickBox(b){\n      var cv = document.querySelector(\"canvas.bf-cv\");\n      var r = cv.getBoundingClientRect();\n      var V = window.Breakfast.ui.VIEW;",
+   "to": null,
+   "text": "    function clickBox(b){\n      var cv = document.querySelector(\"canvas.bf-cv\");\n      var r = cv.getBoundingClientRect();\n      var V = window.Breakfast.VIEW;               // ⚠ VIEW 挂在 api 上，不在 ui 上"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    clickBox(d.plateBox(col));                              // ← 真实鼠标点这一列的专属盘",
+   "to": null,
+   "text": "    clickBox(window.Breakfast.plateBox(col));                // ← 真实鼠标点这一列的专属盘"
+  }
+ ]
+}

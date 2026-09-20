@@ -101,40 +101,85 @@ function autoServe(st) {
 
 /* ══════════════ 1. 火候状态机 ══════════════ */
 
-test("火候状态机：煎蛋 3.0s / 完美窗口 0.8s / 1.0s 后糊 —— 两侧临界值都判对", () => {
+test("火候状态机：煎蛋 2.2s / 完美窗口 0.7s / 0.9s 后糊 —— 两侧临界值都判对", () => {
   const F = R.FOOD.egg;
-  assert.equal(F.dur, 3.0); assert.equal(F.pw, 0.8); assert.equal(F.burn, 1.0);
-  assert.equal(R.burnAt("egg"), 4.8, "糊的临界 = 3.0+0.8+1.0");
+  assert.equal(F.dur, 2.2); assert.equal(F.pw, 0.7); assert.equal(F.burn, 0.9);
+  assert.equal(R.burnAt("egg"), 3.8, "糊的临界 = 2.2+0.7+0.9");
   // 窗口左侧边界
   assert.equal(R.cookState("egg", 0), "raw");
-  assert.equal(R.cookState("egg", 1.5), "raw", "半熟还是生的（不能出锅）");
-  assert.equal(R.cookState("egg", 2.999), "raw", "差 1ms 到 3.0 仍是生");
-  assert.equal(R.cookState("egg", 3.0), "perfect", "3.0 恰好进完美窗口");
-  // 窗口内部 / 右侧边界
-  assert.equal(R.cookState("egg", 3.4), "perfect", "窗口正中");
-  assert.equal(R.cookState("egg", 3.799), "perfect", "差 1ms 到 3.8 仍是恰好");
-  assert.equal(R.cookState("egg", 3.8), "over", "3.8 出窗口 → 过火（普通分，不糊）");
-  assert.equal(R.cookState("egg", 4.799), "over", "差 1ms 到 4.8 仍可端");
-  assert.equal(R.cookState("egg", 4.8), "burnt", "4.8 起就是糊");
+  assert.equal(R.cookState("egg", 1.1), "raw", "半熟还是生的（不能出锅）");
+  assert.equal(R.cookState("egg", 2.199), "raw", "差 1ms 到 2.2 仍是生");
+  assert.equal(R.cookState("egg", 2.2), "perfect", "2.2 恰好进完美窗口");
+  /* ⚠ 边界值必须**算出来**再比：2.2 + 0.7 在双精度里是 2.9000000000000004，
+     字面量 2.9 反而落在窗口内侧（旧表 3.0+0.8 恰好等于 3.8，所以老用例没暴露这点）。 */
+  const END = F.dur + F.pw, BRN = F.dur + F.pw + F.burn;
+  assert.ok(Math.abs(END - 2.9) < 1e-9, "完美窗口右界 = 2.9s（2.2 + 0.7）");
+  assert.ok(Math.abs(BRN - 3.8) < 1e-9, "糊点 = 3.8s（2.2 + 0.7 + 0.9）");
+  assert.equal(R.cookState("egg", 2.5), "perfect", "窗口正中");
+  assert.equal(R.cookState("egg", END - 0.001), "perfect", "差 1ms 出窗口仍是恰好");
+  assert.equal(R.cookState("egg", END), "over", "出窗口 → 过火（普通分，不糊）");
+  assert.equal(R.cookState("egg", BRN - 0.001), "over", "差 1ms 到糊点仍可端");
+  assert.equal(R.cookState("egg", BRN), "burnt", "到糊点就是糊");
   assert.equal(R.cookState("egg", 9.0), "burnt");
-  // 其它食物的窗口各不相同
-  assert.equal(R.cookState("congee", 5.0), "perfect", "白粥 5.0s 进窗口");
-  assert.equal(R.cookState("congee", 6.2), "over", "白粥窗口 1.2s");
-  assert.equal(R.burnAt("congee"), 7.8);
-  assert.equal(R.cookState("milk", 2.6), "perfect");
-  assert.equal(R.burnAt("milk"), 4.2);
-  assert.equal(R.cookState("juice", 1.5), "perfect");
+  // 其它食物的窗口各不相同（新表：白粥 3.4 / 热牛奶 2.0 / 果汁 1.2）
+  assert.equal(R.cookState("congee", 3.4), "perfect", "白粥 3.4s 进窗口");
+  assert.equal(R.cookState("congee", 4.4), "over", "白粥窗口 1.0s");
+  assert.equal(R.burnAt("congee"), 5.6);
+  assert.equal(R.cookState("milk", 2.0), "perfect");
+  assert.equal(R.burnAt("milk"), 3.5);
+  assert.equal(R.cookState("juice", 1.2), "perfect");
   assert.equal(R.cookState("nope", 1), "idle", "未知食物 → idle");
   assert.equal(R.cookState("egg", -5), "raw", "负数按 0 处理");
+});
+
+test("新时长表（bf-9）：9 样食材梯度重排 —— 白粥不再「煮太慢」，最长 ≤ 3.6s", () => {
+  /* 用户实测原话：「白粥煮的太慢了」（旧值 5.0s）。这张表就是**契约**：
+     时长 / 完美窗口 / 糊的宽限 / 糊点 四列都要对得上；
+     「最长 ≤ 3.6s」是硬约束 —— 画面上 9 列能同时开工，但玩家的注意力只够盯 4~5 口锅，
+     再长就退化成「点完就走 → 回来发现糊了」的纯惩罚。 */
+  const WANT = [
+    // 食材,       时长, 完美窗口, 糊的宽限, 糊点(= 时长+窗口+宽限)
+    ["juice",    1.2, 0.6, 0.7, 2.5],
+    ["salad",    1.5, 0.6, 0.8, 2.9],
+    ["milk",     2.0, 0.7, 0.8, 3.5],
+    ["egg",      2.2, 0.7, 0.9, 3.8],
+    ["soup",     2.6, 0.8, 1.0, 4.4],
+    ["bacon",    2.8, 0.8, 1.0, 4.6],
+    ["bun",      3.0, 0.9, 1.1, 5.0],
+    ["sandwich", 3.2, 0.9, 1.1, 5.2],
+    ["congee",   3.4, 1.0, 1.2, 5.6]
+  ];
+  jsonEq(R.FOOD_IDS.slice().sort(), WANT.map(w => w[0]).sort(), "9 样食材一个不少");
+  WANT.forEach(function (row) {
+    const id = row[0], f = R.FOOD[id];
+    assert.equal(f.dur, row[1], id + " 时长");
+    assert.equal(f.pw, row[2], id + " 完美窗口");
+    assert.equal(f.burn, row[3], id + " 糊的宽限");
+    assert.equal(R.burnAt(id), row[4], id + " 糊点 = 时长 + 窗口 + 宽限");
+    assert.equal(f.total, row[4], id + " total 字段与糊点一致（结算 / 面板读它）");
+    assert.ok(f.dur <= 3.6, id + " 时长 " + f.dur + "s ≤ 3.6s（注意力上限，硬约束）");
+    assert.ok(f.pw >= 0.6 && f.pw <= f.dur, id + " 完美窗口 " + f.pw + "s 在该食物的合理区间");
+    assert.ok(f.burn >= 0.7 && f.burn <= 1.2, id + " 糊的宽限 " + f.burn + "s 落在 0.7~1.2s");
+  });
+  /* 白粥必须仍然是**最慢**的一样（保留「熬粥要等」的手感），但已经明显下来了 */
+  const slowest = WANT.slice().sort((a, b) => b[1] - a[1])[0];
+  assert.equal(slowest[0], "congee", "白粥还是最慢的那样");
+  assert.equal(R.FOOD.congee.dur, 3.4, "白粥 5.0s → 3.4s（用户嫌慢的就是这一条）");
+  /* 梯度要能被手感分辨：最快到最慢差 ≥ 2s，且相邻两档有可感知的间隔 */
+  const durs = WANT.map(w => w[1]).sort((a, b) => a - b);
+  assert.ok(durs[durs.length - 1] - durs[0] >= 2.0, "最快与最慢差 ≥ 2s：" + durs[0] + " → " + durs[durs.length - 1]);
+  for (let i = 1; i < durs.length; i++)
+    assert.ok(durs[i] - durs[i - 1] >= 0.2 - 1e-9, "相邻两档差 ≥ 0.2s：" + durs[i - 1] + " → " + durs[i]);
+  assert.equal(new Set(durs).size, durs.length, "9 个时长互不相同（没有两样完全一样）");
 });
 
 test("火候状态机：真实推进（step）能按秒数走到 perfect → over → burnt（按住看火，不自动落盘）", () => {
   const st = wokState();
   const i = cookTo(st, "congee", 0);                    // 白粥锅 = 第 0 列
   assert.equal(i, 0, "白粥进第 0 列（白粥锅）");
-  advance(st, 5.1); assert.equal(st.stations[i].state, "perfect", "5.1s 后恰好");
-  advance(st, 1.2); assert.equal(st.stations[i].state, "over", "再过 1.2s 过火（完美窗口 1.2s）");
-  advance(st, 1.7); assert.equal(st.stations[i].state, "burnt", "再过 1.7s 糊（糊点 7.8s）");
+  advance(st, 3.5); assert.equal(st.stations[i].state, "perfect", "3.5s 后恰好（新表：白粥 3.4s 熟）");
+  advance(st, 1.0); assert.equal(st.stations[i].state, "over", "再过 1.0s 过火（完美窗口 1.0s）");
+  advance(st, 1.2); assert.equal(st.stations[i].state, "burnt", "再过 1.2s 糊（糊点 5.6s）");
   assert.equal(st.burnt, 1, "糊掉计数 +1");
 });
 
@@ -249,7 +294,7 @@ test("顾客 patienceMax 与实际耐心一致；服务完立刻让出座位", (
   st.running = true;                                    // 先开局（没开局不能下料 / 出餐）
   const c0 = R.spawnCustomer(st, ["egg"]);
   assert.equal(c0.patience, c0.patienceMax);
-  const i0 = cookTo(st, "egg", 3.2);
+  const i0 = cookTo(st, "egg", R.FOOD.egg.dur + 0.05);   // 刚进完美窗口（新表：煎蛋 2.2s 熟）
   const got = deliverTo(st, i0, c0);                    // 取出并端上桌
   assert.equal(got.ok, true, "端上桌");
   assert.equal(st.stations[i0].food, null, "取出后锅里空了");
@@ -277,7 +322,7 @@ test("计分：完美 +13（10+1+热乎 2）／普通 +7／上错 −5／糊菜�
   // ── 完美（热乎）出餐（新模型：熟了自动落到本列专属盘 → 单击盘送给顾客）
   let st = plateState();
   const cp = longPatience(R.spawnCustomer(st, ["egg"]));
-  const i1 = plated(st, "egg", 3.0);              // 刚进完美窗口就落盘 → 热乎
+  const i1 = plated(st, "egg", R.FOOD.egg.dur + 0.05);   // 刚进完美窗口就落盘 → 热乎
   const d1 = deliverTo(st, i1, cp);
   assert.equal(d1.kind, "perfect-hot", "盘上出餐（完美 + 热乎）");
   assert.equal(d1.delta, 14, "完美 + 热乎 = 14");
@@ -288,7 +333,7 @@ test("计分：完美 +13（10+1+热乎 2）／普通 +7／上错 −5／糊菜�
   st = plateState();
   longPatience(R.spawnCustomer(st, ["egg"]));
   assert.equal(R.placeFood(st, "egg", null), true, "点一下食材 → 自动进它那一列");
-  advance(st, 3.1);
+  advance(st, R.FOOD.egg.dur + 0.1);
   assert.equal(st.stations[3].food, null, "熟了以后锅里立刻空出来");
   assert.equal(R.plateOfStation(st, 3).food, "egg", "那份煎蛋在自己的专属盘上");
   assert.equal(R.phaseOf(st, 3), "plated", "状态机：cooking → plated");
@@ -324,7 +369,7 @@ test("计分：完美 +13（10+1+热乎 2）／普通 +7／上错 −5／糊菜�
   // ── 上错菜（点顾客卡自动配盘那条路能主动端错）
   st = plateState();
   const cw = longPatience(R.spawnCustomer(st, ["egg"]));
-  const i3 = cookTo(st, "congee", 5.0);                 // 端一份白粥给只点了煎蛋的人
+  const i3 = cookTo(st, "congee", R.FOOD.congee.dur);   // 端一份白粥给只点了煎蛋的人
   const d3 = deliverTo(st, i3, cw);
   assert.equal(d3.kind, "wrong");
   assert.equal(d3.delta, -5, "上错菜 −5");
@@ -335,7 +380,7 @@ test("计分：完美 +13（10+1+热乎 2）／普通 +7／上错 −5／糊菜�
   // 盘上那份此刻没人要 → 单击盘不消耗、留在盘上（要求 A3）
   st = plateState();
   longPatience(R.spawnCustomer(st, ["congee"]));
-  const ib = plated(st, "egg", 3.0);
+  const ib = plated(st, "egg", R.FOOD.egg.dur + 0.05);
   const db = R.serveFromColumn(st, ib);
   assert.equal(db.ok, false); assert.equal(db.why, "no-want", "没人要这份 → 拒绝出餐");
   assert.equal(st.score, 0, "不消耗、不扣分");
@@ -409,7 +454,7 @@ test("计分：糊掉的食物丢垃圾桶不扣分，只浪费时间", () => {
 test("计分：一条订单全完美（≥2 样）额外 +12；混合则不给", () => {
   let st = plateState();
   const c1 = R.spawnCustomer(st, ["egg", "congee"]);
-  let i = plated(st, "egg", 3.0); deliverTo(st, i, c1);                            // 恰好 → 热乎
+  let i = plated(st, "egg", R.FOOD.egg.dur + 0.05); deliverTo(st, i, c1);          // 恰好 → 热乎
   i = cookTo(st, "congee", R.FOOD.congee.dur + R.FOOD.congee.pw + 0.3);            // 过火
   R.takePlate(st, i); deliverTo(st, i, c1);
   assert.equal(st.served, 1);
@@ -417,8 +462,8 @@ test("计分：一条订单全完美（≥2 样）额外 +12；混合则不给",
 
   st = plateState();
   const c2 = R.spawnCustomer(st, ["egg", "congee"]);
-  i = plated(st, "egg", 3.0); deliverTo(st, i, c2);
-  i = plated(st, "congee", 5.0); deliverTo(st, i, c2);
+  i = plated(st, "egg", R.FOOD.egg.dur + 0.05); deliverTo(st, i, c2);
+  i = plated(st, "congee", R.FOOD.congee.dur + 0.05); deliverTo(st, i, c2);
   assert.equal(st.score, 14 + 14 + 12, "两样都完美 → 额外 +12");
 });
 
@@ -741,7 +786,7 @@ test("单击盘出餐：自动选中正在需要该食物的顾客，优先耐�
   const hurried = longPatience(R.spawnCustomer(st, ["egg", "congee"]));
   hurried.patience = 6;                                         // 更急
   const other = longPatience(R.spawnCustomer(st, ["congee"]));    // 不要煎蛋
-  const col = plated(st, "egg", 3.0);
+  const col = plated(st, "egg", R.FOOD.egg.dur + 0.05);
   assert.equal(R.pickCustomerIndexFor(st, "egg"), st.customers.indexOf(hurried), "优先耐心最少的");
   assert.equal(R.pickCustomerIndexFor(st, "congee"), st.customers.indexOf(hurried), "最急的那位也最优先");
   assert.equal(R.pickCustomerIndexFor(st, "juice"), -1, "没人要的食材返回 -1");
@@ -754,7 +799,7 @@ test("单击盘出餐：自动选中正在需要该食物的顾客，优先耐�
   assert.equal(R.pickCustomerIndexFor(st, "congee"), st.customers.indexOf(hurried), "他还缺 congee → 仍然最优先");
   assert.equal(R.pickCustomerIndexFor(st, "egg"), st.customers.indexOf(slow), "煎蛋只剩慢的那位要了");
   // 剩下那位还等着 → 再做一份，这次自动挑到他
-  const col2 = plated(st, "egg", 3.0);
+  const col2 = plated(st, "egg", R.FOOD.egg.dur + 0.05);
   const r2 = R.serveFromColumn(st, col2);
   assert.equal(r2.ok, true);
   assert.equal(slow.done.indexOf("egg") >= 0, true, "第二轮送给剩下那位");
@@ -763,7 +808,7 @@ test("单击盘出餐：自动选中正在需要该食物的顾客，优先耐�
 test("单击盘：此刻没人要这份 → 不消耗、留在盘上继续走热乎度衰减（凉了还能上）", () => {
   const st = plateState();
   longPatience(R.spawnCustomer(st, ["congee"]));
-  const col = plated(st, "sandwich", 4.4);
+  const col = plated(st, "sandwich", R.FOOD.sandwich.dur + 0.05);
   const score0 = st.score;
   const r = R.serveFromColumn(st, col);
   assert.equal(r.ok, false); assert.equal(r.why, "no-want");
@@ -784,7 +829,7 @@ test("单击盘：此刻没人要这份 → 不消耗、留在盘上继续走热
 test("双击丢弃：清空这一列的锅与盘、不扣分；糊的单击被拒（原因码 burnt）只能双击丢", () => {
   const st = plateState();
   longPatience(R.spawnCustomer(st, ["egg"]));
-  const col = plated(st, "egg", 3.0);
+  const col = plated(st, "egg", R.FOOD.egg.dur + 0.05);
   assert.equal(!!R.plateOfStation(st, col), true);
   const score0 = st.score;
   assert.equal(R.trashColumn(st, col), true, "双击盘 → 丢垃圾桶");
@@ -828,7 +873,7 @@ test("9 盘 + 过火报废：盘上停留超过 SERVE_WINDOW → 变糊 → 只�
   assert.ok(Math.abs(R.plateLeftSec(R.SERVE_WINDOW + 1)) < 1e-9, "超时后剩余 0");
   // ② 真实推进的边界：窗口前 0.01s 还活着（凉档），窗口后 0.01s 已经糊
   const st = plateState();
-  const col = plated(st, "salad", 1.8);
+  const col = plated(st, "salad", R.FOOD.salad.dur + 0.05);
   const p = R.plateOfStation(st, col);
   p.at = st.elapsed - (R.SERVE_WINDOW - 0.01);
   R.step(st, 0);
@@ -846,7 +891,7 @@ test("9 盘 + 过火报废：盘上停留超过 SERVE_WINDOW → 变糊 → 只�
   assert.equal(st.score, sc, "丢垃圾桶不扣分");
   // ③ 自然推进（不手动拨表）也会超时报废
   const st2 = plateState();
-  const col2 = plated(st2, "juice", 1.5);
+  const col2 = plated(st2, "juice", R.FOOD.juice.dur + 0.05);
   advance(st2, R.SERVE_WINDOW - 0.2);
   assert.equal(R.plateOfStation(st2, col2).state, "perfect", "4.3s：还在盘上等着");
   advance(st2, 0.3);
@@ -873,7 +918,7 @@ test("热乎度三档：盘上 热乎 14 / 温 10 / 凉 6，单调递减，三�
     const age = row[0], tier = row[1], delta = row[2];
     const st = plateState();
     const c = longPatience(R.spawnCustomer(st, ["milk"]));
-    const col = plated(st, "milk", 2.6);
+    const col = plated(st, "milk", R.FOOD.milk.dur + 0.05);
     R.plateOfStation(st, col).at = st.elapsed - age;
     R.step(st, 0);
     assert.equal(R.plateOfStation(st, col).tier, tier, age + "s → " + tier);
@@ -883,7 +928,7 @@ test("热乎度三档：盘上 热乎 14 / 温 10 / 凉 6，单调递减，三�
   });
   // 档位只降不升
   const st = plateState();
-  const col = plated(st, "congee", 5.0);
+  const col = plated(st, "congee", R.FOOD.congee.dur + 0.05);
   const seq = [R.plateOfStation(st, col).tier];
   for (let k = 0; k < 4; k++) {
     advance(st, 1);
@@ -925,7 +970,7 @@ test("熟了自动落到本列专属盘（autoPlate 默认开）；manual 按住
   const st = R.newState({ duration:999, goal:99 });
   assert.equal(st.cfg.autoPlate, true, "默认自动落盘（新模型的核心规则）");
   st.running = true; st.nextIn = 1e6;
-  const col = R.columnOf("bacon");                       // 3.6s 熟
+  const col = R.columnOf("bacon");                       // 2.8s 熟（bf-9 新表）
   assert.equal(R.placeFood(st, "bacon", null), true);
   advance(st, 2.0);
   assert.equal(st.plates.length, 0, "还没熟 → 不落盘");
@@ -938,7 +983,7 @@ test("熟了自动落到本列专属盘（autoPlate 默认开）；manual 按住
   // manual（按住看火）→ 食物留在锅里，会一路烧到糊
   const st2 = plateState();
   assert.equal(R.placeFoodEx(st2, "bacon", null, { manual:true }).ok, true);
-  advance(st2, 3.7);
+  advance(st2, R.FOOD.bacon.dur + 0.2);                  // 完美窗口内（2.8 + 0.7 = 3.5 出窗口）
   assert.equal(st2.plates.length, 0, "manual 不自动落盘");
   assert.equal(st2.stations[4].state, "perfect");
   advance(st2, 2.5);
@@ -1061,7 +1106,7 @@ test("双击丢弃的时机窗口：DOUBLE_MS=425ms；同一目标点两下才�
   assert.equal(R.DOUBLE_MS, 425, "双击判定窗口 425ms（放宽后更好点）");
   assert.ok(R.DOUBLE_MS > 0 && R.DOUBLE_MS <= 500, "既不能太短（点不出来）也不能太长（误触）");
   const st = plateState();
-  const col = plated(st, "bun", 4.0);
+  const col = plated(st, "bun", R.FOOD.bun.dur + 0.05);
   const sc = st.score;
   assert.equal(R.trashColumn(st, col), true, "双击 → 清锅 + 清盘");
   assert.equal(R.trashColumn(st, col), false, "已经空了的列再丢一次无事发生（不报错）");
@@ -2000,7 +2045,7 @@ test("音效①：顾客离开 / 被服务完 → 立刻停滴答", () => {
   audioUnhook();
 });
 
-test("音效②：拿到早餐 → 播「呜呼」（一次成功上餐只播一次，变体 3 选 1）", () => {
+test("音效②：拿到早餐 → 播欢呼（一次成功上餐只播一次，变体 6 选 1 · bf-9 重做）", () => {
   audioArmed();
   const st = plateState();
   const c = R.spawnCustomer(st, ["egg"]);
@@ -2012,13 +2057,19 @@ test("音效②：拿到早餐 → 播「呜呼」（一次成功上餐只播一
   assert.equal(r.ok, true, "服务成功");
   assert.equal(r.customer, c, "送给了点煎蛋的那位");
   const h = played("happy");
-  assert.equal(h.length, 1, "只播一次「呜呼」（不是每个分支都播一遍）");
-  assert.ok(/^audio\/bf\/happy(2|3)?\.mp3$/.test(h[0].url), "取的是 happy 变体之一：" + h[0].url);
+  assert.equal(h.length, 1, "只播一次欢呼（不是每个分支都播一遍）");
+  assert.ok(/^audio\/bf\/happy_v[1-6]\.mp3$/.test(h[0].url), "取的是 happy 六条变体之一：" + h[0].url);
   assert.ok(h[0].volume >= 0.3 && h[0].volume <= 0.8, "音量适中：" + h[0].volume);
   assert.equal(played("tick").length, 0, "不误放滴答");
   assert.equal(played("slow").length, 0, "不误放「哼，太慢了」");
   /* 三个变体确实都在词表里（随机取，避免听腻） */
-  jsonEq(R.audio.FILES.happy, ["happy.mp3", "happy2.mp3", "happy3.mp3"]);
+  /* bf-9：老的 happy/happy2/happy3 换成了 6 条**实测上扬**的新录音（用户嫌旧的不上扬） */
+  jsonEq(R.audio.FILES.happy, ["happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3",
+                               "happy_v4.mp3", "happy_v5.mp3", "happy_v6.mp3"]);
+  assert.equal(R.audio.FILES.happy.length, 6, "6 条候选都进轮换池（用户挑定后再删）");
+  R.audio.FILES.happy.forEach((f, i) => {
+    assert.ok(fs.existsSync(path.join(ROOT, "audio", "bf", f)), "audio/bf/" + f + " 在盘上");
+  });
   /* 同一次服务只播一次：再调一次同一份出餐（盘已空）不会重复播 */
   const again = R.serveFromColumn(st, col);
   assert.equal(again.ok, false, "盘空了 → 出餐被拒");
@@ -2182,9 +2233,403 @@ test("音效②：连着一单三样不叠声 —— HAPPY_MIN_GAP 节流（同�
   audioUnhook();
 });
 
-test("音效：audio/bf 五个素材在磁盘上齐全，且规格统一（tick ≤120ms / 48kHz / 单声道）", () => {
+/* ═══════════════════════════════════════════════════════════════════════════
+   10. bf-9：用户实测后的四条改动
+
+     ① 白粥不再「煮太慢」→ 9 样食材的时长梯度重排（见前面「新时长表」那条）
+     ② 顾客收到订单里的**某一样** → 耐心 +PARTIAL_PATIENCE_BONUS（上限 = 他的初始耐心）
+     ③ 上餐优先「耐心值最低」的客人，而不是只能给第一位
+     ④ 点食材下锅那一刻 → 按食材触发对应的烹饪音效（同食材 300ms 节流 / 同时最多 2 条）
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+test("部分上餐②：收到订单里的某一样 → 耐心 +3.5s；上限是**他的初始耐心**", () => {
+  assert.equal(R.PARTIAL_PATIENCE_BONUS, 3.5, "常量 PARTIAL_PATIENCE_BONUS = 3.5s");
+  assert.ok(R.PARTIAL_PATIENCE_BONUS >= 3 && R.PARTIAL_PATIENCE_BONUS <= 4,
+    "取值落在用户建议的 3~4s：" + R.PARTIAL_PATIENCE_BONUS);
+
+  /* ① 三样订单，先给一样 → +3.5s（12 → 15.5） */
+  const st = plateState();
+  const c = R.spawnCustomer(st, ["egg", "congee", "juice"]);
+  c.patienceMax = 30; c.patience = 12;
+  const col = plated(st, "egg", R.FOOD.egg.dur + 0.05);
+  const r = R.serveFromColumn(st, col);
+  assert.equal(r.ok, true); assert.equal(r.kind, "perfect-hot", "完美 + 热乎");
+  assert.equal(r.customer, c, "送给点这份的那位");
+  assert.equal(c.done.indexOf("egg") >= 0, true, "这一样确实记到他头上");
+  assert.equal(Math.round(c.patience * 10) / 10, 15.5, "12 + 3.5 = 15.5");
+  assert.equal(r.partialBonus, 3.5, "出餐结果里带着「实际加了多少秒」");
+  assert.equal(st.partialServes, 1, "记了一次「部分上餐」");
+  assert.equal(st.partialBonus, 3.5, "本局累计回给顾客 3.5s 耐心");
+
+  /* ② 再给一样 → 继续加（15.5 → 19），不会因为"已经加过"就停 */
+  const col2 = plated(st, "congee", R.FOOD.congee.dur + 0.05);
+  const r2 = R.serveFromColumn(st, col2);
+  assert.equal(r2.customer, c);
+  assert.equal(r2.partialBonus, 3.5, "第二样同样 +3.5");
+  assert.equal(Math.round(c.patience * 10) / 10, 19, "15.5 + 3.5 = 19");
+  assert.equal(st.partialServes, 2);
+
+  /* ③ 上限：只剩 1s 余量 → 只加 1s，正好顶到初始耐心，且**上限本身没被改大** */
+  const c2 = R.spawnCustomer(st, ["milk", "salad"]);
+  c2.patienceMax = 30; c2.patience = 29;
+  const m = plated(st, "milk", R.FOOD.milk.dur + 0.05);
+  const rm = R.serveFromColumn(st, m);
+  assert.equal(rm.customer, c2, "送给点牛奶的那位");
+  assert.equal(rm.partialBonus, 1, "只剩 1s 余量 → 只加 1s（3.5s 被上限截断）");
+  assert.equal(c2.patience, 30, "正好顶到初始耐心");
+  assert.equal(c2.patienceMax, 30, "上限本身没被改大 —— 不能靠一次次上餐无限续命");
+
+  /* ④ 31% 那一类边界：耐心只剩 31% 时收到一样 → 加完就脱离「滴答档」（≤30%） */
+  const st2 = plateState();
+  const c3 = R.spawnCustomer(st2, ["bacon", "soup"]);
+  c3.patienceMax = 100; c3.patience = 31;
+  assert.equal(R.audio.patienceRatioOf(c3), 0.31, "先确认在 31%（>30% 不滴答）");
+  const b = plated(st2, "bacon", R.FOOD.bacon.dur + 0.05);
+  const rb = R.serveFromColumn(st2, b);
+  assert.equal(rb.partialBonus, 3.5);
+  assert.equal(c3.patience, 34.5, "31 + 3.5 = 34.5");
+  assert.ok(R.audio.patienceRatioOf(c3) > R.audio.TICK_AT, "回到 30% 以上 → 不再滴答（耐心是真的回血了）");
+});
+
+test("部分上餐②：上错菜 / 糊菜 / 已经拿齐 —— 一律不加耐心（不乱发奖励）", () => {
+  /* ① 上错菜：端一份他没点的东西 → −5，耐心不动 */
+  let st = plateState();
+  const cw = R.spawnCustomer(st, ["egg", "juice"]);
+  cw.patienceMax = 30; cw.patience = 12;
+  const colC = plated(st, "congee", R.FOOD.congee.dur + 0.05);
+  const rw = R.serveCustomer(st, ci(st, cw), R.plateIdxOfStation(st, colC));
+  assert.equal(rw.kind, "wrong"); assert.equal(st.wrong, 1, "记了一次上错菜");
+  assert.equal(cw.patience, 12, "上错菜不加耐心（乱上菜没有奖励）");
+  assert.equal(st.partialServes || 0, 0, "也不算一次「部分上餐」");
+  assert.equal(rw.partialBonus, undefined, "上错菜的结果里根本没有 partialBonus 字段");
+
+  /* ② 糊菜端上桌：顾客当场走（−5），更不该加 */
+  st = plateState();
+  const cb = R.spawnCustomer(st, ["egg", "juice"]);
+  cb.patienceMax = 30;
+  const colB = cookWalk(st, "egg", "burnt");     // ⚠ 这一段按真实帧推进 ≈3.8s+，耐心会掉
+  cb.patience = 12;                              // 所以耐心要摆到「上餐前一刻」再定值
+  assert.equal(R.takePlate(st, colB), true, "糊的也能落到盘上");
+  const rb = R.serveCustomer(st, ci(st, cb), R.plateIdxOfStation(st, colB));
+  assert.equal(rb.kind, "burnt");
+  assert.equal(cb.patience, 12, "糊菜不加耐心（他是被气走的）");
+  assert.equal(st.partialServes || 0, 0);
+
+  /* ③ 拿齐了：不给（他马上要离场，加了也白加），耐心保持原样 */
+  st = plateState();
+  const c1 = R.spawnCustomer(st, ["egg"]);
+  c1.patienceMax = 30; c1.patience = 12;
+  const e1 = plated(st, "egg", R.FOOD.egg.dur + 0.05);
+  const r1 = R.serveFromColumn(st, e1);
+  assert.equal(r1.partialBonus, 0, "这一样拿齐了 → 没有部分加成");
+  assert.equal(c1.patience, 12, "耐心保持原样（这一单已经完成，他立刻离场）");
+  assert.equal(st.served, 1, "整单完成，服务计数 +1");
+  assert.equal(st.partialServes || 0, 0, "「拿齐」不算部分上餐");
+});
+
+test("上餐选人③：3 位都要同一份、耐心 5 / 20 / 40 → 必定送给耐心 5 那位", () => {
+  const st = plateState();
+  const a = R.spawnCustomer(st, ["egg", "congee"]);      // 先来的
+  const b = R.spawnCustomer(st, ["egg", "salad"]);
+  const c3 = R.spawnCustomer(st, ["egg", "juice"]);      // 最后来的
+  a.patienceMax = 60; a.patience = 40;
+  b.patienceMax = 60; b.patience = 20;
+  c3.patienceMax = 60; c3.patience = 5;
+  const col = plated(st, "egg", R.FOOD.egg.dur + 0.05);
+
+  assert.equal(R.pickServeTarget(st, "egg"), ci(st, c3), "规则层直接挑中耐心 5 的那位");
+  assert.equal(R.pickCustomerIndexFor(st, "egg"), ci(st, c3), "旧名字（兼容层）是同一条规则");
+  const r = R.serveFromColumn(st, col);
+  assert.equal(r.ok, true);
+  assert.equal(r.customer, c3, "煎蛋落在耐心 5 那位头上");
+  assert.equal(c3.done.indexOf("egg") >= 0, true);
+  assert.equal(a.done.indexOf("egg") >= 0, false, "先来的那位没被越位送");
+  assert.equal(b.done.indexOf("egg") >= 0, false, "耐心 20 那位也没被越位");
+  assert.equal(Math.round(c3.patience * 10) / 10, 8.5, "他还缺 juice → 收到一样后 +3.5s（5 → 8.5）");
+  assert.equal(a.patience, 40); assert.equal(b.patience, 20, "别人的耐心不受影响");
+
+  /* 他只剩 juice：再做一份，仍然优先给他（最急）→ 整单完成 */
+  const col2 = plated(st, "juice", R.FOOD.juice.dur + 0.05);
+  assert.equal(R.pickServeTarget(st, "juice"), ci(st, c3), "最急的那位继续优先");
+  const r2 = R.serveFromColumn(st, col2);
+  assert.equal(r2.customer, c3);
+  assert.equal(st.served, 1, "整单完成");
+  assert.equal(c3.left, true, "拿齐后让出座位");
+  assert.equal(R.activeCustomers(st).length, 2, "另外两位还在等");
+
+  /* 煎蛋只剩 a / b 要 → 挑耐心更少的 b（20 < 40） */
+  const col3 = plated(st, "egg", R.FOOD.egg.dur + 0.05);
+  assert.equal(R.pickServeTarget(st, "egg"), ci(st, b), "剩下的候选里挑耐心更少的");
+  assert.equal(R.serveFromColumn(st, col3).customer, b, "真的送给了 b");
+});
+
+test("上餐选人③：不再「只能给第一位」—— 进度条最短的先得；快走的（≤6s）越过比例优先", () => {
+  /* 【排查结论】改前 pickCustomerIndexFor 比的是**绝对秒数**最小。所有顾客的耐心都按
+     1 秒/秒 掉，先来的人天然秒数最少 → 手感上就等于「只给第一位」。
+     而玩家在卡上看到的进度条 / 闪红 / 滴答 / 着急脸，用的都是**比例**。
+     两个量不是一回事，于是出现「明明第二位更急，却总是给第一位」。 */
+  /* ① 第一位绝对秒数更少，但第二位进度条更短 → 新的规则给第二位 */
+  let st = plateState();
+  const first = R.spawnCustomer(st, ["egg", "congee"]);            // 先来：订单短 → 上限低
+  const later = R.spawnCustomer(st, ["egg", "bacon", "juice"]);    // 后来：订单长 → 上限高
+  first.patienceMax = 17.5; first.patience = 8;                    // 进度条 46%
+  later.patienceMax = 32.5; later.patience = 9;                    // 进度条 28%
+  assert.ok(first.patience < later.patience,
+    "第一位绝对秒数更少（" + first.patience + " < " + later.patience + "）→ 只比秒数的旧规则必然给他");
+  assert.ok(R.audio.patienceRatioOf(later) < R.audio.patienceRatioOf(first),
+    "但第二位的进度条更短（" + R.audio.patienceRatioOf(later) + " < " + R.audio.patienceRatioOf(first) + "）");
+  assert.ok(first.patience > R.SERVE_DANGER_SEC && later.patience > R.SERVE_DANGER_SEC,
+    "两位都还没进「救命档」（都 > 6s），所以这里比的就是进度条");
+  assert.equal(R.pickServeTarget(st, "egg"), ci(st, later), "新规则给进度条最短的那位，不是第一位");
+
+  /* ② 救命档：有人只剩 ≤6s（真的要走了）→ 越过比例，先救他 */
+  st = plateState();
+  const urgent = R.spawnCustomer(st, ["egg", "juice"]);
+  const relaxed = R.spawnCustomer(st, ["egg", "congee", "bacon"]);
+  urgent.patienceMax = 30; urgent.patience = 5.5;      // 18.3% · 5.5s 后就走 → 救命档
+  relaxed.patienceMax = 50; relaxed.patience = 7;      // 14% · 进度条更短，但还有 7s
+  assert.ok(R.audio.patienceRatioOf(relaxed) < R.audio.patienceRatioOf(urgent),
+    "「看着更急」的其实是第二位（进度条更短）");
+  assert.ok(urgent.patience <= R.SERVE_DANGER_SEC, "第一位才是真会走的那位（≤ " + R.SERVE_DANGER_SEC + "s）");
+  assert.equal(R.pickServeTarget(st, "egg"), ci(st, urgent),
+    "救命档越过比例：先救「真会走」的那位（不然白丢 −8）");
+
+  /* ③ 完全平手 → 座位序（先来的先得） */
+  st = plateState();
+  const s1 = R.spawnCustomer(st, ["egg", "juice"]);
+  const s2 = R.spawnCustomer(st, ["egg", "congee"]);
+  s1.patienceMax = 30; s1.patience = 12;
+  s2.patienceMax = 30; s2.patience = 12;
+  assert.equal(R.pickServeTarget(st, "egg"), ci(st, s1), "平手取先来的（座位序）");
+
+  /* ④ 候选集：只要「订单里有这一样 ∧ 还没拿到 ∧ 没走」*/
+  jsonEq(R.serveCandidates(st, "egg"), [ci(st, s1), ci(st, s2)], "候选集按座位序");
+  jsonEq(R.serveCandidates(st, "salad"), [], "没人要的食材 → 空候选集");
+  assert.equal(R.pickServeTarget(st, "salad"), -1, "没人要 → -1（单击盘时就是 no-want）");
+  s1.done.push("egg");
+  jsonEq(R.serveCandidates(st, "egg"), [ci(st, s2)], "已经拿到这一样的顾客不再进候选集");
+  s1.done.pop();
+  s1.left = true;
+  jsonEq(R.serveCandidates(st, "egg"), [ci(st, s2)], "走了的顾客不再进候选集");
+});
+
+test("兼容：IE11/Trident 没有 Canvas2D.ellipse → 幂等 polyfill（原生有就一个字节都不改）", () => {
+  /* 事故背景：tools/e2e/bf.js 的模式 B 探针跑在 mshta(Trident/IE11) 里，
+     实测弹「对象不支持 ellipse 属性或方法」的脚本错误对话框（breakfast.js 行 2387）。
+     项目约束是「ES5 + IE11 也能画」，所以补了贝塞尔版 polyfill。 */
+  assert.equal(typeof R.installEllipsePolyfill, "function", "polyfill 暴露在 rules 上供测试直调");
+
+  function mkCtx(hasEllipse) {
+    const c = { moved: [], segs: [], bez: 0, ellipseCalls: 0 };
+    c.moveTo = (x, y) => c.moved.push([x, y]);
+    c.bezierCurveTo = (a, b, d, e, f, g) => { c.bez++; c.segs.push([[a, b], [d, e], [f, g]]); };
+    if (hasEllipse) c.ellipse = function () { c.ellipseCalls++; };
+    return c;
+  }
+
+  /* ① 装上之后真的能画：整圆 = 4 段（每段 ≤90°），起点/终点都在 (x+rx, y)，闭合 */
+  const c1 = mkCtx(false);
+  assert.equal(R.installEllipsePolyfill(c1), true, "缺 ellipse → 装上");
+  assert.equal(typeof c1.ellipse, "function");
+  c1.ellipse(10, 20, 30, 30, 0, 0, Math.PI * 2);
+  assert.equal(c1.bez, 4, "整圆 = 4 段三次贝塞尔");
+  assert.ok(Math.abs(c1.moved[0][0] - 40) < 1e-9 && Math.abs(c1.moved[0][1] - 20) < 1e-9,
+    "起点 = θ=0 的点 (x+rx, y)：" + JSON.stringify(c1.moved[0]));
+  const last = c1.segs[3][2];
+  assert.ok(Math.abs(last[0] - 40) < 1e-9 && Math.abs(last[1] - 20) < 1e-9, "最后一段回到起点（闭合）");
+  c1.segs.forEach(s => {
+    const p = s[2], d = Math.hypot(p[0] - 10, p[1] - 20);
+    assert.ok(Math.abs(d - 30) < 1e-6, "每个端点都落在圆上（半径 " + d.toFixed(6) + "）");
+  });
+  /* 控制点要落在「贝塞尔近似」该在的位置：第一段从 θ=0 出发、沿 +y 切出，
+     所以 kappa 体现在**纵坐标**偏移上（c1 = (x+rx, y + k·ry)，k ≈ 0.5523）*/
+  const kappa = Math.abs(c1.segs[0][0][1] - 20) / 30;
+  assert.ok(kappa > 0.5 && kappa < 0.6,
+    "第一段控制点纵偏移 / r ≈ 0.5523（贝塞尔近似系数）：" + kappa.toFixed(4));
+
+  /* ② 幂等 + 绝不覆盖原生（＝ Chrome/Edge 的外观与行为完全不变）*/
+  assert.equal(R.installEllipsePolyfill(c1), false, "装第二次 → false，不重复包装");
+  const c2 = mkCtx(true);
+  assert.equal(R.installEllipsePolyfill(c2), false, "原生有 ellipse → 不动它");
+  c2.ellipse(0, 0, 1, 1, 0, 0, 1);
+  assert.equal(c2.ellipseCalls, 1, "调用仍然走原生");
+  assert.equal(c2.bez, 0, "没有偷偷替换成贝塞尔");
+
+  /* ③ 椭圆 + rotation：端点落在**旋转后**的椭圆上（不是随便糊一段曲线）*/
+  const c3 = mkCtx(false); R.installEllipsePolyfill(c3);
+  c3.ellipse(0, 0, 40, 10, Math.PI / 2, 0, Math.PI * 2);
+  assert.equal(c3.bez, 4, "椭圆整圈同样是 4 段");
+  c3.segs.forEach(s => {
+    const p = s[2];
+    /* 长轴 40、短轴 10、再转 90° → (x/10)² + (y/40)² = 1 */
+    const v = Math.pow(p[0] / 10, 2) + Math.pow(p[1] / 40, 2);
+    assert.ok(Math.abs(v - 1) < 1e-6, "落在旋转后的椭圆上（值 " + v.toFixed(9) + "）");
+  });
+
+  /* ④ 边界：半径 0 / 负半径 / 半圈 / counterclockwise */
+  const c4 = mkCtx(false); R.installEllipsePolyfill(c4);
+  assert.doesNotThrow(() => c4.ellipse(0, 0, 0, 5, 0, 0, Math.PI * 2), "半径 0 不抛错");
+  assert.equal(c4.bez, 0, "半径 0 → 什么都不加进路径（与原生一致）");
+  assert.doesNotThrow(() => c4.ellipse(0, 0, -5, -5, 0, 0, Math.PI * 2), "负半径按绝对值处理（不抛错）");
+  assert.equal(c4.bez, 4, "负半径照样画出整圆");
+  c4.bez = 0;
+  c4.ellipse(0, 0, 5, 5, 0, 0, Math.PI);
+  assert.equal(c4.bez, 2, "半圈 = 2 段");
+  c4.bez = 0;
+  c4.ellipse(0, 0, 5, 5, 0, 0, -Math.PI, true);
+  assert.equal(c4.bez, 2, "顺时针半圈 = 2 段");
+  /* ⑤ 没有 bezierCurveTo 的环境（极简替身）→ 明确返回 false，不许抛 */
+  const c5 = { moveTo() {} };
+  assert.equal(R.installEllipsePolyfill(c5), false, "画不了的环境返回 false（不硬装）");
+  assert.equal(R.installEllipsePolyfill(null), false, "传 null 也安全");
+});
+
+test("下锅音效④：9 样食材各有各的文件，点哪样响哪样（映射逐条对）", () => {
+  /* 用户原话：「点做果汁的时候可以触发榨果汁的音效，点煎蛋的时候可以触发煎蛋的音效」*/
+  const WANT = {
+    congee: "cook_congee.mp3", milk: "cook_milk.mp3", soup: "cook_soup.mp3", egg: "cook_egg.mp3",
+    bacon: "cook_bacon.mp3", sandwich: "cook_sandwich.mp3", bun: "cook_bun.mp3",
+    salad: "cook_salad.mp3", juice: "cook_juice.mp3"
+  };
+  jsonEq(R.audio.COOK_FILES, WANT, "食材 → 文件 一对一（9 样全都有，一个不缺）");
+  assert.equal(new Set(Object.keys(WANT).map(k => WANT[k])).size, 9, "9 个文件互不相同（每样有自己的声音）");
+  R.FOOD_IDS.forEach(f => {
+    assert.equal(R.audio.cookChannel(f), "cook_" + f, f + " 的通道名 = cook_<食材id>");
+    jsonEq(R.audio.FILES["cook_" + f], [WANT[f]], f + " 的通道挂进了同一张素材表（开关 / 回落 / 台账全复用）");
+    assert.equal(R.audio.url("cook_" + f, 0), "audio/bf/" + WANT[f], f + " 拼出来的 URL 对得上");
+    assert.ok(R.audio.VOL["cook_" + f] > 0.3 && R.audio.VOL["cook_" + f] <= 0.6,
+      f + " 音量落在 0.3~0.6：" + R.audio.VOL["cook_" + f]);
+    assert.ok(R.audio.NAMES.indexOf("cook_" + f) >= 0, f + " 的通道登记在 NAMES 里（盘点脚本读它）");
+  });
+
+  /* 真的点一下：每样单独开一局点一次 → 恰好响它自己那一条 */
+  R.FOOD_IDS.forEach(f => {
+    audioArmed();
+    const st = plateState();
+    assert.equal(R.placeFood(st, f, null), true, "点 " + f + " → 进它自己那一列");
+    const got = PLAYS.filter(p => p.name === "cook_" + f);
+    assert.equal(got.length, 1, f + " 下锅响了一条");
+    assert.equal(got[0].url, "audio/bf/" + WANT[f], f + " 响的是它自己的文件：" + got[0].url);
+    assert.equal(PLAYS.length, 1, f + " 只响这一条（不是顺手响一堆）");
+    audioUnhook();
+  });
+
+  /* 触发点是「下锅那一刻」：被拒的时候不响，出锅 / 上餐 / 丢垃圾桶也都不响 */
+  audioArmed();
+  const st = plateState();
+  assert.equal(R.placeFood(st, "egg", null), true);
+  assert.equal(played("cook_egg").length, 1, "第一次下锅 → 响");
+  assert.equal(R.placeFoodEx(st, "egg", null).ok, false, "锅还忙着（station-occupied）");
+  assert.equal(played("cook_egg").length, 1, "被拒的那次不响");
+  assert.equal(R.placeFoodEx(st, "egg", 1).why, "wrong-column", "拖到别人的锅被拒");
+  assert.equal(played("cook_egg").length, 1, "拖错列也不响");
+  R.trashColumn(st, 3);
+  assert.equal(played("cook_egg").length, 1, "丢垃圾桶不响");
+  assert.equal(R.placeFood(st, "egg", null), true);
+  advance(st, 2.6);                                   // 熟了自动落盘
+  assert.equal(R.plateOfStation(st, 3).food, "egg", "确实落盘了");
+  assert.equal(played("cook_egg").length, 1, "出锅 / 落盘不响（只在下锅那一刻响）");
+  const c = longPatience(R.spawnCustomer(st, ["egg"]));
+  assert.equal(R.serveFromColumn(st, 3).ok, true, "上餐成功");
+  assert.equal(played("cook_egg").length, 1, "上餐不响");
+  assert.equal(played("happy").length, 1, "该响的是「欢呼」，不是下锅音效");
+  audioUnhook();
+});
+
+test("下锅音效④：同一食材 300ms 内只响一次；不同食材可叠，但同时最多 2 条", () => {
+  assert.equal(R.audio.COOK_MIN_GAP, 0.3, "同食材节流 300ms（常量可调）");
+  assert.equal(R.audio.COOK_MAX_CONCURRENT, 2, "同时最多 2 条（再快也不糊成一片噪音）");
+
+  /* ① 同一样连点：300ms 内只响一次，被节流的那次留一条 why:"throttle" 记录 */
+  audioArmed();
+  const st = plateState();
+  assert.equal(R.placeFood(st, "juice", null), true);
+  assert.equal(played("cook_juice").length, 1, "第一下响");
+  R.trashColumn(st, 8);                               // 清空这一列，马上再点
+  advance(st, 0.1);                                   // 只过了 100ms
+  assert.equal(R.placeFood(st, "juice", null), true, "100ms 后又点了一次（放得下）");
+  assert.equal(played("cook_juice").length, 1, "100ms 内连点同一样 → 不叠第二声");
+  assert.equal(R.audio.log().filter(r => r.why === "throttle").length, 1,
+    "被节流的那次留了记录（否则「静默丢掉」跟素材缺失长得一样，没法排查）");
+  assert.equal(R.audio.plays().length, 1, "被节流的不算「播成功」");
+  R.trashColumn(st, 8);
+  advance(st, 0.25);                                  // 累计 350ms > 300ms
+  assert.equal(R.placeFood(st, "juice", null), true);
+  assert.equal(played("cook_juice").length, 2, "过了 300ms → 可以再响（不是「一局只响一次」）");
+
+  /* ② 不同食材：可以叠，但同时最多 2 条 */
+  audioArmed();
+  const st2 = plateState();
+  R.placeFood(st2, "egg", null);
+  R.placeFood(st2, "bacon", null);
+  R.placeFood(st2, "juice", null);
+  R.placeFood(st2, "salad", null);
+  assert.equal(played("cook_egg").length, 1, "第 1 条响");
+  assert.equal(played("cook_bacon").length, 1, "第 2 条响（不同食材可以叠）");
+  assert.equal(played("cook_juice").length, 0, "第 3 条被并发上限挡住");
+  assert.equal(played("cook_salad").length, 0, "第 4 条同样被挡住");
+  assert.equal(R.audio.log().filter(r => r.why === "busy").length, 2, "两次都留了 busy 记录");
+  assert.equal(PLAYS.length, 2, "同一时刻最多 2 条下锅音效");
+  advance(st2, R.audio.COOK_TAIL_SEC + 0.05);         // 前两条播完 → 腾出额度
+  assert.equal(R.placeFood(st2, "bacon", null), false, "培根列还占着（这一列没清）");
+  R.trashColumn(st2, 4);
+  assert.equal(R.placeFood(st2, "bacon", null), true);
+  assert.equal(played("cook_bacon").length, 2, "腾出额度后可以再响");
+  audioUnhook();
+});
+
+test("下锅音效④：开关关掉一条都不播（全标 off）；钩子抛错也不冒泡", () => {
+  audioMuted();
+  const st = plateState();
+  /* 一样一样地点、中间留足时间 → 不触发节流 / 并发，读到的 why 才是干净的 off */
+  R.FOOD_IDS.forEach((f, i) => {
+    assert.equal(R.placeFood(st, f, null), true, "点 " + f);
+    if (i < R.FOOD_IDS.length - 1) advance(st, R.audio.COOK_TAIL_SEC + 0.1);
+  });
+  assert.equal(PLAYS.length, 0, "9 样全下锅，钩子一次都没被调用（全静音）");
+  assert.equal(R.audio.plays().length, 0, "plays() 也是空");
+  const log = R.audio.log().filter(r => /^cook_/.test(r.name));
+  assert.equal(log.length, 9, "9 次下锅 9 条记录（可诊断）：" + log.length);
+  assert.equal(log.every(r => r.ok === false && r.why === "off"), true,
+    "全是 off：" + JSON.stringify(log.map(r => r.why)));
+  assert.equal(log.map(r => r.name).join(","),
+    R.FOOD_IDS.map(f => "cook_" + f).join(","), "9 条记录的通道与食材一一对应");
+
+  /* 钩子抛错（模拟文件坏 / 被自动播放策略拦）→ 玩法照常，记录标掉 */
+  R.audio.hook(function () { throw new Error("blocked by policy"); });
+  R.audio.setEnabled(true); R.audio.clear();
+  const st2 = plateState();
+  assert.doesNotThrow(() => R.placeFood(st2, "juice", null), "钩子抛错时下锅也不冒泡");
+  assert.ok(R.audio.log().some(r => r.why === "sink-error"), "记录里能看到 sink-error");
+  assert.equal(R.audio.plays().every(r => r.ok === false), true, "抛错的记录不冒充成功");
+  audioUnhook();
+});
+
+test("下锅音效④：没有 Audio / 素材缺失的环境（纯逻辑 vm）也静默，玩法不受影响", () => {
+  R.audio.hook(null); R.audio.setEnabled(true); R.audio.clear(); PLAYS.length = 0;
+  const st = plateState();
+  assert.doesNotThrow(() => R.placeFood(st, "juice", null), "没有 Audio 时不抛错");
+  assert.doesNotThrow(() => R.placeFood(st, "egg", null));
+  const log = R.audio.log().filter(r => /^cook_/.test(r.name));
+  assert.ok(log.length >= 2, "两次下锅都留了记录");
+  assert.equal(log.every(r => r.ok === false && r.why === "no-audio"), true,
+    "全记 no-audio：" + JSON.stringify(log.map(r => r.why)));
+  assert.equal(R.audio.plays().length, 0, "没有「播成功」的记录");
+  /* 玩法账照记：下料 / 落盘 / 出餐一条都不少 */
+  advance(st, R.FOOD.juice.dur + 0.1);
+  assert.equal(R.plateOfStation(st, 8).food, "juice", "果汁照样熟了落盘");
+  assert.equal(st.made, 2, "两次下料都记在账上");
+});
+
+test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120ms / 48kHz / 单声道）", () => {
   const dir = path.join(ROOT, "audio", "bf");
-  const want = ["tick.mp3", "happy.mp3", "happy2.mp3", "happy3.mp3", "slow.mp3"];
+  /* bf-9：欢呼换成 6 条新录音、下锅音效新增 9 条 —— 全部纳入规格盘点 */
+  const want = ["tick.mp3", "slow.mp3",
+                "happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3",
+                "happy_v4.mp3", "happy_v5.mp3", "happy_v6.mp3",
+                "cook_congee.mp3", "cook_milk.mp3", "cook_soup.mp3", "cook_egg.mp3",
+                "cook_bacon.mp3", "cook_sandwich.mp3", "cook_bun.mp3",
+                "cook_salad.mp3", "cook_juice.mp3"];
   want.forEach(f => {
     const p = path.join(dir, f);
     assert.ok(fs.existsSync(p), "audio/bf/" + f + " 存在");
@@ -2194,15 +2639,41 @@ test("音效：audio/bf 五个素材在磁盘上齐全，且规格统一（tick 
     assert.equal(info.channels, 1, f + " 是单声道");
     assert.ok(info.bitrate >= 96000 && info.bitrate <= 192000, f + " 码率 " + info.bitrate / 1000 + "kbps");
   });
+  /* 代码里点名要播的每一条都必须真的在盘上 —— 否则就是「静默 404」，断言层面看不出来 */
+  R.audio.NAMES.forEach(n => {
+    assert.ok(R.audio.FILES[n] && R.audio.FILES[n].length, n + " 通道有素材清单");
+    R.audio.FILES[n].forEach(f => {
+      assert.ok(fs.existsSync(path.join(dir, f)), "通道 " + n + " 点名的 audio/bf/" + f + " 在盘上");
+    });
+  });
+  /* 对照件（B 组）留在盘上、但**不在**任何通道里（不参与轮换） */
+  ["happy_alt1.mp3", "happy_alt2.mp3", "happy_alt3.mp3",
+   "happy_alt4.mp3", "happy_alt5.mp3", "happy_alt6.mp3"].forEach(f => {
+    assert.ok(fs.existsSync(path.join(dir, f)), "对照件 audio/bf/" + f + " 还在（试听页要用）");
+    assert.equal(R.audio.NAMES.some(n => R.audio.FILES[n].indexOf(f) >= 0), false,
+      f + " 不参与轮换（只在试听页里出现）");
+  });
+  /* 下锅音效是「短促的一声」：0.2s < 时长 ≤ 0.8s（太长会盖住下一声） */
+  Object.keys(R.audio.COOK_FILES).forEach(f => {
+    const info = mp3info.mp3Info(path.join(dir, R.audio.COOK_FILES[f]));
+    assert.ok(info.decoded > 0.2 && info.decoded <= 0.8,
+      R.audio.COOK_FILES[f] + " 解码时长 " + (info.decoded * 1000).toFixed(0) + "ms（0.2~0.8s）");
+  });
   /* 滴答必须「短促」：按**逐帧解码长度**算（播放器真正会播的长度，含编码器填充）*/
   const tick = mp3info.mp3Info(path.join(dir, "tick.mp3"));
   assert.ok(tick.decoded > 0.02 && tick.decoded <= 0.120,
     "tick.mp3 解码长度 " + (tick.decoded * 1000).toFixed(0) + "ms ≤120ms（硬性要求）");
   assert.ok(tick.duration <= 0.120, "tick.mp3 gapless 时长也 ≤120ms：" + (tick.duration * 1000).toFixed(0) + "ms");
-  /* 三条语音都要有人声时长（>0.4s），不是空文件 */
-  ["happy.mp3", "happy2.mp3", "happy3.mp3", "slow.mp3"].forEach(f => {
+  /* 六条欢呼 + 一条「太慢了」都要有人声时长（>0.4s），不是空文件 */
+  ["happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3", "happy_v4.mp3", "happy_v5.mp3",
+   "happy_v6.mp3", "slow.mp3"].forEach(f => {
     const info = mp3info.mp3Info(path.join(dir, f));
     assert.ok(info.decoded > 0.4, f + " 时长 " + (info.decoded * 1000).toFixed(0) + "ms，像一条语音");
+  });
+  /* 欢呼不能太长（一边上餐一边还在喊会叠声）：6 条都 ≤ 3s */
+  R.audio.FILES.happy.forEach(f => {
+    const info = mp3info.mp3Info(path.join(dir, f));
+    assert.ok(info.decoded <= 3.0, f + " 时长 " + info.decoded.toFixed(2) + "s ≤ 3s");
   });
   /* 素材目录与代码里写的目录一致（改目录时两边一起改） */
   assert.equal(R.audio.DIR, "audio/bf/", "代码里的素材目录 = audio/bf/");

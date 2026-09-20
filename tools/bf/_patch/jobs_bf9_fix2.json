@@ -1,0 +1,9 @@
+{
+ "jobs": [
+  {
+   "file": "breakfast.js",
+   "from": "          partialBonusPer:PARTIAL_PATIENCE_BONUS, serveDangerSec:SERVE_DANGER_SEC,\r\n          cooks:st.cooks || 0,                      // 本局触发过多少次「下锅音效」（无头 / 真浏览器验收读它）",
+   "text": "          partialBonusPer:PARTIAL_PATIENCE_BONUS, serveDangerSec:SERVE_DANGER_SEC,\r\n          /* 下锅音效的次数记在**音频台账** st.audio.cooks 上（playCook 里 a.cooks++，\r\n             与滴答 / 欢呼的计数放在同一个对象里）—— 这里必须读同一处，否则永远是 0 */\r\n          cooks:(st.audio ? (st.audio.cooks || 0) : 0),"
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+{
+ "jobs": [
+  {
+   "file": "tools/e2e/bf.js",
+   "from": "    if (b.length > 1000) {\r\n      fs.writeFileSync(path.join(SHOT_DIR, \"bf_game.png\"), Buffer.from(b, \"base64\"));\r\n      fs.writeFileSync(path.join(SHOT_DIR, \"bf_pass.png\"), Buffer.from(b, \"base64\"));\r\n      shots = [\"bf_game.png\", \"bf_pass.png\"];\r\n    }",
+   "text": "    if (b.length > 1000) {\r\n      /* ⚠ 只写自己的名字：bf_game.png / bf_pass.png 是 tools/bf/shots/panel.js 用软件光栅化器\r\n         渲染的**正式出图**（含真字体文字），Trident 这张 1080×620 的 canvas 转储不该盖掉它们。 */\r\n      fs.writeFileSync(path.join(SHOT_DIR, \"bf_trident_probe.png\"), Buffer.from(b, \"base64\"));\r\n      shots = [\"bf_trident_probe.png\"];\r\n    }"
+  }
+ ]
+}

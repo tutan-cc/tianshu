@@ -311,13 +311,36 @@ async function runChrome() {
 
 /* ── 模式 B：mshta / Trident(IE11) 降级探针 ──
    内容全 ASCII（避免 HTA 编码问题）；只测「同一份 breakfast.js 在真实浏览器引擎里能不能
-   加载 / 开局 / 画非空白 / 用 debug API 打完整局」，截图走 canvas.toDataURL。 */
-const HTA = String.raw`<html><head><meta http-equiv="X-UA-Compatible" content="IE=edge">
+   加载 / 开局 / 画非空白 / 用 debug API 打完整局」，截图走 canvas.toDataURL。
+
+   ⚠⚠ 两条硬纪律（用户实测被弹窗打断过，必须一直保留）：
+     ① **不许弹到用户脸上**：脚本一解析就把窗口挪到屏幕外并缩到最小；
+     ② **不许弹「脚本发生错误」对话框**：window.onerror 里 return true 会抑制 IE 的模态报错框，
+        同时把错误写进结果文件并关窗（这样异步失败也能被验收看见，而不是卡一个对话框）。 */
+const HTA = String.raw`<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
 <script>
+try{ window.moveTo(-4000,-4000); window.resizeTo(220,140); }catch(e){}   // ① 躲到屏幕外
 var fso = new ActiveXObject("Scripting.FileSystemObject");
 var DIR = __DIR__;
-function w(name, txt){ var f=fso.CreateTextFile(DIR+name, true); f.Write(txt); f.Close(); }
+var __done = false;
+/* 第三个参数 true = Unicode(UTF-16LE)：默认的 ANSI 写出来 Node 按 UTF-8 读会全是乱码 */
+function w(name, txt){ var f=fso.CreateTextFile(DIR+name, true, true); f.Write(txt); f.Close(); }
 function b64(name, dataUrl){ try{ w(name, dataUrl.split(",")[1]); }catch(e){ w(name, "ERR:"+e.message); } }
+/* 兜底收尾：只写一次、只关一次；onerror 返回 true 抑制 IE 的模态报错框 ② */
+function fatal(msg, url, line){
+  try{
+    if(!__done){
+      __done = true;
+      var res = { success:false, checks:[], errors:["未捕获的脚本错误：" + msg + " @" + url + ":" + line],
+                  info:{ fatal:true, line:line } };
+      try{ w("_bf_trident_out.txt", JSON.stringify(res)); }catch(e){}
+    }
+  }catch(e){}
+  try{ window.close(); }catch(e){}
+  return true;
+}
+window.onerror = function(msg, url, line){ return fatal(msg, url, line); };
 function run(){
   var out = { checks: [], errors: [], note: "" };
   var doc = document;
@@ -381,12 +404,21 @@ function run(){
     finish();
   }
   function finish(){
-    var res = { success: out.errors.length===0, checks: out.checks, errors: out.errors, info: out };
-    w("_bf_trident_out.txt", JSON.stringify(res));
-    try{ window.close(); }catch(e){}
+    if(__done) return;                       // 重入保护：onerror 与正常路径只写一次
+    __done = true;
+    try{
+      var res = { success: out.errors.length===0, checks: out.checks, errors: out.errors, info: out };
+      w("_bf_trident_out.txt", JSON.stringify(res));
+    }catch(e){}
+    try{ window.close(); }catch(e){}         // 跑完立刻关窗，绝不留窗口在桌面上
   }
 }
-window.onload = run;
+/* ③ 一定收尾：run() 包 try/catch + 55 秒看门狗（bf.js 那边最多等 60 秒）*/
+window.onload = function(){
+  try{ setTimeout(function(){ fatal("看门狗超时（55s）", "watchdog", 0); }, 55000); }catch(e){}
+  try{ run(); }
+  catch(e){ fatal(e && e.message ? e.message : String(e), "run", 0); }
+};
 </script></head><body></body></html>`;
 
 async function runTrident() {
@@ -394,14 +426,17 @@ async function runTrident() {
   const htaPath = path.join(OUT, "_bf_probe.hta");
   const files = ["_bf_trident_out.txt", "_bf_trident_b64.txt"];
   for (const f of files) { try { fs.rmSync(path.join(OUT, f), { force: true }); } catch (e) {} }
-  fs.writeFileSync(htaPath, HTA.replace("__DIR__", JSON.stringify(OUT + "\\")), "utf8");
+  /* ⚠ 必须带 UTF-8 BOM：mshta 按 ANSI(GBK) 读 .hta，
+     仓库路径里的中文会变乱码 → FSO 建文件抛异常 → 结果文件永远写不出来
+     （这就是模式 B「mshta 探针未产出结果」的真凶，与引擎能力无关）。 */
+  fs.writeFileSync(htaPath, "\ufeff" + HTA.replace("__DIR__", JSON.stringify(OUT + "\\")), "utf8");
   const p = spawn(MSHTA, [htaPath], { stdio: "ignore", cwd: OUT });
   let out = null;
   for (let i = 0; i < 120; i++) {
     await sleep(500);
     const f = path.join(OUT, "_bf_trident_out.txt");
     if (fs.existsSync(f)) {
-      const raw = fs.readFileSync(f, "utf8");
+      const raw = fs.readFileSync(f, "utf16le").replace(/^\ufeff/, "");   // HTA 侧写的是 UTF-16LE
       if (raw.trim().endsWith("}") && raw.indexOf('"checks"') >= 0) { try { out = JSON.parse(raw); break; } catch (e) {} }
     }
     if (p.exitCode !== null && p.exitCode !== 0) break;
@@ -411,11 +446,12 @@ async function runTrident() {
   let shots = [];
   const b64f = path.join(OUT, "_bf_trident_b64.txt");
   if (fs.existsSync(b64f)) {
-    const b = fs.readFileSync(b64f, "utf8").trim();
+    const b = fs.readFileSync(b64f, "utf16le").trim();    // 同上：UTF-16LE，trim 去掉 BOM
     if (b.length > 1000) {
-      fs.writeFileSync(path.join(SHOT_DIR, "bf_game.png"), Buffer.from(b, "base64"));
-      fs.writeFileSync(path.join(SHOT_DIR, "bf_pass.png"), Buffer.from(b, "base64"));
-      shots = ["bf_game.png", "bf_pass.png"];
+      /* ⚠ 只写自己的名字：bf_game.png / bf_pass.png 是 tools/bf/shots/panel.js 用软件光栅化器
+         渲染的**正式出图**（含真字体文字），Trident 这张 1080×620 的 canvas 转储不该盖掉它们。 */
+      fs.writeFileSync(path.join(SHOT_DIR, "bf_trident_probe.png"), Buffer.from(b, "base64"));
+      shots = ["bf_trident_probe.png"];
     }
   }
   for (const f of files.concat(["_bf_probe.hta"])) { try { fs.rmSync(path.join(OUT, f), { force: true }); } catch (e) {} }

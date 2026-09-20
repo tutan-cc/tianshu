@@ -1,0 +1,22 @@
+{
+ "jobs": [
+  {
+   "file": "breakfast.js",
+   "from": "          partialServes:st.partialServes || 0, partialBonus:Math.round((st.partialBonus || 0) * 10) / 10,\r\n          partialBonusPer:PARTIAL_PATIENCE_BONUS, serveDangerSec:SERVE_DANGER_SEC,",
+   "to": null,
+   "text": "          partialServes:st.partialServes || 0, partialBonus:Math.round((st.partialBonus || 0) * 10) / 10,\r\n          partialBonusPer:PARTIAL_PATIENCE_BONUS, serveDangerSec:SERVE_DANGER_SEC,\r\n          cooks:st.cooks || 0,                      // 本局触发过多少次「下锅音效」（无头 / 真浏览器验收读它）"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "    const idLate = d.pushCustomer([\"egg\", \"congee\"]);      // 先来的\r\n    const idMid = d.pushCustomer([\"egg\", \"salad\"]);\r\n    const idHurry = d.pushCustomer([\"egg\", \"juice\"]);      // 最后来的",
+   "to": null,
+   "text": "    /* ⚠ 耐心上限 = (10 + 7.5×订单长度) × 难度系数，单局最多 ≈32.5s ——\r\n       「40 秒」在游戏里摆不出来（纯逻辑单测可以直接改字段，那边照旧 5/20/40）。\r\n       这里用 5 / 12 / 30：三档差距明显，足以验证「挑最急的那位」。 */\r\n    const idLate = d.pushCustomer([\"egg\", \"bacon\", \"salad\"]);   // 先来的（长单，上限最高）\r\n    const idMid = d.pushCustomer([\"egg\", \"congee\"]);\r\n    const idHurry = d.pushCustomer([\"egg\", \"juice\"]);          // 最后来的（要摆成最急）"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "    const pLate = abs(idLate, 40), pMid = abs(idMid, 20), pHurry = abs(idHurry, 5);\r\n    A(Math.abs(pLate - 40) < 0.05 && Math.abs(pMid - 20) < 0.05 && Math.abs(pHurry - 5) < 0.05,\r\n      \"3 位顾客的耐心分别摆成 40 / 20 / 5\", pLate + \" / \" + pMid + \" / \" + pHurry);",
+   "to": null,
+   "text": "    const pLate = abs(idLate, 30), pMid = abs(idMid, 12), pHurry = abs(idHurry, 5);\r\n    A(Math.abs(pLate - 30) < 0.05 && Math.abs(pMid - 12) < 0.05 && Math.abs(pHurry - 5) < 0.05,\r\n      \"3 位顾客的耐心分别摆成 30 / 12 / 5（三档明显不同）\", pLate + \" / \" + pMid + \" / \" + pHurry);"
+  }
+ ]
+}

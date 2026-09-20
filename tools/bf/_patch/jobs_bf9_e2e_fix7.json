@@ -1,0 +1,16 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    function restartLong(){\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      var ov = document.getElementById(\"bfGame\");     // dispose() 顺手摘掉了覆盖层，补回来\n      if (ov && ov.classList) ov.classList.add(\"on\");\n      await sleep(300);                               // 让新局真的跑几帧（顾客要进来）\n      return true;\n    }",
+   "to": null,
+   "text": "    async function restartLong(){        // ⚠ 必须是 async：里面有 await（普通函数里写 await 是语法错误，\n                                        //    整个注入脚本会编译失败 → ⑤ 的返回值全是 undefined）\n      try { window.Breakfast.dispose(); } catch (e) {}\n      window.Breakfast.start(document.getElementById(\"bfGameHost\"),\n        { target:{ id:\"su\", name:\"苏晚晴\", bond:40 }, duration:999, goal:99, onFinish:function(){} });\n      var ov = document.getElementById(\"bfGame\");     // dispose() 顺手摘掉了覆盖层，补回来\n      if (ov && ov.classList) ov.classList.add(\"on\");\n      await sleep(300);                               // 让新局真的跑几帧\n      return true;\n    }"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    if (!st0 || !st0.running) { restartLong(); restarts++; }",
+   "to": null,
+   "text": "    if (!st0 || !st0.running) { await restartLong(); restarts++; }"
+  }
+ ]
+}
