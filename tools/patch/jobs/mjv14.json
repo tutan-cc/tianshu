@@ -1,0 +1,21 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  /* ── ③ 假 Audio：能自动播完（队列才走得动），并记录真正开播的文件 ──\r\n     ⚠ 必须先 voiceCacheClear()：本节前半段用过别的假 Audio，缓存里留着它们的实例，\r\n        不清掉的话 say() 会复用那些「不会 ended」的旧对象，队列直接卡死。 */\r\n  const played = [];\r\n  let clack = 0;\r\n  function AutoAudio(url) { this.src = String(url); this.volume = 1; this.currentTime = 0; this.duration = 0.2; this._ev = {}; }\r\n  AutoAudio.prototype.addEventListener = function (t, fn) { (this._ev[t] = this._ev[t] || []).push(fn); };\r\n  AutoAudio.prototype.removeEventListener = function (t, fn) { const a = this._ev[t] || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };\r\n  AutoAudio.prototype.load = function () {};\r\n  AutoAudio.prototype.pause = function () {};\r\n  AutoAudio.prototype.play = function () {\r\n    const self = this;\r\n    played.push(String(this.src).replace(/^.*\\//, \"\"));\r\n    setTimeout(() => { (self._ev[\"ended\"] || []).slice().forEach(f => f()); }, 40);\r\n    return Promise.resolve();\r\n  };\r\n  windowStub.Audio = AutoAudio;\r\n  windowStub.AudioSys.sfxFile = function (n) { if (n === \"mj-clack\") clack++; };\r\n  eq(MJ.debug.voiceCacheClear(), true, \"清掉旧 Audio 缓存（换整层假 Audio 实现）\");",
+      "textFile": "tools/patch/text/mjv14_fakeaudio.txt"
+    },
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  {\r\n    MJ.dispose();\r\n    eq(MJ.start(makeElement(\"div\"), {}), true, \"对拍段：开一局干净的（对账簿 / 日志 / 计数都从 0 起算）\");",
+      "to": "      \"ms（常量 SAY_AFTER_DISCARD_MS=\" + T.SAY_AFTER_DISCARD_MS + \"ms）\");\r\n  }",
+      "textFile": "tools/patch/text/mjv14_controlled.txt"
+    },
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "    const vs = MJ.debug.voiceStats(), E = MJ.debug.engine();\r\n    const logSeq = E.log.filter(e => e.kind === \"discard\" && e.tile).map(e => e.seat + \"|\" + e.tile);",
+      "to": "    eq(vs.lost, 0, \"真牌局：没有因日志截断而丢掉的报牌（lost=0）\");",
+      "textFile": "tools/patch/text/mjv14_live.txt"
+    }
+  ]
+}

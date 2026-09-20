@@ -188,6 +188,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .overlay{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
   background:rgba(4,3,8,.72);backdrop-filter:blur(3px)}
 .overlay.on{display:flex}
+/* 连打/判定条是**玩法内部**的二级覆盖层（组合拳连打、蓄力反击），
+   必须压在 #fight / #talk 这些一级玩法面板之上（它们同为 .overlay，DOM 序在 qte 之后）。
+   不给这条规则的话，连打条会被打斗面板整块盖住 —— 玩家按空格但看不见进度。 */
+#qte{z-index:22}
 /* 视口兜底（所有玩法共用）：面板比视口高时覆盖层自己能滚，
    且不再把超出部分裁在顶部（safe center；老浏览器不认识 safe → 退回上面的 center） */
 .overlay{overflow:auto;align-items:safe center}
@@ -364,6 +368,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   <div style="display:flex;gap:10px;margin-top:12px">
     <button id="dbgJump" style="padding:9px 22px;border:1px solid var(--purple);color:var(--purple);font-size:12px;letter-spacing:2px;background:rgba(176,125,255,.08)">⚑ 跳到谈判（调试）</button>
     <button id="dbgFight" style="padding:9px 22px;border:1px solid var(--red);color:var(--red);font-size:12px;letter-spacing:2px;background:rgba(255,77,109,.08)">⚑ 跳到打斗</button>
+    <button id="dbgFight2" style="padding:9px 22px;border:1px solid #ffd76e;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,215,110,.08)">⚑ 跳到打斗 2.0</button>
     <button id="dbgMj" style="padding:9px 22px;border:1px solid var(--cyan);color:var(--cyan);font-size:12px;letter-spacing:2px;background:rgba(77,216,255,.08)">⚑ 跳到麻将</button>
     <button id="dbgBf" style="padding:9px 22px;border:1px solid #ff9ec7;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,158,199,.08)">⚑ 跳到早餐店</button>
     <button id="dbgTalk" style="padding:9px 22px;border:1px solid var(--line);color:var(--dim);font-size:12px;letter-spacing:2px;background:rgba(255,255,255,.04)">⚑ 全部解锁</button>
@@ -533,7 +538,9 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       </div>
       <div id="fightNum" style="font-size:11.5px;color:var(--dim);margin-bottom:8px"></div>
       <div id="fightBar" style="display:none;position:relative;height:26px;background:#12101c;border:1px solid var(--line);margin-bottom:8px;overflow:hidden;cursor:pointer">
-        <div id="fightZone" style="position:absolute;top:0;bottom:0;background:rgba(93,255,160,.35);border-left:1px solid var(--green);border-right:1px solid var(--green)"></div>
+        <div id="fightZone" style="position:absolute;top:0;bottom:0;background:rgba(93,255,160,.35);border-left:1px solid var(--green);border-right:1px solid var(--green)">
+          <i id="fightZonePerfect" style="position:absolute;top:0;bottom:0;left:35%;width:30%;background:rgba(255,215,110,.55);border-left:1px solid var(--gold);border-right:1px solid var(--gold)"></i>
+        </div>
         <div id="fightCur" style="position:absolute;top:-2px;bottom:-2px;width:3px;background:#fff;box-shadow:0 0 10px #fff"></div>
       </div>
       <div id="fightBtns" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
@@ -545,6 +552,34 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
         <button class="mbtn" style="opacity:.6" disabled>精准提示<b>绿区按空格/点击</b></button>
       </div>
       <div id="fightLog" style="max-height:110px;overflow-y:auto;margin-top:10px;font-size:11.5px;line-height:1.7;color:var(--dim)"></div>
+    </div></div>
+
+    <!-- 打斗 2.0 骨架（fight2）：与旧 #fight 并行，DOM id 全部另起
+         —— 旧实现有 `document.querySelectorAll("#fightBtns .mbtn")` 的全局绑定，
+            复用同一批 id 会让两套玩法的按钮互相抢事件。 -->
+    <div class="overlay" id="fight2"><div class="panel">
+      <h3 id="fight2Title"><img class="gm-ico" src="art/icons/game/fight.png" alt="" onload="this.style.display='inline-block'" onerror="this.remove()">拳台对决 2.0</h3><div class="sub2" id="fight2Sub"></div>
+      <div id="fight2Foe" style="font-size:12px;line-height:1.8;padding:8px 10px;background:#0d0b15;border-left:2px solid var(--red);margin-bottom:10px"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><div style="font-size:10px;color:var(--dim);margin-bottom:3px">你的生命</div><div class="tbar"><i id="fight2HpMine" style="background:linear-gradient(90deg,var(--red),var(--gold))"></i></div></div>
+        <div><div style="font-size:10px;color:var(--dim);margin-bottom:3px">对手生命</div><div class="tbar"><i id="fight2HpFoe" style="background:linear-gradient(90deg,var(--purple),var(--cyan))"></i></div></div>
+      </div>
+      <div id="fight2Num" style="font-size:11.5px;color:var(--dim);margin-bottom:8px"></div>
+      <div id="fight2Bar" style="display:none;position:relative;height:26px;background:#12101c;border:1px solid var(--line);margin-bottom:8px;overflow:hidden;cursor:pointer">
+        <div id="fight2Zone" style="position:absolute;top:0;bottom:0;background:rgba(93,255,160,.35);border-left:1px solid var(--green);border-right:1px solid var(--green)">
+          <i id="fight2ZonePerfect" style="position:absolute;top:0;bottom:0;left:35%;width:30%;background:rgba(255,215,110,.55);border-left:1px solid var(--gold);border-right:1px solid var(--gold)"></i>
+        </div>
+        <div id="fight2Cur" style="position:absolute;top:-2px;bottom:-2px;width:3px;background:#fff;box-shadow:0 0 10px #fff"></div>
+      </div>
+      <div id="fight2Btns" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <button class="mbtn" data-act="jab">直 拳<b>1 行动力 · 12 · 精准</b></button>
+        <button class="mbtn" data-act="combo">组合拳<b>2 行动力 · 8 + 连打</b></button>
+        <button class="mbtn" data-act="low">低 扫<b>2 行动力 · 16</b></button>
+        <button class="mbtn" data-act="guard">抱 架<b>1 行动力 · 格挡 +16</b></button>
+        <button class="mbtn" data-act="read">读 招<b>1 行动力 · 公示意图</b></button>
+        <button class="mbtn" data-act="skip" style="opacity:.75">跳过战斗<b>按当前属性判胜负</b></button>
+      </div>
+      <div id="fight2Log" style="max-height:110px;overflow-y:auto;margin-top:10px;font-size:11.5px;line-height:1.7;color:var(--dim)"></div>
     </div></div>
 
     <!-- 麻将 · 听牌挑战 -->
@@ -747,13 +782,28 @@ chase:{loc:"alley", name:"老城区 · 纸箱与花衬衫", day:6, per:2, ch:1, 
   inter:{type:"dodge",
     perfect:{int:12, phy:6}, ok:{int:6, phy:3}, miss:{int:2}},
   after:[{v:"video/chase_end.mp4", t:"街对面餐馆里，一个年轻人放下筷子，死死盯着这边——他好像……认出你了。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"}],
-  next:["brawl"]},
+  /* 两个分支都指向后巷一打二：brawl = 旧回合制（保留给"一键过剧情"与 A/B 对比），
+     brawl2 = 打斗 2.0。主线只认第一个（nextAvail 取首个可用），
+     所以把 brawl2 排在后面 —— 正常玩家走旧玩法，2.0 从标题屏「⚑ 跳到打斗 2.0」进。 */
+  next:["brawl","brawl2"]},
 brawl:{loc:"alley", name:"老城区 · 一打二", day:6, per:2, ch:1, mood:"dark", end:true,
   shots:[
     {v:"video/chase_run.mp4", who:"花衬衫", t:"「小子，纸箱套得挺好啊。」两个人一左一右逼上来，脚下是砖头和碎玻璃。", bg:"radial-gradient(ellipse at 50% 50%,#141420,#050508 80%)"},
     {v:"video/chase_run.mp4#t=60", t:"上一世你在这里挨过一顿。这一世，雷姐教你的东西还在肌肉里。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"},
   ],
   inter:{type:"fight", title:"一打二", hp:74,
+    perfect:{phy:14, cha:6, flags:["后巷立威"]}, ok:{phy:8, cha:3}, miss:{phy:4, cha:2}},
+  after:[{v:"video/chase_end.mp4", t:"街对面餐馆里，一个年轻人放下筷子，死死盯着这边——他好像……认出你了。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"}],
+  endTeaser:"<b>第二章预告</b> · 妹妹来了 / 深夜的投资大厦 / 公园里的大师<br>还有一个戴墨镜的人，在暗处数着你的每一步。",
+  next:["sister"]},
+/* 打斗 2.0 的验证节点（P1 骨架）。刻意**不改 brawl**：旧玩法要留给
+   "一键过剧情"的存档和 A/B 对比，等 P4 机制齐了再决定是否替换 brawl 的入口。 */
+brawl2:{loc:"alley", name:"老城区 · 一打二（2.0 验证）", day:6, per:2, ch:1, mood:"dark", end:true,
+  shots:[
+    {v:"video/chase_run.mp4", who:"花衬衫", t:"「小子，纸箱套得挺好啊。」两个人一左一右逼上来，脚下是砖头和碎玻璃。", bg:"radial-gradient(ellipse at 50% 50%,#141420,#050508 80%)"},
+    {v:"video/chase_run.mp4#t=60", t:"上一世你在这里挨过一顿。这一世，雷姐教你的东西还在肌肉里。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"},
+  ],
+  inter:{type:"fight2", title:"一打二", hp:74,
     perfect:{phy:14, cha:6, flags:["后巷立威"]}, ok:{phy:8, cha:3}, miss:{phy:4, cha:2}},
   after:[{v:"video/chase_end.mp4", t:"街对面餐馆里，一个年轻人放下筷子，死死盯着这边——他好像……认出你了。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"}],
   endTeaser:"<b>第二章预告</b> · 妹妹来了 / 深夜的投资大厦 / 公园里的大师<br>还有一个戴墨镜的人，在暗处数着你的每一步。",
@@ -919,6 +969,8 @@ const ACHV = {
 const AudioSys = {
   ctx:null, master:null, bgmTimer:null, curMood:null, on:true,
   pool:{},          // sfx 名 → Audio（复用，避免每次 new）
+  mediaState:{},    // 素材名 → "pending" | "ready" | "bad"（路径解析结果，见 sfxFile 上方说明）
+  mediaResolved:{}, // 素材名 → 真实可用的 URL
   ambCur:null, ambName:null, ambEl:null, ambStack:null,
   bgmEl:null, bgmName:null,
   SFX_VOL:0.85, AMB_VOL:0.34, BGM_VOL:0.42,
@@ -929,19 +981,100 @@ const AudioSys = {
     this.master.connect(this.ctx.destination);
   }catch(e){} },
 
+  /* ═══ 素材路径解析（唯一的真相来源）═══
+     为什么要有这一层：素材库的命名**同时存在两种风格**，而代码拼路径时只认其中一种：
+       · UI 音效   audio/sfx/ui-click.mp3        （无前缀）
+       · 其余全部  audio/sfx/sfx-fight-hit.mp3   （带 sfx- 前缀）
+       · 环境音    audio/amb/amb-alley.mp3       （带 amb- 前缀，代码却拼 audio/amb/alley.mp3）
+       · BGM       audio/bgm/calm.mp3            （无前缀，本来就对）
+     实测后果（v1.24 基线）：64/65 条音效 + 9/9 条环境音**永远取不到**，
+     而且因为 sfxFile() 原先无条件 return true、pool 又缓存了坏元素，
+     连"回落合成音"都没发生 —— 是彻底没声音，且不报错、不抛异常。
+     所以这里统一成"候选列表 + 三态（pending/ready/bad）+ 真正把失败上报给调用方"。 */
+  /** 从候选 URL 里取文件名（用于 pool 键、按名缓存） */
+  mediaName(url){ try{ return String(url).split("/").pop().replace(/\.mp3$/i,""); }catch(e){ return ""; } },
+  /** 候选 URL 列表：先原名，再 <prefix> 前缀变体（与 playVO() 的 real→tts 双路径回落同一套路） */
+  mediaCandidates(url, prefix){
+    const list = [url];
+    const name = this.mediaName(url);
+    if(prefix && name.indexOf(prefix) !== 0) list.push(url.replace(/[^/]+$/,"") + prefix + name + ".mp3");
+    return list;
+  },
+  /** 探测一个候选：401/404/解码失败都算 bad；探到第一个 ready 就不再试后续候选 */
+  _probeCandidate(url, state, name, list, i){
+    const self = this;
+    try{
+      const a = new Audio(url); a.preload = "auto"; let settled = false;
+      const give = ()=>{
+        if(settled) return; settled = true; clearTimeout(timer);
+        a.oncanplaythrough = null; a.onerror = null;
+        if(i + 1 < list.length) self._probeCandidate(list[i+1], state, name, list, i+1);   // 换下一个候选
+        else { state[name] = "bad"; try{ delete self.pool[name]; }catch(e){} }             // 全部候选都没戏
+      };
+      const win = ()=>{
+        if(settled) return; settled = true; clearTimeout(timer);
+        state[name] = "ready"; self.mediaResolved[name] = url; self.pool[name] = a;
+      };
+      a.oncanplaythrough = win;
+      a.onerror = give;
+      const timer = setTimeout(give, 6000);   // 慢盘 / 大文件兜底
+      a.load();
+    }catch(e){ state[name] = "bad"; }
+  },
+  /** 解析媒体路径。返回候选列表；不传 url 则返回已解析出的真实 URL（可能为 null） */
+  resolveMedia(url, prefix){
+    const name  = this.mediaName(url);
+    const list  = this.mediaCandidates(url, prefix);
+    const state = this.mediaState;
+    if(state[name] === undefined){
+      state[name] = "pending";
+      this._probeCandidate(list[0], state, name, list, 0);
+    }
+    const st = state[name];
+    if(st === "pending") return undefined;        // 调用方：先别播（本层是异步探测）
+    if(st === "bad")     return null;             // 调用方：回落
+    return this.mediaResolved[name] || list[0];
+  },
+  /** 播放一个已解析过的媒体地址。
+      返回 'ready'（播了）/ 'pending'（还在探测，本层异步）/ 'bad'（确认缺失，调用方该回落） */
+  _playMedia(url, vol, volScale){
+    const res = this.resolveMedia(url, url.indexOf("/sfx/")>=0 ? "sfx-" : (url.indexOf("/amb/")>=0 ? "amb-" : ""));
+    if(res === undefined) return "pending";
+    if(res === null)      return "bad";
+    try{
+      const name = this.mediaName(url);
+      let a = this.pool[name];
+      if(!a){ a = new Audio(res); a.preload = "auto"; this.pool[name] = a; }
+      // 同一音效快速连击时克隆播放，避免打断上一次（如连打、刮擦）
+      const el = (a.paused || a.ended) ? a : a.cloneNode(true);
+      el.volume = Math.max(0, Math.min(1, vol * volScale));
+      try{ el.currentTime = 0; }catch(e){}
+      const p = el.play(); if(p && p.catch) p.catch(()=>{});
+      return "ready";
+    }catch(e){ return "bad"; }
+  },
+  /** 供自动化测试用：当前媒体解析状态 / 已解析结果 */
+  mediaDebug(){
+    const out = { resolved:{}, bad:[], pending:[] };
+    for(const k in this.mediaState){
+      const st = this.mediaState[k];
+      if(st === "ready") out.resolved[k] = this.mediaResolved[k];
+      else if(st === "bad") out.bad.push(k);
+      else out.pending.push(k);
+    }
+    return out;
+  },
+
   /* ── ① 文件音效 ── */
   /** 播一个音效文件。返回是否成功（false = 调用方应回落合成音） */
   sfxFile(name, vol){
     if(!this.on) return false;
     try{
-      let a = this.pool[name];
-      if(!a){ a = new Audio("audio/sfx/"+name+".mp3"); a.preload="auto"; this.pool[name]=a; }
-      // 同一音效快速连击时克隆播放，避免打断上一次（如连打、刮擦）
-      const el = (a.paused || a.ended) ? a : a.cloneNode(true);
-      el.volume = Math.max(0, Math.min(1, (vol===undefined?1:vol) * this.SFX_VOL));
-      el.currentTime = 0;
-      const p = el.play(); if(p && p.catch) p.catch(()=>{});
-      return true;
+      const url = "audio/sfx/"+name+".mp3";
+      // 校验通过才算成功：探测中(pending)与确认缺失(bad)一律回落合成音，
+      // 不能像 v1.24 那样无条件 return true —— 那会让 4 处 `if(!sfxFile()) blip()` 的兜底全部失效。
+      if(this.resolveMedia(url, "sfx-") === null) return false;
+      return this._playMedia(url, vol===undefined ? 1 : vol, this.SFX_VOL) !== "bad";
     }catch(e){ return false; }
   },
 
@@ -971,8 +1104,11 @@ const AudioSys = {
     const old = this.ambStack;
     if(old){ this.fadeStack(old, 0, 900); this.ambStack = null; }
     if(!loc){ this.ambEl = null; return; }
-    this.ambStack = this.loopCrossfade("audio/amb/"+loc+".mp3", this.AMB_VOL,
-                                       (el)=>{ this.ambEl = el; });
+    // 候选：audio/amb/<loc>.mp3 → audio/amb/amb-<loc>.mp3
+    // （素材库实际命名是 amb-alley 这种带前缀的，原先只拼前者 → 9 个地点全部取不到且无兜底）
+    const url = "audio/amb/"+loc+".mp3";
+    this.ambStack = this.loopCrossfade(this.mediaCandidates(url, "amb-"), this.AMB_VOL,
+                                       (el)=>{ if(this.ambName === loc) this.ambEl = el; });
   },
 
   /* ── 交叉淡化无缝循环 ──
@@ -983,17 +1119,51 @@ const AudioSys = {
      循环点被交叉淡化盖住，听不出接缝。 */
   loopCrossfade(src, vol, onActive){
     const XF = 1.6;                       // 交叉淡化时长（秒）
-    let a = new Audio(src), b = new Audio(src);
-    [a,b].forEach(el=>{ el.loop = false; el.preload = "auto"; el.volume = 0; });
-    const st = { a:a, b:b, cur:a, nxt:b, timer:0, dead:false, vol:vol };
+    // src 可以是单个 URL，也可以是候选 URL 数组（媒体库同时存在带前缀/不带前缀两种命名）
+    const cands = Array.isArray(src) ? src.slice() : [src];
+    const st = { a:null, b:null, cur:null, nxt:null, timer:0, dead:false, vol:vol,
+                 stopped:false, url:null };
+    st.stop = ()=>{ st.dead = true; clearInterval(st.timer); };
     const startPair = ()=>{
-      [a,b].forEach(el=>{ try{ el.currentTime = 0; }catch(e){} });
-      try{ const p=a.play(); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
-      a.volume = vol; st.cur = a; st.nxt = b;
-      if(onActive) onActive(a);
+      [st.a, st.b].forEach(el=>{ try{ el.currentTime = 0; }catch(e){} });
+      try{ const p=st.a.play(); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
+      st.a.volume = vol; st.cur = st.a; st.nxt = st.b;
+      if(onActive) onActive(st.a);
+    };
+    /** 依次试候选，取第一个真能播的；全失败就静默收摊（st.stop() 仍然有效） */
+    const tryStart = (i)=>{
+      if(st.dead) return;
+      if(i >= cands.length) return;
+      let probe;
+      try{ probe = new Audio(cands[i]); }catch(e){ return tryStart(i+1); }
+      probe.loop = false; probe.preload = "auto"; probe.volume = 0;
+      let settled = false;
+      const next = ()=>{ if(settled) return; settled = true;
+        probe.oncanplaythrough = null; probe.onerror = null; clearTimeout(timer);
+        tryStart(i+1); };
+      const use  = ()=>{ if(settled) return; settled = true;
+        probe.oncanplaythrough = null; probe.onerror = null; clearTimeout(timer);
+        if(st.dead) return;
+        st.stopped = false; st.url = cands[i];
+        st.a = new Audio(cands[i]); st.b = new Audio(cands[i]);
+        [st.a, st.b].forEach(el=>{ el.loop = false; el.preload = "auto"; el.volume = 0; });
+        // 等元数据就绪再起播（否则 duration 未知，tick 白跑）
+        let started = false;
+        const go = ()=>{ if(started || st.dead) return; started = true; startPair(); };
+        st.a.onloadedmetadata = go;
+        st.a.oncanplaythrough = go;
+        setTimeout(go, 1500);                 // 兜底
+        st.timer = setInterval(tick, 400);
+        st.stop = ()=>{ st.dead = true; clearInterval(st.timer);
+          [st.a, st.b].forEach(el=>{ try{ el.pause(); }catch(e){} }); };
+      };
+      probe.oncanplaythrough = use;
+      probe.onerror = next;
+      const timer = setTimeout(next, 6000);
+      probe.load();
     };
     const tick = ()=>{
-      if(st.dead) return;
+      if(st.dead || !st.cur) return;
       const el = st.cur;
       const d = el.duration;
       if(!d || !isFinite(d)) return;
@@ -1008,14 +1178,7 @@ const AudioSys = {
         if(onActive) onActive(n);
       }
     };
-    st.timer = setInterval(tick, 400);
-    // 等元数据就绪再起播（否则 duration 未知，tick 白跑）
-    let started = false;
-    const go = ()=>{ if(started) return; started = true; startPair(); };
-    a.onloadedmetadata = go;
-    a.oncanplaythrough = go;
-    setTimeout(go, 1500);                 // 兜底
-    st.stop = ()=>{ st.dead = true; clearInterval(st.timer); };
+    tryStart(0);
     return st;
   },
   /** 音量线性渐变（毫秒） */
@@ -1047,18 +1210,27 @@ const AudioSys = {
     // 交叉淡出旧 BGM
     if(this.bgmEl){ fade(this.bgmEl, 0, 900); const o=this.bgmEl; this.bgmEl=null;
       setTimeout(()=>{ try{o.pause();}catch(e){} }, 1000); }
-    // 试文件
-    try{
-      const a = new Audio("audio/bgm/"+mood+".mp3");
-      a.loop = true; a.preload = "auto"; a.volume = 0;
-      let settled = false;
-      a.oncanplaythrough = ()=>{ if(settled) return; settled = true;
-        this.bgmEl = a; const p=a.play(); if(p&&p.catch) p.catch(()=>{});
-        fade(a, this.BGM_VOL, 1000); };
-      a.onerror = ()=>{ if(settled) return; settled = true; this.bgmSynth(mood); };
-      setTimeout(()=>{ if(!settled){ settled = true; this.bgmSynth(mood); } }, 1200);
-      a.load();
-    }catch(e){ this.bgmSynth(mood); }
+    // 试文件（候选：audio/bgm/<mood>.mp3 → audio/bgm/sfx-<mood>.mp3，与音效层共用一套解析）
+    const cands = this.mediaCandidates("audio/bgm/"+mood+".mp3", "sfx-");
+    let done = false;
+    const fail = ()=>{ if(done) return; done = true; if(this.curMood===mood) this.bgmSynth(mood); };
+    const tryBgm = (i)=>{
+      if(done || this.curMood !== mood) return;
+      if(i >= cands.length) return fail();
+      try{
+        const a = new Audio(cands[i]);
+        a.loop = true; a.preload = "auto"; a.volume = 0;
+        let settled = false;
+        a.oncanplaythrough = ()=>{ if(settled) return; settled = true; done = true;
+          if(this.curMood !== mood){ try{ a.pause(); }catch(e){} return; }   // 期间又切了情绪，别补播旧的
+          this.bgmEl = a; const p=a.play(); if(p&&p.catch) p.catch(()=>{});
+          fade(a, this.BGM_VOL, 1000); };
+        a.onerror = ()=>{ if(settled) return; settled = true; tryBgm(i+1); };
+        setTimeout(()=>{ if(!settled){ settled = true; tryBgm(i+1); } }, 1200);
+        a.load();
+      }catch(e){ fail(); }
+    };
+    tryBgm(0);
   },
   /** 程序化和弦兜底（原实现，素材缺失时用） */
   bgmSynth(mood){
@@ -1568,6 +1740,7 @@ function openInter(it){
   else if(it.type==="memory") startMemory(it);
   else if(it.type==="talk") startTalk(it);
   else if(it.type==="fight") startFight(it);
+  else if(it.type==="fight2") startFight2(it);
   else if(it.type==="mahjong") startMahjong(it);
   else if(it.type==="cook") startCook(it);
 }
@@ -1664,6 +1837,108 @@ function answer(btn, ok){
   },700);
 }
 
+/* ═══════════════ 公共：键盘输入总线（P1） ═══════════════
+   为什么需要它：原先 precision / startQTE / mashLoop / startDodge 各自
+   `window.addEventListener("keydown", ...)`，各有各的清理时机。这在"一个玩法同一时间只有一个"
+   的前提下勉强能跑，但有三个真实隐患：
+     ① precision() 的 keydown 监听**从来不摘**（只靠 done 标志位挡），打一局 10 回合就攒 20 个监听器；
+     ② 玩法之间会互相串：连打覆盖层开在打斗面板之上时，打斗的判定条监听还挂着，
+        按一次空格可能同时喂给两边；
+     ③ fight2 会有 4 套输入并存（预判/反击/蓄力/连打），再靠"各自 addEventListener"必然互相踩。
+
+   做法：**同一时间只允许一个 owner**。谁接管输入谁就把上一个替换掉 ——
+   这正是这些玩法的真实语义（进入连打就不该再响应判定条）。 */
+const InputBus = {
+  owner:null, _kd:null, _ku:null, _prev:null,
+  /** 接管键盘输入。owner 只是个调试用的名字，真正生效的是最后调用它的那一个。
+      handlers: { keydown(e), keyup(e) }，可只给一个。返回"归还"函数。 */
+  setOwner(owner, handlers){
+    this.release();                        // 先摘掉上一个 owner（含它自己的清理）
+    this.owner = owner; this._prev = null;
+    const h = handlers || {};
+    if(h.keydown){ this._kd = h.keydown; window.addEventListener("keydown", this._kd); }
+    if(h.keyup){   this._ku = h.keyup;   window.addEventListener("keyup",   this._ku); }
+    const self = this;
+    return function release(){ if(self.owner === owner) self.release(); };
+  },
+  /** 摘掉当前 owner 的监听。幂等，可重复调用。 */
+  release(){
+    if(this._kd){ window.removeEventListener("keydown", this._kd); this._kd = null; }
+    if(this._ku){ window.removeEventListener("keyup",   this._ku); this._ku = null; }
+    if(this._prev){ try{ this._prev(); }catch(e){} this._prev = null; }
+    this.owner = null;
+  },
+  /** 供测试断言：当前挂着的监听数量（应当 ≤1） */
+  activeCount(){ return (this._kd?1:0) + (this._ku?1:0); },
+};
+
+/* ═══════════════ 公共：时机判定条（P1） ═══════════════
+   打斗的「精准」与拳击馆的「蓄力反击」原本是两份几乎一样的光标+判定代码，
+   差别只在参数（速度 2.2 vs 1.6、时长 1.4s vs 无限、完美区来源）与出口。
+   合成一条后：多区间、自定义速度/时长/超时归属，都由参数决定。
+
+   zones: [{pct:[起,止], grade:"perfect"}]   —— pct 是 0~1 的**相对位置**，不是百分比
+     · 相对区间：相对整条轨道（qte 的绿区就是这样）
+     · 嵌套区间：pct 再加 relTo:"zone"，则按外层区间的宽度取比例（打斗的完美区就是这样）
+   超时（duration 到）与光标停在"没有任何区间覆盖"的位置，都判 miss。 */
+function judgeBar(o){
+  const els = o.els || {};
+  const bar = els.bar, zoneEl = els.zone, cur = els.cursor;
+  const speed = o.speed === undefined ? 2.2 : o.speed;
+  const duration = o.duration || 0;                 // 0 = 不超时（等玩家点）
+  const w = o.width, left = o.left;
+  const zones = (o.zones || []).slice();
+
+  if(els.perfect){                                  // 打斗面板里的完美区是 zone 的子元素
+    const pz = zones.filter(z=>z.relTo === "zone")[0];
+    if(pz) els.perfect.style.width = ((pz.pct[1]-pz.pct[0])*100) + "%";
+  }
+  if(zoneEl){ zoneEl.style.left = left + "%"; zoneEl.style.width = w + "%"; }
+  if(bar && o.show){ bar.style.display = o.show; }
+
+  /* 命中哪个区间：先按整条轨道的区间判，再判嵌套在 zone 里的区间（更精确的优先） */
+  function gradeAt(pos){
+    let g = "miss";
+    for(const z of zones){
+      if(z.relTo === "zone"){
+        const a = left + w*z.pct[0], b = left + w*z.pct[1];
+        if(pos >= a && pos <= b) return z.grade;
+      } else {
+        const a = z.pct[0]*100, b = z.pct[1]*100;
+        if(pos >= a && pos <= b) g = z.grade;
+      }
+    }
+    return g;
+  }
+
+  let pos = 0, dir = 1, done = false;
+  const t0 = performance.now();
+  const release = InputBus.setOwner(o.owner || "judgeBar", {
+    keydown(e){ if(e.code === "Space" || e.code === "Enter"){ e.preventDefault(); click(); } },
+  });
+  const onClick = (e)=>{ if(e && e.stopPropagation) e.stopPropagation(); click(); };
+  if(bar) bar.onclick = onClick;
+
+  function finish(grade){
+    if(done) return; done = true;
+    release();
+    if(bar){ bar.onclick = null; if(o.show) bar.style.display = "none"; }
+    if(o.onDone) o.onDone(grade);
+  }
+  function click(){ if(done) return; finish(gradeAt(pos)); }
+  function tick(now){
+    if(done) return;
+    if(duration && (now - t0)/1000 > duration){ finish(gradeAt(pos)); return; }   // 到点就按当前位置算
+    pos += dir*speed;
+    if(pos >= 100){ pos = 100; dir = -1; }
+    if(pos <= 0){ pos = 0; dir = 1; }
+    if(cur) cur.style.left = pos + "%";
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+  return { click: click, get pos(){ return pos; }, get done(){ return done; }, finish: finish };
+}
+
 /* ── QTE（timing / mash 双模式） ── */
 function startQTE(it){
   $("qte").classList.add("on");
@@ -1671,49 +1946,57 @@ function startQTE(it){
   $("qteSub").innerHTML=it.sub||"光标进入绿色区间时按 <b style='color:#fff'>空格 / 点击</b> —— 体魄越强，绿区越宽";
   if(it.mode==="mash") return startMash(it);
   $("qteTrack").style.display="block"; $("qteMash").style.display="none";
-  const zone=$("qteZone"), cur=$("qteCursor"), hint=$("qteHint");
+  const hint=$("qteHint");
   const bf=takeBuff(); const width=Math.min(50, 14 + S.stats.phy*0.8 + ((bonus().window||0)+(bf.window||0))*100);
   const left=8+Math.random()*(84-width);
-  zone.style.left=left+"%"; zone.style.width=width+"%";
   hint.textContent="雷姐出拳了——！！";
-  let pos=0, dir=1, alive=true;
-  function tick(){ if(!alive) return;
-    pos+=dir*1.6; if(pos>=100){pos=100;dir=-1;} if(pos<=0){pos=0;dir=1;}
-    cur.style.left=pos+"%"; requestAnimationFrame(tick); }
-  requestAnimationFrame(tick);
-  function judge(){ if(!alive) return; alive=false; cleanup();
-    const inZone=pos>=left && pos<=left+width;
-    const perfect=inZone && pos>=left+width*0.3 && pos<=left+width*0.7;
-    $("qte").classList.remove("on");
-    if(perfect){ S.koPerfect=true; AudioSys.good(); afterInter(it.perfect, "完美闪避 · 反击命中！"); }
-    else if(inZone){ AudioSys.ding(); afterInter(it.ok, "闪避成功"); }
-    else { AudioSys.bad(); afterInter(it.miss, "硬接了一拳（惨胜）"); } }
-  function onKey(e){ if(e.code==="Space"){ e.preventDefault(); judge(); } }
-  function onClick(){ judge(); }
-  function cleanup(){ window.removeEventListener("keydown",onKey); $("qte").removeEventListener("click",onClick); }
-  window.addEventListener("keydown",onKey); $("qte").addEventListener("click",onClick);
+  /* 判定与视觉都走公共判定条。注意：这里**没有** duration ——
+     拳击馆这一场是"等玩家按"，不是限时判定（与改版前行为一致）。 */
+  judgeBar({
+    owner:"qte-timing", speed:1.6, duration:0, width:width, left:left, show:"block",
+    els:{ bar:$("qteTrack"), zone:$("qteZone"), cursor:$("qteCursor") },
+    zones:[ {pct:[0.30,0.70], grade:"perfect"}, {pct:[0,1], grade:"ok"} ],
+    onDone(grade){
+      $("qte").classList.remove("on");
+      if(grade==="perfect"){ S.koPerfect=true; AudioSys.good(); afterInter(it.perfect, "完美闪避 · 反击命中！"); }
+      else if(grade==="ok"){ AudioSys.ding(); afterInter(it.ok, "闪避成功"); }
+      else { AudioSys.bad(); afterInter(it.miss, "硬接了一拳（惨胜）"); }
+    },
+  });
 }
-function startMash(it){
+/* ── 连打（可复用）──
+   抽出来的原因：打斗的「组合拳二段」也要用同一条连打条（见 comboMash）。
+   原先它写死在 startMash 里、结尾固定走 afterInter，别处没法复用。
+   opts 默认值与原实现完全一致，所以拳击馆/拼酒两个节点的行为一字未变。 */
+function mashLoop(opts, onEnd){
+  const o = Object.assign({ NEED:14, OK:9, SECS:6 }, opts||{});
+  $("qte").classList.add("on");
   $("qteTrack").style.display="none"; $("qteMash").style.display="block";
   const fill=$("qteMashFill"), hint=$("qteHint");
-  const NEED=14, OK=9, SECS=6;
   let count=0, alive=true;
   fill.style.width="0%";
-  hint.textContent=`${SECS} 秒内连打！目标 ${NEED} 次 —— 当前 0`;
+  hint.textContent=`${o.SECS} 秒内连打！目标 ${o.NEED} 次 —— 当前 0`;
   function tap(){ if(!alive) return; count++;
     AudioSys.blip(400+count*24, 0.04, "square", 0.08);
-    fill.style.width=Math.min(100, count/NEED*100)+"%";
-    hint.textContent=`目标 ${NEED} 次 —— 当前 ${count} 次`; }
-  function onKey(e){ if(e.code==="Space"){ e.preventDefault(); tap(); } }
+    fill.style.width=Math.min(100, count/o.NEED*100)+"%";
+    hint.textContent=`目标 ${o.NEED} 次 —— 当前 ${count} 次`; }
+  const release = InputBus.setOwner("mash", {
+    keydown(e){ if(e.code==="Space" || e.code==="Enter"){ e.preventDefault(); tap(); } },
+  });
   function onClick(){ tap(); }
-  function cleanup(){ window.removeEventListener("keydown",onKey); $("qte").removeEventListener("click",onClick); }
-  window.addEventListener("keydown",onKey); $("qte").addEventListener("click",onClick);
+  $("qte").addEventListener("click",onClick);
+  function cleanup(){ release(); $("qte").removeEventListener("click",onClick); }
   setTimeout(()=>{ if(!alive) return; alive=false; cleanup();
     $("qte").classList.remove("on");
-    if(count>=NEED){ AudioSys.good(); afterInter(it.perfect, `拼酒大胜（${count} 连）`); }
-    else if(count>=OK){ AudioSys.ding(); afterInter(it.ok, `撑住了（${count} 连）`); }
+    onEnd(count);
+  }, o.SECS*1000);
+}
+function startMash(it){
+  mashLoop(null, (count)=>{
+    if(count>=14){ AudioSys.good(); afterInter(it.perfect, `拼酒大胜（${count} 连）`); }
+    else if(count>=9){ AudioSys.ding(); afterInter(it.ok, `撑住了（${count} 连）`); }
     else { AudioSys.bad(); afterInter(it.miss, `被灌倒了（${count} 连）——但合同没签`); }
-  }, SECS*1000);
+  });
 }
 
 /* ── 小游戏：数据洪流 · 躲（chase 节点） ── */
@@ -1733,11 +2016,11 @@ function startDodge(it){
   }
   function onKeyUp(e){ keys[e.code]=false; }
   function onMove(e){ const r=cv.getBoundingClientRect(); px=Math.max(0,Math.min(W,(e.clientX-r.left)/r.width*W)); }
-  window.addEventListener("keydown",onKey); window.addEventListener("keyup",onKeyUp);
+  const releaseKeys = InputBus.setOwner("dodge", { keydown:onKey, keyup:onKeyUp });
   cv.addEventListener("mousemove",onMove);
   cv.addEventListener("touchmove",e=>{ const t=e.touches[0]; if(t) onMove(t); e.preventDefault(); },{passive:false});
 
-  function cleanup(){ alive=false; window.removeEventListener("keydown",onKey); window.removeEventListener("keyup",onKeyUp); }
+  function cleanup(){ alive=false; releaseKeys(); }
 
   function frame(now){
     if(!alive) return;
@@ -2212,7 +2495,19 @@ function startTalk(it){
   renderTalk();
 }
 
-/* ── 打斗系统（把视频里的打斗变成回合制格斗：行动力 + 明牌意图 + 精准 QTE 加成） ── */
+/* ── 打斗系统（把视频里的打斗变成回合制格斗：行动力 + 明牌意图 + 精准 QTE 加成） ──
+   判定分三档（v2.0）：原先只有"进绿区/没进"两档，手操技术与手感不产生梯度。
+   现在绿区中央 30% 是「完美」，两侧是「良好」，绿区外是「偏出」——
+   偏出刻意不给 0 倍：每回合都要有推进，避免连续 miss 之后进入长达一分钟的垃圾时间，
+   惩罚改用"节奏丢失"（倍率降低 + 无顿帧 + 打空音）来体现。 */
+const FIGHT_GRADE_MULT = { perfect:1.9, good:1.3, miss:0.7 };
+/** 判定区中心 30% 为完美区。pos/left/w 都是百分比（0~100） */
+function judgeGrade(pos, left, w){
+  const right = left + w;
+  if(pos < left || pos > right) return "miss";
+  const pw = w * 0.30, pl = left + w/2 - pw/2;
+  return (pos >= pl && pos <= pl + pw) ? "perfect" : "good";
+}
 const FIGHT_FOE_I = [
   {n:"直 拳", dmg:9,  say:"他压低重心，一记直拳。"},
   {n:"连 击", dmg:6, x2:1, say:"他左右开弓，两下连击。"},
@@ -2249,6 +2544,9 @@ function startFight(it){
       if(read>0) dmg=Math.round(dmg*0.75);
       const blocked=Math.min(guard,dmg); guard-=blocked; dmg-=blocked; if(dmg<0) dmg=0;
       hp-=dmg;
+      // 挨打音：有实音用实音，没有回落合成音
+      if(blocked>0 && dmg===0){ if(!AudioSys.play("sfx-fight-block")) AudioSys.ding(); }
+      else if(dmg>0){ if(!AudioSys.play("sfx-fight-hurt")) AudioSys.bad(); }
       push(`<b>${fm.n}</b> ${fm.say} <span style="color:#ff4d6d">你受到 ${dmg} 伤害${blocked?`（格挡抵消 ${blocked}）`:""}</span>`);
     }
     turn++; ap=3; read=0;
@@ -2256,42 +2554,77 @@ function startFight(it){
     if(turn>12) return finish(foeHp<foeMax*0.5);
     renderFight();
   }
-  /* 精准判定：内嵌 1.4 秒时机条 */
+  /* 精准判定：走公共判定条（1.4 秒限时，绿区中央 30% 为完美区，见 judgeGrade）
+     ⚠ 必须同时给"良好区"和"完美区"两条：良好区 = 整条绿区（relTo:"zone" 的 [0,1]），
+       完美区 = 绿区中央 30%。
+       只给完美区会退化成"完美或偏出"两档 —— 绿区里但不在中央的那一段会被判成打空
+       （这个回归被 tests/fight-loop.test.cjs 的「良好」那一组抓出来过）。 */
   function precision(cb){
-    const bar=$("fightBar"); bar.style.display="block";
-    const zone=$("fightZone"), cur=$("fightCur");
     const w=Math.max(14,Math.min(46,QTE_W*100));
     const left=8+Math.random()*(84-w);
-    zone.style.left=left+"%"; zone.style.width=w+"%";
-    let pos=0, dir=1, done=false;
-    const t0=performance.now();
-    function tick(now){
-      if(done) return;
-      const el=(now-t0)/1000;
-      if(el>1.4){ done=true; bar.style.display="none"; return cb(false); }
-      pos+=dir*2.2; if(pos>=100){pos=100;dir=-1;} if(pos<=0){pos=0;dir=1;}
-      cur.style.left=pos+"%";
-      requestAnimationFrame(tick);
-    }
-    function click(){ if(done) return; done=true; bar.style.display="none";
-      const hit=pos>=left && pos<=left+w;
-      AudioSys[hit?"good":"bad"]();
-      cb(hit);
-    }
-    bar.onclick=(e)=>{ e.stopPropagation(); click(); };
-    window.addEventListener("keydown",function onK(e){ if(e.code==="Space"){ e.preventDefault(); window.removeEventListener("keydown",onK); click(); } });
-    requestAnimationFrame(tick);
+    judgeBar({
+      owner:"fight-precision", speed:2.2, duration:1.4, width:w, left:left, show:"block",
+      els:{ bar:$("fightBar"), zone:$("fightZone"), cursor:$("fightCur"), perfect:$("fightZonePerfect") },
+      zones:[ {pct:[0.35,0.65], grade:"perfect", relTo:"zone"}, {pct:[0,1], grade:"good", relTo:"zone"} ],
+      onDone(grade){
+        // 音效按档位分：完美/良好/打空 三条实音（audio/sfx/sfx-fight-*.mp3），缺失则各自回落。
+        // ⚠ 播放不要和玩法结算绑在一条语句上：素材缺失/浏览器拒绝播放时 play() 会**抛异常**，
+        //    那样 cb(grade) 就永远执行不到，玩家会看到"按了没反应、这一招白打"的死局。
+        try{
+          if(grade==="perfect"){ if(!AudioSys.play("sfx-fight-perfect")) AudioSys.good(); }
+          else if(grade==="good"){ if(!AudioSys.play("sfx-fight-hit")) AudioSys.ding(); }
+          else { if(!AudioSys.play("sfx-fight-whiff")) AudioSys.bad(); }
+        }catch(e){ /* 音频层出问题绝不能影响判定 */ }
+        cb(grade);
+      },
+    });
   }
+  /* 命中结算：mult 由三档判定给出（见 FIGHT_GRADE_MULT）
+     注意这里显式 renderFight()：组合拳的一段命中后会弹出连打覆盖层，
+     若只依赖 after()，一段的伤害要等连打结束才显示 —— 玩家会以为"刚才那下没打中"。 */
   function hitFoe(dmg,label,precise,cb){
-    const apply=(mult)=>{ const d=Math.round(dmg*mult); foeHp-=d;
-      push(`${label} <span style="color:#5dffa0">造成 ${d} 伤害${mult>1?" · 精准命中！":""}</span>`);
-      AudioSys[mult>1?"good":"ding"](); if(foeHp<=0) return finish(true); cb&&cb(); };
-    if(precise) precision(ok=>apply(ok?1.9:1)); else apply(1);
+    const apply=(mult,grade)=>{ const d=Math.round(dmg*mult); foeHp-=d;
+      const tag = grade==="perfect" ? ` <span style="color:#ffd76e">完美命中 ×${FIGHT_GRADE_MULT.perfect}！</span>`
+                : grade==="good"    ? ` <span style="color:#5dffa0">命中 ×${FIGHT_GRADE_MULT.good}</span>`
+                : grade==="miss"    ? ` <span style="color:#8a87a3">偏出 ×${FIGHT_GRADE_MULT.miss}</span>` : "";
+      push(`${label} <span style="color:#5dffa0">造成 ${d} 伤害</span>${tag}`);
+      if(grade!=="perfect") AudioSys[grade==="miss"?"bad":"ding"]();
+      renderFight();                                   // 立刻反映血量/日志，哪怕后面还有连打
+      // ⚠ 必须把 grade 传给回调：组合拳靠它判断"一段打空就不接连打"（g==="miss"）。
+      //    写成 cb&&cb() 的话回调收到 undefined，空挥也会照样弹连打条。
+      if(foeHp<=0) return finish(true); cb&&cb(grade); };
+    if(precise) precision(g=>apply(FIGHT_GRADE_MULT[g]||1, g));
+    else apply(1);
+  }
+  /* 组合拳尾段 · 连打定伤（P0·3）
+     连打次数越多，第二段打得越重：8 + floor(命中数/3) —— 上限约 +4。
+     复用 qte 覆盖层的连打条（.mashbar），并把窗口收紧到 4 秒，
+     否则每打一次组合拳都要花 6 秒，会把战斗节奏拖垮。 */
+  function comboMash(cb){
+    mashLoop({SECS:4, NEED:10, OK:6}, c=>{
+      if(c>=10)      { if(!AudioSys.play("sfx-fight-perfect")) AudioSys.good(); }
+      else if(c>=6)  { if(!AudioSys.play("sfx-fight-hit")) AudioSys.ding(); }
+      else           { if(!AudioSys.play("sfx-fight-whiff")) AudioSys.bad(); }
+      const bonus=Math.min(4, Math.floor(c/3));
+      cb({ count:c, bonus, hit:c>=6 });
+    });
   }
   function act(kind){
     if(!alive || ap<=0) return;
     if(kind==="jab"){ if(ap<1) return; ap-=1; hitFoe(12,"你：<b>直拳</b>",true,after); }
-    else if(kind==="combo"){ if(ap<2) return; ap-=2; hitFoe(8,"你：<b>组合拳</b>",true,after); }
+    else if(kind==="combo"){
+      if(ap<2) return; ap-=2;
+      // 第一段走三档判定；命中才接连打尾段（打空就没有第二段，避免"空挥也连打"）
+      hitFoe(8,"你：<b>组合拳 · 一段</b>",true,g=>{
+        if(!alive) return;
+        if(g==="miss"){ push(`<span style="color:#8a87a3">一段偏出，连打没接上。</span>`); return after(); }
+        comboMash(r=>{
+          if(!alive) return;
+          if(r.bonus>0) hitFoe(r.bonus,"你：<b>组合拳 · 二段</b>",false,after);
+          else { push(`<span style="color:#8a87a3">连打只中了 ${r.count} 下，二段没打出去。</span>`); after(); }
+        });
+      });
+    }
     else if(kind==="low"){ if(ap<2) return; ap-=2; hitFoe(16,"你：<b>低扫</b>",false,after); }
     else if(kind==="guard"){ if(ap<1) return; ap-=1; guard+=16; push(`你：<b>抱架</b> <span style="color:#5dffa0">格挡 +16</span>`); after(); }
     else if(kind==="read"){ if(ap<1) return; ap-=1; read=1; push(`你：<b>读招</b> <span style="color:#b07dff">看穿了他的节奏，本回合受伤 −25%</span>`); after(); }
@@ -2299,12 +2632,186 @@ function startFight(it){
   function after(){ if(!alive) return; if(ap<=0) endTurn(); else renderFight(); }
   function finish(win){
     alive=false; $("fight").classList.remove("on"); $("fightBar").style.display="none";
-    if(win){ S.fightWon=true; AudioSys.good(); afterInter(it.perfect, `打赢了（剩余生命 ${Math.max(0,hp)}）`); }
-    else { AudioSys.bad(); afterInter(it.miss, "被打倒了——但你没让他们占到便宜"); }
+    if(win){ S.fightWon=true; if(!AudioSys.play("sfx-fight-win")) AudioSys.good();
+      afterInter(it.perfect, `打赢了（剩余生命 ${Math.max(0,hp)}）`); }
+    else { if(!AudioSys.play("sfx-fight-lose")) AudioSys.bad();
+      afterInter(it.miss, "被打倒了——但你没让他们占到便宜"); }
   }
   document.querySelectorAll("#fightBtns .mbtn").forEach(x=>{ x.onclick=()=>act(x.dataset.act); });
   window.__cs2.fight={ get hp(){return hp}, get foeHp(){return foeHp}, get ap(){return ap}, get turn(){return turn}, act, auto:()=>{ if(ap>=1) act("jab"); else endTurn(); } };
   push(`对手摆开架势。`); renderFight();
+}
+
+/* ═══════════════ 打斗 2.0（fight2）—— P1 骨架 ═══════════════
+   与旧 startFight 并行的新玩法。P1 只搭骨架：判定条/音效/结算出口都接好，
+   先把"能不能跑通、测试接口顺不顺手"验证掉，机制（距离轴 / 体干 / AI 权重状态机）
+   按 docs/打斗2.0-设计方案.md 的 P2–P4 逐步加进来。
+
+   为什么另起一套而不是原地改旧 fight：
+     · 旧 fight 绑在 brawl 节点上，11 类玩法的完整性与既有存档依赖它；
+     · 新机制要动状态结构，原地改会一路追着 bug 跑，也没法 A/B 对比手感。
+   两条硬约束（§5.1 的坑）：
+     · DOM id 全部另起 —— 旧实现有 `querySelectorAll("#fightBtns .mbtn")` 的全局绑定；
+     · 玩家状态不进存档，跨节点的成长才进，且要在 restore() 里补默认值。
+
+   出口与本作其它玩法一致：结果走 afterInter(it.perfect/ok/miss, 说明)，
+   所以节点数据、flags、成就、结算卡全都不用改。 */
+const FIGHT2_MOVES = {
+  jab:   { n:"直 拳", ap:1, dmg:12, precise:true,  desc:"1 行动力 · 12 · 精准" },
+  combo: { n:"组合拳", ap:2, dmg:8,  precise:true,  mash:true, desc:"2 行动力 · 8 + 连打" },
+  low:   { n:"低 扫", ap:2, dmg:16, precise:false, desc:"2 行动力 · 16" },
+  guard: { n:"抱 架", ap:1, guard:16,             desc:"1 行动力 · 格挡 +16" },
+  read:  { n:"读 招", ap:1, read:true,             desc:"1 行动力 · 公示意图" },
+};
+function startFight2(it){
+  $("fight2").classList.add("on");
+  $("fight2Title").textContent = it.title || "拳台对决 2.0";
+  const bf = takeBuff(), b = bonus();
+  const maxHp = 70 + Math.round(S.stats.phy * 1.6) + (b.hp||0) + (bf.hp||0);
+  const QTE_W = 0.10 + (b.window||0) + (bf.window||0);
+  const zonesW = Math.max(14, Math.min(46, QTE_W * 100));
+  let hp = maxHp, foeHp = it.hp || 74, foeMax = foeHp;
+  let turn = 1, ap = 3, alive = true, guard = 0, read = 0;
+  const log = [];
+  $("fight2Sub").innerHTML = `生命 <b>${maxHp}</b>（体魄加成）· 每回合 3 行动力 · 带【精准】的招式会触发时机判定，` +
+    `命中伤害 ×<b>${FIGHT_GRADE_MULT.perfect}</b>` + `（骨架版：距离轴 / 体干 / AI 状态机见 P2–P4）`;
+
+  function push(s){ log.push(s); }
+  function render(){
+    $("fight2HpMine").style.width = Math.max(0, hp/maxHp*100) + "%";
+    $("fight2HpFoe").style.width  = Math.max(0, foeHp/foeMax*100) + "%";
+    $("fight2Num").innerHTML = `你 <b>${Math.max(0,hp)}</b> / 对手 <b>${Math.max(0,foeHp)}</b> · 第 <b>${turn}</b> 回合 · 行动力 ` +
+      "●".repeat(Math.max(0,ap)) + "○".repeat(Math.max(0,3-ap)) + (guard>0?` · 格挡 ${guard}`:"");
+    $("fight2Foe").innerHTML = read > 0
+      ? `对手下一步：<b>${FIGHT_FOE_I[(turn-1)%FIGHT_FOE_I.length].n}</b> <span style="color:#b07dff">（读招生效）</span>`
+      : `对手摆开架势<span style="color:#8a87a3">（用「读招」看穿他的节奏）</span>`;
+    $("fight2Log").innerHTML = log.slice(-6).map(s=>`<div class="trow">${s}</div>`).join("");
+    $("fight2Log").scrollTop = $("fight2Log").scrollHeight;
+  }
+  function endTurn(){
+    const fm = FIGHT_FOE_I[(turn-1) % FIGHT_FOE_I.length];
+    if(fm.block){ push(`<b>${fm.n}</b> ${fm.say} <span style="color:#8a87a3">他获得 ${fm.block} 格挡</span>`); }
+    else {
+      let dmg = fm.dmg * (fm.x2?2:1);
+      if(read>0) dmg = Math.round(dmg*0.75);
+      const blocked = Math.min(guard, dmg); guard -= blocked; dmg -= blocked;
+      hp -= dmg;
+      try{
+        if(blocked>0 && dmg===0){ if(!AudioSys.play("sfx-fight-block")) AudioSys.ding(); }
+        else if(dmg>0){ if(!AudioSys.play("sfx-fight-hurt")) AudioSys.bad(); }
+      }catch(e){}
+      push(`<b>${fm.n}</b> ${fm.say} <span style="color:#ff4d6d">你受到 ${dmg} 伤害${blocked?`（格挡抵消 ${blocked}）`:""}</span>`);
+    }
+    turn++; ap = 3; read = 0;
+    if(hp<=0) return finish(false);
+    if(turn>12) return finish(foeHp < foeMax*0.5);
+    render();
+  }
+  function precision(cb){
+    const left = 8 + Math.random()*(84-zonesW);
+    judgeBar({
+      owner:"fight2-precision", speed:2.2, duration:1.4, width:zonesW, left:left, show:"block",
+      els:{ bar:$("fight2Bar"), zone:$("fight2Zone"), cursor:$("fight2Cur"), perfect:$("fight2ZonePerfect") },
+      // 两条区间缺一不可：完美区（中央 30%）+ 良好区（整条绿区）
+      zones:[ {pct:[0.35,0.65], grade:"perfect", relTo:"zone"}, {pct:[0,1], grade:"good", relTo:"zone"} ],
+      onDone(grade){
+        try{
+          if(grade==="perfect"){ if(!AudioSys.play("sfx-fight-perfect")) AudioSys.good(); }
+          else if(grade==="good"){ if(!AudioSys.play("sfx-fight-hit")) AudioSys.ding(); }
+          else { if(!AudioSys.play("sfx-fight-whiff")) AudioSys.bad(); }
+        }catch(e){}
+        cb(grade);
+      },
+    });
+  }
+  function hitFoe(dmg, label, precise, cb){
+    const apply = (mult, grade)=>{
+      const d = Math.round(dmg*mult); foeHp -= d;
+      const tag = grade==="perfect" ? ` <span style="color:#ffd76e">完美命中 ×${FIGHT_GRADE_MULT.perfect}！</span>`
+                : grade==="good"    ? ` <span style="color:#5dffa0">命中 ×${FIGHT_GRADE_MULT.good}</span>`
+                : grade==="miss"    ? ` <span style="color:#8a87a3">偏出 ×${FIGHT_GRADE_MULT.miss}</span>` : "";
+      push(`${label} <span style="color:#5dffa0">造成 ${d} 伤害</span>${tag}`);
+      render();
+      if(foeHp<=0) return finish(true);
+      cb && cb(grade);
+    };
+    if(precise) precision(g=>apply(FIGHT_GRADE_MULT[g]||1, g));
+    else apply(1);
+  }
+  function comboMash(cb){
+    mashLoop({SECS:4, NEED:10, OK:6}, c=>{
+      try{
+        if(c>=10){ if(!AudioSys.play("sfx-fight-perfect")) AudioSys.good(); }
+        else if(c>=6){ if(!AudioSys.play("sfx-fight-hit")) AudioSys.ding(); }
+        else { if(!AudioSys.play("sfx-fight-whiff")) AudioSys.bad(); }
+      }catch(e){}
+      cb({ count:c, bonus:Math.min(4, Math.floor(c/3)), hit:c>=6 });
+    });
+  }
+  function after(){ if(!alive) return; if(ap<=0) endTurn(); else render(); }
+  function act(kind){
+    if(!alive || ap<=0) return;
+    /* 跳过战斗：按双方**剩余血量比例**判胜负（给不想打的玩家一条出路）。
+       ⚠ 两个坑都踩过：
+         ① 别写成 `foeHp < foeMax*0.5`（"对手掉到半血以下"）—— 开局就成立，等于跳过必赢；
+         ② 别写成 `hp/maxHp > foeHp/foeMax` —— 双方满血时 1 > 1 是 false，
+            会把"势均力敌"判成输。用 >=：没吃更多亏就算过关。 */
+    if(kind==="skip") return finish(hp/maxHp >= foeHp/foeMax, true);
+    const mv = FIGHT2_MOVES[kind];
+    if(!mv || ap < mv.ap) return;
+    ap -= mv.ap;
+    if(kind==="guard"){ guard += mv.guard; push(`你：<b>抱架</b> <span style="color:#5dffa0">格挡 +${mv.guard}</span>`); return after(); }
+    if(kind==="read"){ read = 1; push(`你：<b>读招</b> <span style="color:#b07dff">看穿了他的节奏，本回合受伤 −25%</span>`); return after(); }
+    if(kind==="combo"){
+      hitFoe(mv.dmg, "你：<b>组合拳 · 一段</b>", true, g=>{
+        if(!alive) return;
+        if(g==="miss"){ push(`<span style="color:#8a87a3">一段偏出，连打没接上。</span>`); return after(); }
+        comboMash(r=>{
+          if(!alive) return;
+          if(r.bonus>0) hitFoe(r.bonus, "你：<b>组合拳 · 二段</b>", false, after);
+          else { push(`<span style="color:#8a87a3">连打只中了 ${r.count} 下，二段没打出去。</span>`); after(); }
+        });
+      });
+      return;
+    }
+    hitFoe(mv.dmg, `你：<b>${mv.n}</b>`, mv.precise, after);
+  }
+  function finish(win, skipped){
+    if(!alive) return;
+    alive = false;
+    $("fight2").classList.remove("on");
+    $("fight2Bar").style.display = "none";
+    /* ⚠ 文案必须按分支各写一份。
+       早先这里把 why 算成"打赢了…"再两个分支共用 —— 结果是输了也显示"打赢了"，
+       而且带着"跳过战斗"前缀的句子会跑到 miss 分支上去（测试抓到的）。 */
+    const tail = skipped ? "（跳过战斗）" : "";
+    if(win){ S.fightWon = true; try{ if(!AudioSys.play("sfx-fight-win")) AudioSys.good(); }catch(e){}
+      afterInter(it.perfect, `打赢了${tail}（剩余生命 ${Math.max(0,hp)}）`); }
+    else { try{ if(!AudioSys.play("sfx-fight-lose")) AudioSys.bad(); }catch(e){}
+      afterInter(it.miss || it.ok, `被打倒了${tail}——但你没让他们占到便宜`); }
+  }
+  document.querySelectorAll("#fight2Btns .mbtn").forEach(x=>{ x.onclick = ()=>act(x.dataset.act); });
+  // 测试接口：与旧 fight 同风格，另加 state() 全量快照，方便断言不必读 DOM
+  window.__cs2.fight2 = {
+    get hp(){ return hp; }, get foeHp(){ return foeHp; }, get ap(){ return ap; },
+    get turn(){ return turn; }, get guard(){ return guard; }, get read(){ return read; },
+    get alive(){ return alive; },
+    act: act,
+    auto: ()=>{ if(ap>=1) act("jab"); else endTurn(); },
+    /* set() 是给测试/调试摆状态用的（P2–P4 要构造"残血""高体干"这类局面）。
+       只允许覆盖数值字段，写别的键直接忽略 —— 免得手滑把 act/finish 换掉。 */
+    set: (o)=>{ o = o || {};
+      if(typeof o.hp === "number") hp = o.hp;
+      if(typeof o.foeHp === "number") foeHp = o.foeHp;
+      if(typeof o.ap === "number") ap = o.ap;
+      if(typeof o.turn === "number") turn = o.turn;
+      if(typeof o.guard === "number") guard = o.guard;
+      if(typeof o.read === "number") read = o.read;
+      render(); return window.__cs2.fight2.state(); },
+    state: ()=>({ hp:hp, foeHp:foeHp, foeMax:foeMax, maxHp:maxHp, ap:ap, turn:turn,
+                  guard:guard, read:read, alive:alive, log:log.slice(-6) }),
+  };
+  push("对手摆开架势。"); render();
 }
 
 /* ═══════════════ 麻将 · 听牌挑战 ═══════════════ */
@@ -2725,6 +3232,14 @@ window.CS2_DEBUG = {
   bfStart: (id, o)=>{ $("title").classList.add("hide"); $("game").classList.add("on"); render(); return startBreakfastGame(id||"su", o||{}); },
   bfDebug: ()=> (window.Breakfast && Breakfast.debug) ? Breakfast.debug : null,
   bfState: ()=> (window.Breakfast && Breakfast.debug && Breakfast.debug.state) ? Breakfast.debug.state() : null,
+  /* ── 打斗 2.0 调试 ──
+     fight2() 直接开一场（不跑剧情）；fight2State() 读全量快照。
+     有了它就不用每次重跑 brawl2 的两段视频才能摸到判定条。 */
+  fight2: (it)=>{ $("title").classList.add("hide"); $("game").classList.add("on"); render();
+    startFight2(Object.assign({ type:"fight2", title:"一打二", hp:74,
+      perfect:{phy:14, cha:6}, ok:{phy:8, cha:3}, miss:{phy:4, cha:2} }, it||{}));
+    return window.__cs2.fight2; },
+  fight2State: ()=> (window.__cs2 && __cs2.fight2) ? __cs2.fight2.state() : null,
 };
 
 /* ═══════════════ 测试钩子（借鉴：显式 debug hook，供验收脚本读取内部状态） ═══════════════ */
@@ -2765,6 +3280,7 @@ function makeRain(){ const r=$("rain"); for(let i=0;i<60;i++){ const d=document.
 makeRain();
 $("dbgJump").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("negotiate"); });
 $("dbgFight").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("brawl"); });
+$("dbgFight2").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("brawl2"); });
 $("dbgMj").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("mahjong"); });
 /* ⚑ 跳到早餐店：数值沿用 debugState()，此时只有羁绊 20~79 的角色收得下早餐
    （hong 24 / man 24 可选；其余需先「全部解锁」或自行提升羁绊），面板空时 openBreakfast 会 toast 说明原因 */

@@ -1,0 +1,25 @@
+    let g = 0, stall = 0, lastSig = "";
+    while (g++ < 4000) {
+      const st = MJ.debug.state();
+      const E0 = MJ.debug.engine();
+      if (!st || st.phase === "over") break;
+      const n0 = MJ.debug.voiceStats().discN;
+      const robMine = st.phase === "rob" && E0 && E0.pending && E0.pending.seats && E0.pending.seats.indexOf(0) >= 0;
+      if (st.phase === "turn" && st.cur === 0) {
+        if (st.handCount % 3 === 2) { const h = MJ.debug.hand(); MJ.debug.act("discard", h[h.length - 1]); }
+        else MJ.debug.act("draw");
+      } else if (st.phase === "claim" && st.pending && st.pending.seat === 0) {
+        MJ.debug.act("pass");
+      } else if (robMine) {
+        MJ.debug.act("pass");                  // 抢杠窗口轮到自己：过（抢杠另有专门断言）
+      } else {
+        MJ.debug.step();                       // 与 pump() 同一条路径（aiStep + playNewSfx）
+      }
+      /* 只在**真的落了一张牌**时等那 260ms（落河 → 报牌）；别的步不必等，快进才跑得完整局 */
+      if (MJ.debug.voiceStats().discN > n0) await sleep(T.SAY_AFTER_DISCARD_MS + 30);
+      /* 卡死保护：连续 30 拍状态完全没变就记账退出，绝不让测试无限空转 */
+      const st2 = MJ.debug.state();
+      const sig = st2 ? (st2.phase + "|" + st2.cur + "|" + st2.logLen + "|" + st2.discards.join(",")) : "gone";
+      if (sig === lastSig) { if (++stall > 30) { simErr = "第 " + rounds + " 局卡在 " + sig; break; } }
+      else { stall = 0; lastSig = sig; }
+    }

@@ -32,7 +32,13 @@ GEN = os.path.join(HERE, "step_gen_audio.py")
 
 HONORS = ["东", "南", "西", "北", "中", "发", "白"]
 TILES = [f"{n}{s}" for n in "123456789" for s in ["万", "条", "筒"]] + HONORS
-CALLS = ["碰", "杠", "胡", "自摸", "抢杠", "杠开", "听", "过", "流局"]
+# ⚠⚠ 本文件的**字牌表已过期**，别整表直接跑（跑一次就会静默把新素材覆盖回旧念法）：
+#   ① HONORS 仍是旧念法（东/南/西/北/中/发/白）—— 素材侧早已改名 东风/红中/发财/白板；
+#   ② CALLS 已按用户新要求改成第一人称（碰→「我碰」、杠→「我杠」；**文件名不变**）。
+#   现在的权威词表在 tools/audio/gen_mj_bailian_tts.py（百炼 qwen3-tts，四个目录都用它重做）。
+#   确实要用本文件（StepAudio 座位音色）重做时，先把 HONORS 表同步成新念法。
+CALLS = [("碰", "我碰"), ("杠", "我杠"), ("胡", "胡"), ("自摸", "自摸"), ("抢杠", "抢杠"),
+         ("杠开", "杠开"), ("听", "听"), ("过", "过"), ("流局", "流局")]
 SILENT = ["暗杠", "补杠"]      # 手上动作，用牌碰声，不喊（TTS 做不了音效，沿用 Gen 版）
 
 # 座位 → 固定音色（与 index.html 的 cast 保持一致）
@@ -86,12 +92,15 @@ MOODS = {
 TILE_MOOD = "平静地"
 
 
-def job(word: str, seat: int, is_call: bool) -> dict:
+def job(word: str, seat: int, is_call: bool, spoken: str = None) -> dict:
+    """spoken = **念法**，允许与文件名不同：碰.mp3 念「我碰」、杠.mp3 念「我杠」。
+    用户要求第一人称报牌，但**文件名一个字都不能改**（玩法侧 voiceFile("碰") 指向 碰.mp3）。"""
     v = SEATS[seat]["voice"]
+    say = spoken if spoken else word
     if is_call:
-        text = f"（{MOODS.get(word, '自然地')}）{word}"
+        text = f"（{MOODS.get(word, '自然地')}）{say}"
     else:
-        text = f"（{TILE_MOOD}）{word}"
+        text = f"（{TILE_MOOD}）{say}"
     return {
         "file": word + ".mp3",
         "voice": v,
@@ -121,7 +130,8 @@ def main():
     only = {x.strip() for x in args.only.split(",") if x.strip()} if args.only else None
     by_seat = {}
     for s in seats:
-        items = [job(w, s, False) for w in TILES] + [job(w, s, True) for w in CALLS]
+        # CALLS 是 (文件基名, 念法) 对：碰.mp3 念「我碰」、杠.mp3 念「我杠」
+        items = [job(w, s, False) for w in TILES] + [job(w, s, True, t) for w, t in CALLS]
         if only:
             items = [j for j in items if j["file"][:-4] in only]
         by_seat[s] = items

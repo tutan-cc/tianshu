@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {
+      "file": "mahjong.js",
+      "from": "      step: dbgStep,\r\n      engine: function () { return G.E; },",
+      "text": "      step: dbgStep,\r\n      engine: function () { return G.E; },\r\n      /* 清空 Audio 缓存：测试要在同一个页面里整层换掉 Audio 实现（假 Audio 记账）。\r\n         不换的话 say() 会复用上一次缓存的旧 Audio 对象，播放流水/时序断言全乱。 */\r\n      voiceCacheClear: function () { VOICE_CACHE = Object.create(null); return true; },"
+    }
+  ]
+}

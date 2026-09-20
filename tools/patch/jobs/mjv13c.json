@@ -1,0 +1,14 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "    const handTile = MJ.debug.hand()[MJ.debug.hand().length - 1];\r\n    eq(MJ.debug.act(\"discard\", handTile), true, \"调试出牌（打 \" + handTile + \"）\");\r\n    eq(MJ.debug.voiceStats().last, T.voiceFile(handTile), \"自己出牌立刻播该牌牌名 → \" + T.voiceFile(handTile));\r\n    eq(MJ.debug.voiceStats().lastSeat, 0, \"播报来源标记为自己（seat=0）\");\r\n    ok(MJ.debug.voiceStats().lastUrl.indexOf(T.voiceFile(handTile)) >= 0, \"播报 URL 指向该牌素材 → \" + MJ.debug.voiceStats().lastUrl);",
+      "textFile": "tools/patch/text/mjv13_test5fix.txt"
+    },
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "    eq(MJ.debug.faceSheet(false), false, \"关闭牌面总览回到牌桌\");",
+      "textFile": "tools/patch/text/mjv13_test19b_ins.txt"
+    }
+  ]
+}

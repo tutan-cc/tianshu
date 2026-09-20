@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "    let g = 0;\r\n    while (g++ < 4000) {\r\n      const st = MJ.debug.state();\r\n      if (!st || st.phase === \"over\") break;\r\n      if (st.phase === \"turn\" && st.cur === 0) {\r\n        if (st.handCount % 3 === 2) { const h = MJ.debug.hand(); MJ.debug.act(\"discard\", h[h.length - 1]); }\r\n        else MJ.debug.act(\"draw\");\r\n      } else if (st.phase === \"claim\" && st.pending && st.pending.seat === 0) {\r\n        MJ.debug.act(\"pass\");\r\n      } else if (st.phase === \"rob\") {\r\n        MJ.debug.act(\"pass\");\r\n      } else {\r\n        MJ.debug.step();                       // 与 pump() 同一条路径（aiStep + playNewSfx）\r\n      }\r\n      await sleep(T.SAY_AFTER_DISCARD_MS + 34);\r\n    }",
+      "textFile": "tools/patch/text/mjv13_loopfix.txt"
+    }
+  ]
+}

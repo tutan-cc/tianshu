@@ -1,0 +1,10 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  /* ── ④ 快进整局，逐张对拍：报牌内容 == 牌河里那张牌 ── */",
+      "to": "  console.log(\"  AI 步进实测：\" + paceMin + \"~\" + paceMax + \"ms（下限 \" + T.AI_MIN_MS + \" · 出牌拍 \" + T.AI_DISCARD_MS + \" · 抖动上限 \" + T.AI_JITTER_MS + \"）\");",
+      "textFile": "tools/patch/text/mjv13_pairs.txt"
+    }
+  ]
+}

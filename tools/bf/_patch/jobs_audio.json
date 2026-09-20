@@ -1,0 +1,81 @@
+{
+ "note": "早餐店音效 / 顾客语音接入（bf-audio-1）",
+ "eol": "CRLF",
+ "jobs": [
+  {
+   "file": "breakfast.js",
+   "from": "  /* ═══════════════ 2. 运行时状态（纯数据，step() 驱动，无 DOM） ═══════════════ */",
+   "textFile": "tools/bf/_patch/audio_section_final.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      customers:[], stations:[], plates:[], floats:[], smoke:[], seq:1,",
+   "text": "      customers:[], stations:[], plates:[], floats:[], smoke:[], seq:1,\r\n      audio:newAudioState(),                       // 音效台账（滴答节奏 / 各通道节流时钟 / 计数）"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    /* 顾客耐心 */\r\n    var list = activeCustomers(st);\r\n    for (i = 0; i < list.length; i++) {\r\n      c = list[i];\r\n      if (remainOf(c) <= 0) { c.left = true; c.leftAt = st.elapsed; continue; }",
+   "text": "    /* 顾客耐心 */\r\n    var list = activeCustomers(st);\r\n    var leftNow = false;          // 本帧有没有人「等太久走掉」（同一帧多人也只播一次「哼，太慢了」）\r\n    for (i = 0; i < list.length; i++) {\r\n      c = list[i];\r\n      if (remainOf(c) <= 0) { c.left = true; c.leftAt = st.elapsed; continue; }"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "          ev.push({ t:\"leave\", id:c.id });",
+   "text": "          ev.push({ t:\"leave\", id:c.id });\r\n          leftNow = true;"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    /* 已完成的顾客留 0.5s 让飘字播完，然后离场（已完成的在出餐时就置 left） */\r\n    for (i = st.customers.length - 1; i >= 0; i--) {\r\n      c = st.customers[i];\r\n      if (c.left && c.leftAt !== undefined && st.elapsed - c.leftAt > 1.3) st.customers.splice(i, 1);",
+   "text": "    /* 已完成的顾客留 0.5s 让飘字播完，然后离场（已完成的在出餐时就置 left） */\r\n    for (i = st.customers.length - 1; i >= 0; i--) {\r\n      c = st.customers[i];\r\n      if (c.left && c.leftAt !== undefined && st.elapsed - c.leftAt > 1.3) st.customers.splice(i, 1);\r\n\r\n    /* 音效 / 顾客语音调度：放在顾客账算完**之后** —— 所以「顾客跑单 / 被服务完」当帧就会停滴答。\r\n       滴答的阈值 / 节奏 / 全局节流、以及「哼，太慢了」的只播一次，都在 stepAudio 里（纯函数可单测）。*/\r\n    stepAudio(st, leftNow);"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    return { ok:true, kind: perfect ? (tier === \"hot\" ? \"perfect-hot\" : \"perfect\") : \"over\",\r\n             food:foodId, state:foodState, heat:tier, delta:d, perfect:perfect, cookSec:cookSec, customer:c };",
+   "text": "    /* ② 拿到早餐 → 高兴地「呜呼～」：一次成功上餐只播一次；\r\n       糊的 / 上错的在上面两个分支就 return 了，不会响（那种情况顾客要走，不该欢呼）。 */\r\n    playHappy(st);\r\n    return { ok:true, kind: perfect ? (tier === \"hot\" ? \"perfect-hot\" : \"perfect\") : \"over\",\r\n             food:foodId, state:foodState, heat:tier, delta:d, perfect:perfect, cookSec:cookSec, customer:c };"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    platesLabelY: 312,          // 兼容旧字段（现在这一行画的是操作图例）\r\n    bucketLabelDy: -14",
+   "text": "    platesLabelY: 312,          // 兼容旧字段（现在这一行画的是操作图例）\r\n    bucketLabelDy: -14,\r\n    /* 图例条左端的 🔊/🔇 小开关（可点）——那一行左侧本来就是空的（居中说明文字从 ~170px 才起），\r\n       所以徽章塞在这里不会挤到任何既有元素 */\r\n    soundBadge: { x:20, y:287, w:124, h:22 }"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  function customerCardBox(i) { return { x:LAY.cards.x0 + i * (LAY.cards.w + LAY.cards.gap), y:LAY.cards.y, w:LAY.cards.w, h:LAY.cards.h }; }",
+   "text": "  function customerCardBox(i) { return { x:LAY.cards.x0 + i * (LAY.cards.w + LAY.cards.gap), y:LAY.cards.y, w:LAY.cards.w, h:LAY.cards.h }; }\r\n  /** 声音开关徽章的命中框（绘制与点击共用同一个框）*/\r\n  function soundBox() { return LAY.soundBadge; }"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    var btnEnd = mkBtn(\"收 摊\", \"bf-wood\");\r\n    bar.appendChild(btnEnd);",
+   "text": "    /* 声音开关：早餐店此前没有任何静音 / 音量设置 → 按用户要求用 localStorage.bfSoundOn（默认开），\r\n       这里给一个真实按钮（与「收 摊」同款木牌样式，风格一致）；图例条左端的徽章是同一个开关的第二入口。 */\r\n    var btnSound = mkBtn(soundLabel(), \"bf-wood\");\r\n    btnSound.id = \"bfSound\";\r\n    btnSound.setAttribute(\"data-act\", \"sound\");\r\n    btnSound.title = \"音效开关（记在 localStorage.bfSoundOn）\";\r\n    bar.appendChild(btnSound);\r\n    var btnEnd = mkBtn(\"收 摊\", \"bf-wood\");\r\n    bar.appendChild(btnEnd);"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      st:st, host:hostEl, wrap:wrap, cv:cv, g:g, panel:panel, btnEnd:btnEnd,",
+   "text": "      st:st, host:hostEl, wrap:wrap, cv:cv, g:g, panel:panel, btnEnd:btnEnd, btnSound:btnSound,"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    btnEnd.addEventListener(\"click\", function () { finishNow(\"主动收摊\"); });",
+   "text": "    btnSound.addEventListener(\"click\", function (ev) {\r\n      if (ev && ev.preventDefault) ev.preventDefault();\r\n      toggleSound();\r\n    });\r\n    btnEnd.addEventListener(\"click\", function () { finishNow(\"主动收摊\"); });"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    function onDown(evt) {\r\n      if (st.over || !doc) return;\r\n      var p = toLocal(evt);\r\n      /* ① 底部食材桶：单击 = 自动进它自己那一列的锅（也可以拖，见 onUp） */",
+   "text": "    function onDown(evt) {\r\n      if (st.over || !doc) return;\r\n      var p = toLocal(evt);\r\n      /* ⓪ 图例条左端的 🔊/🔇 徽章：切换音效开关（与顶栏按钮同一个开关）*/\r\n      if (hit(p.x, p.y, soundBox())) { resetDouble(); toggleSound(); return; }\r\n      /* ① 底部食材桶：单击 = 自动进它自己那一列的锅（也可以拖，见 onUp） */"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      if (drawAssetFit(g, assetOf(GEAR_ICON, \"tools\"), { x: x + w - 60, y: y + 2, w: 54, h: h - 4 }, null)) IA.drawn.gearTools = (IA.drawn.gearTools || 0) + 1;\r\n      g.restore();\r\n      g.textAlign = \"left\";\r\n      IA.drawn.legend = true;",
+   "text": "      if (drawAssetFit(g, assetOf(GEAR_ICON, \"tools\"), { x: x + w - 60, y: y + 2, w: 54, h: h - 4 }, null)) IA.drawn.gearTools = (IA.drawn.gearTools || 0) + 1;\r\n      /* 声音开关徽章（图例条左端空位；可点，见 onDown）—— 🔊 开 / 🔇 关 一眼可见 */\r\n      var sb = soundBox(), sOn = audio.enabled();\r\n      g.fillStyle = sOn ? \"rgba(255,214,110,.16)\" : \"rgba(255,255,255,.05)\";\r\n      roundRect(g, sb.x, sb.y, sb.w, sb.h, 6); g.fill();\r\n      g.strokeStyle = sOn ? \"rgba(255,214,110,.60)\" : \"rgba(255,255,255,.22)\";\r\n      g.lineWidth = 2; roundRect(g, sb.x, sb.y, sb.w, sb.h, 6); g.stroke();\r\n      g.font = fontOf(FONT.micro, true);\r\n      g.fillStyle = sOn ? PAL.gold : PAL.dim;\r\n      g.fillText(sOn ? \"🔊 音效 开\" : \"🔇 音效 关\", sb.x + sb.w / 2, sb.y + sb.h / 2);\r\n      IA.drawn.soundBadge = sOn ? \"on\" : \"off\";\r\n      g.restore();\r\n      g.textAlign = \"left\";\r\n      IA.drawn.legend = true;"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    quoteFor: quoteFor, impactOf: impactOf, quotaOf: quotaOf, QUOTES: QUOTES, QUOTE_FALLBACK: QUOTE_FALLBACK",
+   "text": "    quoteFor: quoteFor, impactOf: impactOf, quotaOf: quotaOf, QUOTES: QUOTES, QUOTE_FALLBACK: QUOTE_FALLBACK,\r\n    /* 音效 / 顾客语音（bf-audio-1）：阈值 / 节奏 / 节流 / 开关 / 播放记录，全在这里 */\r\n    audio: audioRules"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      goBtn: function () { return inst ? (inst.goBtn || null) : null; }",
+   "text": "      goBtn: function () { return inst ? (inst.goBtn || null) : null; },\r\n      /** 音效 / 顾客语音的现场台账（无头验收读它：常量、开关、比例、计数、播放序列）*/\r\n      audio: function () {\r\n        var st = curState();\r\n        return { on:audio.enabled(), key:BF_SOUND_KEY, dir:BF_AUDIO_DIR,\r\n                 tickAt:TICK_AT, tickNear:TICK_NEAR, gapFar:TICK_GAP_FAR, gapNear:TICK_GAP_NEAR,\r\n                 minGap:TICK_MIN_GAP, happyGap:HAPPY_MIN_GAP, slowGap:SLOW_MIN_GAP,\r\n                 vol:audio.vol, files:audio.files,\r\n                 ratio:(st ? Math.round(minPatienceRatio(st) * 1000) / 1000 : null),\r\n                 tickDue:(st ? tickDue(st) : false),\r\n                 ticks:(st && st.audio ? st.audio.ticks : 0),\r\n                 happies:(st && st.audio ? st.audio.happies : 0),\r\n                 slows:(st && st.audio ? st.audio.slows : 0),\r\n                 badge:(inst && inst.drawn) ? (inst.drawn.soundBadge || null) : null,\r\n                 label:soundLabel(),\r\n                 plays:audio.plays(), log:audio.log() };\r\n      },\r\n      /** 开关（浏览器 / 无头都能用；与两个 UI 入口是同一个开关）*/\r\n      setSound: function (b) { return audio.setEnabled(b); },\r\n      toggleSound: function () { return toggleSound(); },\r\n      /** 顶栏音效按钮（#bfSound）与图例徽章的命中框 */\r\n      soundBtn: function () { return inst ? (inst.btnSound || null) : null; },\r\n      soundBox: function () { return soundBox(); },\r\n      /** 清空播放记录（验收每个场景前调一次，读到的序列才是这一段产生的）*/\r\n      clearAudio: function () { audio.clear(); return true; }"
+  }
+ ]
+}

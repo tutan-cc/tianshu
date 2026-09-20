@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  '    /* ⑤ 真实出牌一张 → 播该牌牌名 */',\r\n  '    st = Mahjong.debug.state();',\r\n  '    if (st.phase === \"turn\" && st.cur === 0 && st.handCount % 3 === 1) { Mahjong.debug.act(\"draw\"); st = Mahjong.debug.state(); }',\r\n  '    before = Mahjong.debug.voiceStats().plays;',\r\n  '    tile = Mahjong.debug.hand()[Mahjong.debug.hand().length - 1];',\r\n  '    okD = Mahjong.debug.act(\"discard\", tile);',\r\n  '    st2 = Mahjong.debug.voiceStats();',\r\n  '    A(\"voice_discard_act\", okD === true, okD);',\r\n  '    A(\"voice_discard_file\", st2.last === Mahjong.debug.voiceFile(tile), tile + \" -> \" + st2.last);',\r\n  '    A(\"voice_discard_seat\", st2.lastSeat === 0, st2.lastSeat);',\r\n  '    A(\"voice_discard_plays\", st2.plays === before + 1, before + \"->\" + st2.plays);',\r\n  '    A(\"voice_discard_url\", String(st2.lastUrl).indexOf(\"audio/mj/\") >= 0, st2.lastUrl);',",
+      "textFile": "tools/patch/text/mjv13_e2e_voice.txt"
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  'var VOICE_RAN = false;',",
+      "text": "  'var VOICE_RAN = false;',\r\n  'var VW = { before: 0, tile: \"\", n: 0 };   /* stepVoice → stepVoiceLanded 之间传递的待断言上下文 */',"
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  voice_discard_act: \"调试出牌成功\",",
+      "text": "  voice_discard_act: \"调试出牌成功\",\r\n  voice_discard_not_yet: \"刚出牌、牌还没落定时先不报（报牌推迟到落河之后）\","
+    }
+  ]
+}

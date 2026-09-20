@@ -1,0 +1,125 @@
+{
+  "jobs": [
+    {
+      "file": "mahjong.js",
+      "from": "  var AI_MIN_MS = 500, AI_MAX_MS = 800;      // AI 行动节奏\r\n  var RESPONSE_MS = 3000;                    // 碰/杠/抢杠 响应倒计时（自动「过」）",
+      "textFile": "tools/patch/text/mjv13_pace.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  var VOICE_AI_DELAY = 170;                          // AI 出牌略慢一点，避免抢话",
+      "textFile": "tools/patch/text/mjv13_voicedelay.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  var VOICE_STAT = { plays: 0, misses: 0, last: \"\", lastUrl: \"\", lastSeat: -1, lastAt: 0, errors: 0,\r\n                     queued: 0, started: 0, dropped: 0, maxQueue: 0, list: [], uniq: Object.create(null) };",
+      "textFile": "tools/patch/text/mjv13_vstat.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    anim: { drawAt: 0 }, win: null, uiLock: 0, logRendered: 0,",
+      "text": "    anim: { drawAt: 0, disc: null }, win: null, uiLock: 0, logRendered: 0,\r\n    pace: { n: 0, last: 0, min: 0, max: 0, list: [] },   // AI 步进实测值（节奏可断言）"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    voiceOn: true, voiceN: 0, ting: [false, false, false, false]",
+      "text": "    voiceOn: true, voiceN: 0, ting: [false, false, false, false], kongSaid: false"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    this.log = [];              // [{seat, kind, text}]",
+      "text": "    this.log = [];              // [{seat, kind, text, tile}]\r\n    this.logSeq = 0;            // 累计入账事件数（**只增不减**：log 满 400 会被 shift 截断）"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    this.log.push({ seat: seat, kind: kind, text: text, tile: tile || \"\" });\r\n    if (this.log.length > 400) this.log.shift();",
+      "text": "    this.log.push({ seat: seat, kind: kind, text: text, tile: tile || \"\" });\r\n    /* 累计事件数（**只增不减**）：日志超过 400 条会 shift 掉最旧一条，长度从此不再变 ——\r\n       任何拿「长度」当游标的消费者（语音报牌 / 音效 / 日志面板）都会从那一刻起永远停在原地。\r\n       这类停摆是完全静默的：计数、队列、面板看起来都正常，只是再也没有声音/更新。 */\r\n    this.logSeq = (this.logSeq || 0) + 1;\r\n    if (this.log.length > 400) this.log.shift();"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  function drawDiscards(g, seat) {\r\n    var p = G.E.P[seat], zone = DISC_ZONE[seat], d = LAYOUT.disc, i, pos, last = p.discards.length - 1, out = [];\r\n    for (i = 0; i < p.discards.length; i++) {\r\n      pos = discardPos(seat, i);\r\n      drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: i === last });\r\n      out.push({ x: pos.x, y: pos.y, w: d.tw, h: d.th });\r\n    }\r\n    G.stat.discards += p.discards.length;\r\n    return out;\r\n  }",
+      "textFile": "tools/patch/text/mjv13_disc.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  function renderLog() {\r\n    var E = G.E, box = byId(\"mjmLogB\");\r\n    if (!box || !E) return;\r\n    for (var i = G.logRendered; i < E.log.length; i++) {\r\n      var d = mkEl(\"div\");\r\n      d.textContent = E.log[i].text;\r\n      var k = E.log[i].kind;\r\n      if (k === \"win\") d.style.color = \"#5dffa0\";\r\n      else if (k === \"gang\" || k === \"peng\") d.style.color = \"#ffd76e\";\r\n      box.appendChild(d);\r\n    }\r\n    G.logRendered = E.log.length;\r\n    while (box.children.length > 140) box.removeChild(box.firstChild);\r\n    box.scrollTop = box.scrollHeight;\r\n  }\r\n  function playNewSfx() {\r\n    var E = G.E; if (!E) return;\r\n    while (G.sfxN < E.log.length) {\r\n      var ev = E.log[G.sfxN];\r\n      if (ev.kind === \"win\") sfx(\"good\");\r\n      else if (ev.kind === \"peng\" || ev.kind === \"gang\") sfx(\"ding\");\r\n      else if (ev.kind === \"discard\") sfx(\"click\");\r\n      else sfx(\"blip\");\r\n      G.sfxN++;\r\n    }\r\n    G.sfxN = E.log.length;\r\n    voiceHook();\r\n    renderLog();\r\n  }",
+      "textFile": "tools/patch/text/mjv13_cursor.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    VOICE_CUR = it.audio;\r\n    VOICE_STAT.started++;",
+      "text": "    VOICE_CUR = it.audio;\r\n    VOICE_STAT.started++;\r\n    VOICE_STAT.startAt = Date.now();                 // 「真正开播」的时刻：AI 步进节奏按它回推"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  /** 自己打出的牌：清掉上一局播报状态，播「该牌牌名」 */\r\n  function voiceSelfDiscard(tile) { say(tile, { seat: 0 }); }",
+      "textFile": "tools/patch/text/mjv13_landed.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  function voiceHook() {\r\n    var E = G.E;\r\n    if (!E || !E.log) return;\r\n    if (G.voiceN > E.log.length) G.voiceN = E.log.length;",
+      "to": "    G.voiceN = E.log.length;\r\n  }",
+      "textFile": "tools/patch/text/mjv13_hook.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    var ok = G.E.discard(0, i);\r\n    if (ok) { sfx(\"click\"); voiceSelfDiscard(G.E.P[0].discards[G.E.P[0].discards.length - 1]); afterHuman(); }",
+      "text": "    var ok = G.E.discard(0, i);\r\n    /* 报牌不在这里：afterHuman() → playNewSfx() → voiceHook() → discardLanded() 按**牌河**统一报，\r\n       而且要等牌落河（SAY_AFTER_DISCARD_MS）。出牌→报牌只有一个出口，既不重复也不会漏。 */\r\n    if (ok) { sfx(\"click\"); afterHuman(); }"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "        G.E.discard(0, idx);\r\n        voiceSelfDiscard(G.E.P[0].discards[G.E.P[0].discards.length - 1]);",
+      "text": "        G.E.discard(0, idx);\r\n        /* 报牌交给 afterHuman() → playNewSfx() → voiceHook()（按牌河报）；这里不再自己 say */"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      if (ok) { voiceSelfDiscard(E.P[0].discards[E.P[0].discards.length - 1]); afterHuman(); }",
+      "text": "      if (ok) { afterHuman(); }"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    later(pump, 260 + Math.random() * 200);",
+      "text": "    /* 玩家自己的操作**零延迟**（按钮点得动、牌打得出去），只是把「下一拍」交给对家接手 ——\r\n       对家之间、以及玩家出完牌之后到对家出牌，走的是同一套节奏，不会让对家\"瞬间\"就打出来。 */\r\n    nextPump(aiPaceMs(\"\"));"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  /** 主循环：AI 走一步 → 等待人类 → 下一拍 */\r\n  function pump() {\r\n    if (!G.on || G.finished || G.result) return;\r\n    var E = G.E;\r\n    if (E.phase === \"over\") { later(showResult, 400); return; }\r\n    var r = E.aiStep();\r\n    playNewSfx(); updateHud();\r\n    if (r === \"wait\") { showHumanUI(); return; }\r\n    if (E.phase === \"over\") { later(showResult, 620); return; }\r\n    if (r === \"none\") { later(pump, 300); return; }\r\n    later(pump, AI_MIN_MS + Math.random() * (AI_MAX_MS - AI_MIN_MS));\r\n  }",
+      "textFile": "tools/patch/text/mjv13_pump.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    G.logRendered = 0; G.sfxN = 0; G.uiLock = 0; G.anim.drawAt = 0; G.stat = null; G.overAt = 0; G.lastErr = \"\"; G.sheet = null; G.demo = null;",
+      "text": "    G.logRendered = 0; G.sfxN = 0; G.uiLock = 0; G.anim.drawAt = 0; G.anim.disc = null; G.stat = null; G.overAt = 0; G.lastErr = \"\"; G.sheet = null; G.demo = null;\r\n    G.pace = { n: 0, last: 0, min: 0, max: 0, list: [] };"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    G.voiceOn = loadVoicePref(); G.voiceN = 0; G.ting = [false, false, false, false];\r\n    VOICE_BASE = null; VOICE_STAT.plays = 0; VOICE_STAT.misses = 0; VOICE_STAT.last = \"\"; VOICE_STAT.lastUrl = \"\";\r\n    VOICE_STAT.list = []; VOICE_STAT.uniq = Object.create(null);\r\n    VOICE_STAT.queued = 0; VOICE_STAT.started = 0; VOICE_STAT.dropped = 0; VOICE_STAT.maxQueue = 0;",
+      "text": "    G.voiceOn = loadVoicePref(); G.voiceN = 0; G.ting = [false, false, false, false]; G.kongSaid = false;\r\n    VOICE_BASE = null; VOICE_STAT.plays = 0; VOICE_STAT.misses = 0; VOICE_STAT.last = \"\"; VOICE_STAT.lastUrl = \"\";\r\n    VOICE_STAT.list = []; VOICE_STAT.uniq = Object.create(null);\r\n    VOICE_STAT.queued = 0; VOICE_STAT.started = 0; VOICE_STAT.dropped = 0; VOICE_STAT.maxQueue = 0;\r\n    /* 弃牌对账簿每局清零：新一局的 discN 必须从 0 起算，否则「报牌次数 = 出牌次数」对不上 */\r\n    VOICE_STAT.discN = 0; VOICE_STAT.lost = 0; VOICE_STAT.mismatch = 0; VOICE_STAT.disc = []; VOICE_STAT.startAt = 0;"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  /** 调试：把某家做成「小胡」自摸直接结算（测结算分支） */\r\n  function dbgForceWin(seat) {\r\n    var E = G.E; if (!E || E.phase === \"over\") return false;\r\n    seat = seat || 0;",
+      "textFile": "tools/patch/text/mjv13_dbgstep.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    E.push(seat, \"win\", p.name + \" 自摸 · \" + ev.name + \"（调试）\");\r\n    E.settle(seat, { selfDraw: true }, ev);",
+      "text": "    E.push(seat, \"win\", p.name + (kongDraw ? \" 杠上开花\" : \" 自摸\") + \" · \" + ev.name + \"（调试）\");\r\n    E.settle(seat, { selfDraw: true, kongDraw: !!kongDraw }, ev);"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      forceWin: dbgForceWin,\r\n      showResult: dbgShowResult,",
+      "text": "      forceWin: dbgForceWin,\r\n      /* 节奏实测值 / 单步推进 / 活引擎句柄：headless 测试要「快进整局 + 逐个对拍报牌」，\r\n         没有这三个出口就只能靠 sleep 撞时间，测不出「报的牌 == 打的牌」。 */\r\n      pace: function () { return { n: G.pace.n, last: G.pace.last, min: G.pace.min, max: G.pace.max, list: G.pace.list.slice() }; },\r\n      step: dbgStep,\r\n      engine: function () { return G.E; },\r\n      showResult: dbgShowResult,"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "                 queued: VOICE_STAT.queued, started: VOICE_STAT.started, dropped: VOICE_STAT.dropped,\r\n                 maxQueue: VOICE_STAT.maxQueue, gapMs: VOICE_GAP, qMax: VOICE_Q_MAX,",
+      "text": "                 queued: VOICE_STAT.queued, started: VOICE_STAT.started, dropped: VOICE_STAT.dropped,\r\n                 maxQueue: VOICE_STAT.maxQueue, gapMs: VOICE_GAP, qMax: VOICE_Q_MAX,\r\n                 startAt: VOICE_STAT.startAt, lost: VOICE_STAT.lost, mismatch: VOICE_STAT.mismatch,\r\n                 discN: VOICE_STAT.discN,\r\n                 disc: VOICE_STAT.disc.map(function (d) { return { seat: d.seat, tile: d.tile, file: d.file, landAt: d.landAt, sayAt: d.sayAt, said: d.said }; }),\r\n                 sayAfterMs: SAY_AFTER_DISCARD_MS, animMs: DISCARD_ANIM_MS, sayMinStepMs: SAY_MIN_STEP_MS,"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      VOICE_Q_MAX: VOICE_Q_MAX, VOICE_GAP: VOICE_GAP, VOICE_PRI_TILE: VOICE_PRI_TILE, VOICE_PRI_CALL: VOICE_PRI_CALL,\r\n      voiceQueue: function () { return VOICE_Q.map(function (x) { return x.file; }); },",
+      "text": "      VOICE_Q_MAX: VOICE_Q_MAX, VOICE_GAP: VOICE_GAP, VOICE_PRI_TILE: VOICE_PRI_TILE, VOICE_PRI_CALL: VOICE_PRI_CALL,\r\n      /* 节奏常量（单测按它们断言「步进不得快过下限」「报牌必须晚于落河」） */\r\n      AI_STEP_MS: AI_STEP_MS, AI_DRAW_MS: AI_DRAW_MS, AI_DISCARD_MS: AI_DISCARD_MS, AI_JITTER_MS: AI_JITTER_MS,\r\n      AI_MIN_MS: AI_MIN_MS, AI_MAX_MS: AI_MAX_MS, SAY_MIN_STEP_MS: SAY_MIN_STEP_MS,\r\n      DISCARD_ANIM_MS: DISCARD_ANIM_MS, DISCARD_FALL_PX: DISCARD_FALL_PX, SAY_AFTER_DISCARD_MS: SAY_AFTER_DISCARD_MS,\r\n      voiceQueue: function () { return VOICE_Q.map(function (x) { return x.file; }); },"
+    }
+  ]
+}

@@ -1592,11 +1592,16 @@
     this.turnNo = 1;
     this.phase = "idle";        // idle | turn | claim | rob | over
     this.pending = null;
-    this.log = [];              // [{seat, kind, text}]
+    this.log = [];              // [{seat, kind, text, tile}]
+    this.logSeq = 0;            // 累计入账事件数（**只增不减**：log 满 400 会被 shift 截断）
     this.result = null;
   }
   Engine.prototype.push = function (seat, kind, text, tile) {
     this.log.push({ seat: seat, kind: kind, text: text, tile: tile || "" });
+    /* 累计事件数（**只增不减**）：日志超过 400 条会 shift 掉最旧一条，长度从此不再变 ——
+       任何拿「长度」当游标的消费者（语音报牌 / 音效 / 日志面板）都会从那一刻起永远停在原地。
+       这类停摆是完全静默的：计数、队列、面板看起来都正常，只是再也没有声音/更新。 */
+    this.logSeq = (this.logSeq || 0) + 1;
     if (this.log.length > 400) this.log.shift();
     return text;
   };
@@ -2972,14 +2977,31 @@
 
   function drawDiscards(g, seat) {
     var p = G.E.P[seat], zone = DISC_ZONE[seat], d = LAYOUT.disc, i, pos, last = p.discards.length - 1, out = [];
+    /* 刚落河的那张牌：在 DISCARD_ANIM_MS 内从上方滑入 + 淡入（"啪"地落进牌河）。
+       这个时长与报牌延迟（SAY_AFTER_DISCARD_MS）是**同一个常量** ——
+       用户要求「牌出现 → 报牌」，靠的就是两者同源，而不是各写一个毫秒数去凑。 */
+    var a = G.anim.disc, k = 0;
+    if (a && a.seat === seat) {
+      k = (Date.now() - a.at) / DISCARD_ANIM_MS;
+      k = (k > 0 && k < 1) ? (1 - k) : 0;          // 1 → 0：越接近 0 越落定
+    }
     for (i = 0; i < p.discards.length; i++) {
       pos = discardPos(seat, i);
-      drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: i === last });
+      if (i === last && k > 0) {
+        g.save();
+        g.globalAlpha = 1 - k * 0.5;
+        g.translate(0, -Math.round(k * DISCARD_FALL_PX));
+        drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: true });
+        g.restore();
+      } else {
+        drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: i === last });
+      }
       out.push({ x: pos.x, y: pos.y, w: d.tw, h: d.th });
     }
     G.stat.discards += p.discards.length;
     return out;
   }
+
   function discardPos(seat, i) {
     var z = DISC_ZONE[seat], d = LAYOUT.disc, r, c;
     if (seat === 0) { r = Math.floor(i / z.perRow); c = i % z.perRow; return { x: z.x + c * d.sx, y: z.y - r * d.sy }; }
@@ -3310,12 +3332,13 @@
     E: null, opts: null, timers: [], raf: 0,
     hover: -1, handRects: [], wallSlots: null, noise: null, stat: null, tickTimer: 0, frames: 0,
     roomBg: false, tileBackTex: 0, tileBackSolid: 0, decor: null,
-    anim: { drawAt: 0 }, win: null, uiLock: 0, logRendered: 0,
+    anim: { drawAt: 0, disc: null }, win: null, uiLock: 0, logRendered: 0,
+    pace: { n: 0, last: 0, min: 0, max: 0, list: [] },   // AI 步进实测值（节奏可断言）
     idleTimer: 0, winTimer: 0, result: null, resultShown: false, noiseCv: null, sheet: null, demo: null,
     hintOn: true, hint: null, hintIdx: -1, hintKey: "", hintPane: "", hintCalcN: 0, hintLastMs: 0, hintWorstMs: 0,
     hintLocked: false, style: "serious", stake: STAKE_DEFAULT, invite: null, stateRef: null,
     view: null, glow: 0,
-    voiceOn: true, voiceN: 0, ting: [false, false, false, false]
+    voiceOn: true, voiceN: 0, ting: [false, false, false, false], kongSaid: false
   };
   /* ── 智脑提示：开关（localStorage 持久化） / 计算（每回合缓存） / 面板 / 金框 ── */
   var LS_KEY = "mjmHintOn";
@@ -3334,8 +3357,24 @@
     try { if (root.localStorage) root.localStorage.setItem(LS_KEY, on ? "1" : "0"); } catch (e) {}
   }
   G.hintOn = loadHintPref();
-  var AI_MIN_MS = 500, AI_MAX_MS = 800;      // AI 行动节奏
+  /* ── 节奏总表（**唯一出处**：AI 步进 / 落河动画 / 报牌延迟都在这里，别在别处写死毫秒）──
+     用户实测反馈 A：「三个对家出牌还是要稍微慢一点，打的太快了」
+       → 步进从 500–800ms 抬到 1250–1750ms（人类可读）；抖动只加不减，下限 = AI_STEP_MS。
+     用户实测反馈 B：「上一家的牌刚打完，下家的牌还没出来就先报了牌」
+       → 报牌不再在出牌那一刻入队，而是等**牌真正落进牌河**（落河动画走完）之后；
+         动画时长与报牌延迟共用 SAY_AFTER_DISCARD_MS 这一个常量，天生对齐，不靠估摸。 */
+  var AI_STEP_MS = 1250;                     // 通用步进（碰 / 杠 / 抢杠 / 过 / 流局…）
+  var AI_DRAW_MS = 1400;                     // 只摸了一张牌的那一拍（过牌 / 杠后补牌）的停顿
+  var AI_DISCARD_MS = 1750;                  // 出牌之后 → 下一拍：留给报牌，播到一半才允许继续
+  var AI_JITTER_MS = 350;                    // 附加抖动上限（0..350ms），避免听起来像节拍器
+  var AI_MIN_MS = AI_STEP_MS;                // 步进下限（断言：任何一拍都不得快过它）
+  var AI_MAX_MS = AI_DISCARD_MS + AI_JITTER_MS;  // 步进上限（断言：任何一拍都不得慢过它）
+  var SAY_MIN_STEP_MS = 900;                 // 下一步不得早于上一条报牌**开播**后 900ms
+  var DISCARD_ANIM_MS = 260;                 // 弃牌落河动画时长（滑入 + 淡入）
+  var DISCARD_FALL_PX = 26;                  // 落河动画的位移（逻辑像素）
+  var SAY_AFTER_DISCARD_MS = DISCARD_ANIM_MS;// 报牌延迟 = 落河动画时长（同源 → 牌落定即报牌）
   var RESPONSE_MS = 3000;                    // 碰/杠/抢杠 响应倒计时（自动「过」）
+
   var HUMAN_IDLE_MS = 15000;                 // 人类长时间不动 → 自动打一张（防挂死）
   var AUTO_FINISH_MS = 8000;                 // 结算面板兜底自动继续
   var STYLE_ID = "mjmGanmaStyle";
@@ -3373,7 +3412,10 @@
 
   /* ═══════ 语音播报层（audio/mj/*.mp3，文件名即触发词；不阻塞牌局逻辑） ═══════ */
   var VOICE_KEY = "mjVoiceOn";                       // 与 🎯 提示开关并列的持久化键
-  var VOICE_AI_DELAY = 170;                          // AI 出牌略慢一点，避免抢话
+  /* 出牌报牌的延迟不再用「抢话偏移」，改由落河动画（SAY_AFTER_DISCARD_MS）统一决定：
+     牌落定 → 报牌。原来那个 170ms 的 VOICE_AI_DELAY 是相对**决策时刻**的偏移，
+     牌还没画到牌河上就先出声 —— 正是用户说的「报牌比出牌还早」。 */
+
   var VOICE_AI_VOL = 0.82;                           // AI 出牌音量略低
   var VOICE_VOL = 1;
   /* 字牌：**牌面字符 → 素材词**（用户要求：打「中」必须念「红中」、打「白」念「白板」、
@@ -3412,7 +3454,16 @@
   var VOICE_SEATS = { 1: "seat1", 2: "seat2", 3: "seat3" };
   var VOICE_CACHE = Object.create(null);             // 缓存键 → Audio（预加载 / 复用）
   var VOICE_STAT = { plays: 0, misses: 0, last: "", lastUrl: "", lastSeat: -1, lastAt: 0, errors: 0,
-                     queued: 0, started: 0, dropped: 0, maxQueue: 0, list: [], uniq: Object.create(null) };
+                     queued: 0, started: 0, dropped: 0, maxQueue: 0, list: [], uniq: Object.create(null),
+                     /* ── 弃牌报牌对账簿（用户要求：报的牌必须逐字等于实际打出的那张）──
+                        disc    ：每次「牌落河」一条 {seat, tile, file, landAt, sayAt, said}
+                                  tile 取的是**牌河里那张牌**，file 是它对应的素材名
+                        discN   ：落河次数 = 应当报牌的次数
+                        startAt ：最近一条**真正开播**的时刻（AI 步进节奏按它回推）
+                        lost    ：日志被截断而永久丢掉的报牌条数（应当恒为 0）
+                        mismatch：牌河里的牌 ≠ 日志里的牌 的次数（应当恒为 0；非 0 = 两个来源打架） */
+                     startAt: 0, discN: 0, lost: 0, mismatch: 0, disc: [] };
+
   /* ═══════ 播报队列（用户要求：一条播完再播下一条；出牌不得打断喊话） ═══════
      改之前是「同一时刻只播一条，后一条 pause + currentTime=0 打断前一条」——
      下家出牌的报牌会把正在播的「碰/杠/胡/自摸」拦腰砍断，牌桌上就是在抢话。
@@ -3572,6 +3623,7 @@
     if (VOICE_PLAYING !== it) return;                // 已被取消（关语音开关 / 重开一局）
     VOICE_CUR = it.audio;
     VOICE_STAT.started++;
+    VOICE_STAT.startAt = Date.now();                 // 「真正开播」的时刻：AI 步进节奏按它回推
     var done = false;
     function finish() {
       if (done) return;
@@ -3658,8 +3710,47 @@
     el.setAttribute("data-voice-on", G.voiceOn ? "1" : "0");
     el.innerHTML = "\uD83D\uDD0A 语音 " + (G.voiceOn ? "开" : "关");
   }
-  /** 自己打出的牌：清掉上一局播报状态，播「该牌牌名」 */
-  function voiceSelfDiscard(tile) { say(tile, { seat: 0 }); }
+  /**
+   * 弃牌 → 落河 → 报牌（**唯一入口**，四个座位都走这里）。
+   *
+   * 用户实测反馈：「出现了打的牌跟报出来的牌不一样的情况」。两个根因一起掐掉：
+   *   ① 两个数据源。牌桌上真正画出来的是 p.discards 的最后一张，而报牌是在事件处理时
+   *      顺着日志字段取的（say(ev.tile)）—— 两者一旦不同步，声音和画面就各说各话。
+   *      现在只认一个来源：**牌河里那张牌**（渲染层画的就是它）；日志里的牌只用来对账，
+   *      对不上就记 VOICE_STAT.mismatch（应当恒为 0）。
+   *   ② 报牌在出牌那一刻就入队，而队列封顶 6 条、满了丢「最旧的低优先级项」。
+   *      旧节奏 500–800ms 一步，而一条报牌要占住播放位 0.6–1.2s（素材时长 0.33–1.07s
+   *      + VOICE_GAP 120ms）→ 队列必然堆积 → 弃牌报牌被成批丢弃 →
+   *      你盯着牌河里的第 N 张，耳朵里响的却是第 N-2 张。这正是「报的牌跟打的不一样」。
+   *      现在报牌推迟到落河之后，配合 AI_DISCARD_MS ≥ 一条报牌的时长，队列不再堆积
+   *      （测试断言 dropped=0、started=出牌次数）。
+   *
+   * 时序：本函数同时是**落河动画的起点**（G.anim.disc），报牌定时器 = DISCARD_ANIM_MS，
+   *       两者共用 SAY_AFTER_DISCARD_MS 一个常量 → 牌落定的那一刻出声，不早也不晚。
+   * expect：日志里那条 discard 事件带的牌面，只用于对账；为空则不校验。
+   */
+  function discardLanded(seat, expect) {
+    var E = G.E;
+    var p = (E && E.P && E.P[seat]) ? E.P[seat] : null;
+    if (!p || !p.discards.length) return "";
+    var tile = p.discards[p.discards.length - 1];              // ← 唯一数据源：牌河
+    if (expect && String(expect) !== tile) VOICE_STAT.mismatch++;
+    var at = Date.now(), f = voiceFile(tile);
+    G.anim.disc = { seat: seat, tile: tile, at: at };          // 落河动画起点（渲染层按它滑入）
+    VOICE_STAT.discN++;
+    var rec = { seat: seat, tile: tile, file: f, landAt: at, sayAt: 0, said: false };
+    VOICE_STAT.disc.push(rec);
+    if (VOICE_STAT.disc.length > 240) VOICE_STAT.disc.shift();  // 只留最近 240 条（够整局对账）
+    if (!f || !G.voiceOn) { rec.file = ""; return ""; }
+    later(function () {
+      /* 落河动画走完的这一刻才报牌；内容还是上面那一个 tile —— 不重取、不重算 */
+      rec.sayAt = Date.now();
+      rec.said = true;
+      say(tile, { seat: seat, vol: seat === 0 ? VOICE_VOL : VOICE_AI_VOL });
+    }, SAY_AFTER_DISCARD_MS);
+    return voiceUrl(tile, seat);
+  }
+
   /** 暗杠 / 补杠的实音（不喊牌）：audio/sfx/mj-clack.mp3，缺失时静默不报错 */
   function gangClack() {
     try {
@@ -3675,16 +3766,24 @@
   function voiceHook() {
     var E = G.E;
     if (!E || !E.log) return;
-    if (G.voiceN > E.log.length) G.voiceN = E.log.length;
-    var i, ev, kind, seat, tile, txt;
-    for (i = G.voiceN; i < E.log.length; i++) {
+    /* 游标用**引擎累计事件数** E.logSeq，而不是 log.length：
+       push 里日志超过 400 条会 shift 掉最旧的一条，长度从此不再增长 ——
+       拿长度当游标的话 voiceN 会永远等于长度，之后**所有**报牌静默消失，
+       而 plays / 队列长度看起来全都正常（这类"静默停摆"最难查）。累计数只增不减，不受截断影响。 */
+    var total = E.logSeq || E.log.length;
+    var i, ev, kind, seat, tile, txt, res, sc, after, cur;
+    var start = E.log.length - (total - G.voiceN);
+    if (start < 0) { VOICE_STAT.lost += -start; start = 0; }   // 落后超过日志容量：记账，不重播旧的
+    for (i = start; i < E.log.length; i++) {
       ev = E.log[i];
       if (!ev) continue;
       kind = ev.kind; seat = ev.seat; tile = ev.tile || "";
       txt = String(ev.text || "");
       if (kind === "discard") {
-        if (seat === 0) { /* 自己出牌：在点击处即时播，这里不重复 */ }
-        else say(tile, { seat: seat, vol: VOICE_AI_VOL, delay: VOICE_AI_DELAY });
+        /* 四个座位一视同仁，都走 discardLanded（报什么只由**牌河**决定）。
+           ⚠ 没有牌面的 discard 事件是「（超时自动出牌）」那条纯文本标记，必须跳过 ——
+             否则同一次弃牌会被报两遍（用户要求：报牌次数 = 出牌次数，不丢不重）。 */
+        if (tile) discardLanded(seat, tile);
       } else if (kind === "peng") {
         say("碰", { seat: seat });
       } else if (kind === "gang") {
@@ -3699,19 +3798,29 @@
         if (txt.indexOf("有人可以") < 0) say("抢杠", { seat: seat });    // 真抢杠胡（排除「有人可以抢杠」提示）
       } else if (kind === "draw") {
         if (txt.indexOf("杠后补牌") >= 0) {
-          say("杠开", { seat: seat });
+          /* ⚠ 这里只是**补摸**，不是胡牌。
+             原来在这一支里 say("杠开")，于是明杠 / 暗杠 / 补杠只要补摸一张就喊「杠开」，
+             而绝大多数补摸根本没胡 —— 用户实测原话：「还有乱喊杠开的情况」。
+             杠上开花是一手**胡牌**，只在下面的 win 分支播，判据用引擎的结算标记
+             res.kongDraw（权威字段），不抠文案、也不看"这局杠过没有"。 */
           G.ting[seat] = false;                     // 补牌后必然未听，允许再次播「听」
         }
       } else if (kind === "win") {
-        var sc = E.P && E.P[seat];
-        var after = sc ? voiceTingOf(sc, E.honors) : false;
+        sc = E.P && E.P[seat];
+        after = sc ? voiceTingOf(sc, E.honors) : false;
+        /* 结算标记是**权威判据**（settle() 写进 E.result 的那一份），不再靠文案猜：
+           文案里出现「杠开」两个字就喊杠开，等于把"话术"当规则用。 */
+        res = (E.result && E.result.seat === seat) ? E.result : null;
         G.ting[seat] = after;
-        if (txt.indexOf("流局") >= 0 || txt.indexOf("荒庄") >= 0) {
+        if ((res && res.draw) || txt.indexOf("流局") >= 0 || txt.indexOf("荒庄") >= 0) {
           say("流局", { seat: seat });
-        } else if (txt.indexOf("抢杠") >= 0) {
+        } else if ((res && res.robKong) || txt.indexOf("抢杠") >= 0) {
           say("抢杠", { seat: seat });
-        } else if (txt.indexOf("杠上开花") >= 0 || txt.indexOf("杠开") >= 0) {
-          say("杠开", { seat: seat });
+        } else if (res && res.kongDraw) {
+          /* 杠开 = 杠后补摸的那张自摸。一局最多喊一次：
+             引擎只会 settle 一次，但 voiceHook 可能被重复调用（造胡 / 探针），
+             用 G.kongSaid 兜底，保证「一局内不重复播」。 */
+          if (!G.kongSaid) { G.kongSaid = true; say("杠开", { seat: seat }); }
         } else if (seat === 0) {
           say(txt.indexOf("自摸") >= 0 ? "自摸" : "胡", { seat: seat });
         } else {
@@ -3719,13 +3828,14 @@
         }
       } else if (kind === "turn" && seat === 0 && E.P && E.P[0]) {
         // 自己「听牌」提示：只在没听 → 听牌 的那一刻播一次，绝不重复
-        var cur = voiceTingOf(E.P[0], E.honors);
+        cur = voiceTingOf(E.P[0], E.honors);
         if (cur && !G.ting[0]) say("听", { seat: 0 });
         G.ting[0] = cur;
       }
     }
-    G.voiceN = E.log.length;
+    G.voiceN = total;
   }
+
 
   var CSS = [
     ".mjm-wrap{position:relative;line-height:0;filter:drop-shadow(0 22px 54px rgba(0,0,0,.8))}",
@@ -3979,14 +4089,19 @@
     var p = toLogical(e), i = hitHand(p.x, p.y);
     if (i < 0) return;
     var ok = G.E.discard(0, i);
-    if (ok) { sfx("click"); voiceSelfDiscard(G.E.P[0].discards[G.E.P[0].discards.length - 1]); afterHuman(); }
+    /* 报牌不在这里：afterHuman() → playNewSfx() → voiceHook() → discardLanded() 按**牌河**统一报，
+       而且要等牌落河（SAY_AFTER_DISCARD_MS）。出牌→报牌只有一个出口，既不重复也不会漏。 */
+    if (ok) { sfx("click"); afterHuman(); }
   }
 
   /* ── 日志 / HUD ── */
   function renderLog() {
     var E = G.E, box = byId("mjmLogB");
     if (!box || !E) return;
-    for (var i = G.logRendered; i < E.log.length; i++) {
+    /* 与 voiceHook / playNewSfx 同一口径的游标（累计事件数）：日志被 shift 截断也不会停更 */
+    var total = E.logSeq || E.log.length, i = E.log.length - (total - G.logRendered);
+    if (i < 0) i = 0;
+    for (; i < E.log.length; i++) {
       var d = mkEl("div");
       d.textContent = E.log[i].text;
       var k = E.log[i].kind;
@@ -3994,24 +4109,28 @@
       else if (k === "gang" || k === "peng") d.style.color = "#ffd76e";
       box.appendChild(d);
     }
-    G.logRendered = E.log.length;
+    G.logRendered = total;
     while (box.children.length > 140) box.removeChild(box.firstChild);
     box.scrollTop = box.scrollHeight;
   }
   function playNewSfx() {
     var E = G.E; if (!E) return;
-    while (G.sfxN < E.log.length) {
-      var ev = E.log[G.sfxN];
+    /* 游标口径与 voiceHook 一致（累计事件数 E.logSeq），日志被截断也不会停摆 */
+    var total = E.logSeq || E.log.length, i = E.log.length - (total - G.sfxN);
+    if (i < 0) i = 0;
+    for (; i < E.log.length; i++) {
+      var ev = E.log[i];
+      if (!ev) continue;
       if (ev.kind === "win") sfx("good");
       else if (ev.kind === "peng" || ev.kind === "gang") sfx("ding");
       else if (ev.kind === "discard") sfx("click");
       else sfx("blip");
-      G.sfxN++;
     }
-    G.sfxN = E.log.length;
+    G.sfxN = total;
     voiceHook();
     renderLog();
   }
+
   function humanHint() {
     var p = G.E.P[0], hand = p.hand.slice();
     if (p.drawn !== null && hand.length % 3 === 2) hand.pop();
@@ -4179,7 +4298,9 @@
     if (G.idleTimer) { root.clearTimeout(G.idleTimer); G.idleTimer = 0; }
     if (!G.on || G.finished) return;
     if (G.E.phase === "over") { later(showResult, 620); return; }
-    later(pump, 260 + Math.random() * 200);
+    /* 玩家自己的操作**零延迟**（按钮点得动、牌打得出去），只是把「下一拍」交给对家接手 ——
+       对家之间、以及玩家出完牌之后到对家出牌，走的是同一套节奏，不会让对家"瞬间"就打出来。 */
+    nextPump(aiPaceMs(""));
   }
   function resolveAct(act) {
     var E = G.E, i, ok = false;
@@ -4218,7 +4339,7 @@
           : aiDiscard(p.hand, p.melds, G.E.seenBy(0), G.E.honors);
         var idx = p.hand.indexOf(t); if (idx < 0) idx = p.hand.length - 1;
         G.E.discard(0, idx);
-        voiceSelfDiscard(G.E.P[0].discards[G.E.P[0].discards.length - 1]);
+        /* 报牌交给 afterHuman() → playNewSfx() → voiceHook()（按牌河报）；这里不再自己 say */
         if (G.E.log.length) G.E.push(0, "discard", "（超时自动出牌）");
         afterHuman();
       }, HUMAN_IDLE_MS);
@@ -4240,6 +4361,35 @@
     closeWin();
   }
 
+  /**
+   * 下一拍等多久 —— **节奏只有一个出处**（改上面的常量就够，别在别处写死毫秒）。
+   *   · 刚打出一张牌 → AI_DISCARD_MS：这段时间留给报牌（播到一半才允许进入下一步）
+   *   · 刚摸到一张牌（上一条事件是摸牌：过牌 / 杠后补牌）→ AI_DRAW_MS
+   *   · 其余（碰 / 杠 / 抢杠 / 流局…）→ AI_STEP_MS
+   * 抖动只加不减，所以任何一拍都不会快过 AI_STEP_MS（断言 AI_MIN_MS 就是它）。
+   * 最后兜住用户那条硬要求：**下一步不得早于上一条报牌真正开播后 SAY_MIN_STEP_MS**。
+   * 报牌是异步的（要等落河、要排队、素材有时长），所以按「真正开播的时刻」回推，
+   * 不能按入队时刻算 —— 否则排队时的那几条等于没被保护。 */
+  function aiPaceMs(r) {
+    var E = G.E, log = (E && E.log) ? E.log : [];
+    var tail = log.length ? log[log.length - 1].kind : "";
+    var ms = (r === "discard") ? AI_DISCARD_MS : (tail === "draw" ? AI_DRAW_MS : AI_STEP_MS);
+    ms += Math.random() * AI_JITTER_MS;
+    if (VOICE_STAT.startAt) {
+      var el = Date.now() - VOICE_STAT.startAt;
+      if (el < SAY_MIN_STEP_MS) ms = Math.max(ms, SAY_MIN_STEP_MS - el);
+    }
+    return Math.round(ms);
+  }
+  /** 排下一拍并记账（节奏可观测 / 可断言：G.pace.min 就是"最快的一拍有多快"） */
+  function nextPump(ms) {
+    G.pace.n++;
+    G.pace.last = ms;
+    if (!G.pace.min || ms < G.pace.min) G.pace.min = ms;
+    if (ms > G.pace.max) G.pace.max = ms;
+    if (G.pace.list.length < 240) G.pace.list.push(ms);
+    later(pump, ms);
+  }
   /** 主循环：AI 走一步 → 等待人类 → 下一拍 */
   function pump() {
     if (!G.on || G.finished || G.result) return;
@@ -4249,9 +4399,9 @@
     playNewSfx(); updateHud();
     if (r === "wait") { showHumanUI(); return; }
     if (E.phase === "over") { later(showResult, 620); return; }
-    if (r === "none") { later(pump, 300); return; }
-    later(pump, AI_MIN_MS + Math.random() * (AI_MAX_MS - AI_MIN_MS));
+    nextPump(aiPaceMs(r === "none" ? "" : r));
   }
+
 
   /* ── 结算面板 ── */
   function showResult() {
@@ -4327,7 +4477,8 @@
 
     G.on = true; G.busy = true; G.finished = false; G.resultShown = false; G.result = null;
     G.opts = opts; G.host = hostEl; G.hover = -1; G.handRects = []; G.wallSlots = null; G.wallSpan = null; G.noise = null;
-    G.logRendered = 0; G.sfxN = 0; G.uiLock = 0; G.anim.drawAt = 0; G.stat = null; G.overAt = 0; G.lastErr = ""; G.sheet = null; G.demo = null;
+    G.logRendered = 0; G.sfxN = 0; G.uiLock = 0; G.anim.drawAt = 0; G.anim.disc = null; G.stat = null; G.overAt = 0; G.lastErr = ""; G.sheet = null; G.demo = null;
+    G.pace = { n: 0, last: 0, min: 0, max: 0, list: [] };
     G.hint = null; G.hintIdx = -1; G.hintKey = ""; G.hintCalcN = 0; G.hintLastMs = 0; G.hintWorstMs = 0; G.view = null;
     /* 赌注 / 打法：放水 → 智脑提示本局关闭且不可开启；stake 默认 10（不传即旧行为） */
     G.style = styleOf(opts.style);
@@ -4336,10 +4487,12 @@
     G.hintLocked = !styleDef(G.style).hint;
     G.hintOn = G.hintLocked ? false : loadHintPref();
     G.result = null;
-    G.voiceOn = loadVoicePref(); G.voiceN = 0; G.ting = [false, false, false, false];
+    G.voiceOn = loadVoicePref(); G.voiceN = 0; G.ting = [false, false, false, false]; G.kongSaid = false;
     VOICE_BASE = null; VOICE_STAT.plays = 0; VOICE_STAT.misses = 0; VOICE_STAT.last = ""; VOICE_STAT.lastUrl = "";
     VOICE_STAT.list = []; VOICE_STAT.uniq = Object.create(null);
     VOICE_STAT.queued = 0; VOICE_STAT.started = 0; VOICE_STAT.dropped = 0; VOICE_STAT.maxQueue = 0;
+    /* 弃牌对账簿每局清零：新一局的 discN 必须从 0 起算，否则「报牌次数 = 出牌次数」对不上 */
+    VOICE_STAT.discN = 0; VOICE_STAT.lost = 0; VOICE_STAT.mismatch = 0; VOICE_STAT.disc = []; VOICE_STAT.startAt = 0;
     voiceStopAll();                                  // 上一局没念完的喊话不许漏进新一局
     if (hostEl.classList) hostEl.classList.add("on");     // 保留宿主的 on class（index.html 靠它显示）
     try { G.cv.getContext("2d").setTransform(G.dpr, 0, 0, G.dpr, 0, 0); } catch (e) {}
@@ -4590,7 +4743,7 @@
       } else idx = E.P[0].hand.length - 1;
       if (idx < 0 || idx >= E.P[0].hand.length) return false;
       var ok = E.discard(0, idx);
-      if (ok) { voiceSelfDiscard(E.P[0].discards[E.P[0].discards.length - 1]); afterHuman(); }
+      if (ok) { afterHuman(); }
       return ok;
     }
     if (act === "peng" || act === "gang" || act === "kong" || act === "hu" || act === "pass" || act === "skip") {
@@ -4723,10 +4876,23 @@
     if (!G.view) G.view = buildResultView(G.E, res);
     return G.view;
   }
-  /** 调试：把某家做成「小胡」自摸直接结算（测结算分支） */
-  function dbgForceWin(seat) {
+  /** 调试：走一拍 AI（**与 pump() 同一条路径**：aiStep + playNewSfx + updateHud），只是不等定时器。
+   *  用途：无头测试要快进整局、逐个对拍「牌河里那张牌 ↔ 报出的文件名」。
+   *  ⚠ 不调 showHumanUI()：那会弹响应窗口 + 挂 15 秒挂机定时器，测试里不需要。 */
+  function dbgStep() {
+    if (!G.on || G.finished || G.result) return "off";
+    var E = G.E;
+    if (!E) return "off";
+    if (E.phase === "over") return "over";
+    var r = E.aiStep();
+    playNewSfx(); updateHud();
+    return r;
+  }
+  /** 调试：把某家做成「小胡」自摸直接结算（测结算分支）；kongDraw=true 造「杠上开花」 */
+  function dbgForceWin(seat, kongDraw) {
     var E = G.E; if (!E || E.phase === "over") return false;
     seat = seat || 0;
+
     var p = E.P[seat];
     var hand = ["1万", "2万", "3万", "4万", "5万", "6万", "7万", "8万", "9万", "1条", "2条", "3条", "9条", "9条"];
     var oldCount = p.hand.length;
@@ -4738,8 +4904,8 @@
     E.pending = { type: "turn", seat: seat, anGangs: [], addGangs: [] };
     var ev = evaluate(p.hand, p.melds);
     if (!ev) { p.drawn = null; return false; }
-    E.push(seat, "win", p.name + " 自摸 · " + ev.name + "（调试）");
-    E.settle(seat, { selfDraw: true }, ev);
+    E.push(seat, "win", p.name + (kongDraw ? " 杠上开花" : " 自摸") + " · " + ev.name + "（调试）");
+    E.settle(seat, { selfDraw: true, kongDraw: !!kongDraw }, ev);
     voiceHook(); playNewSfx(); updateHud();
     return true;
   }
@@ -4837,6 +5003,14 @@
       decor: decorCheck,
       decorStat: decorStat,
       forceWin: dbgForceWin,
+      /* 节奏实测值 / 单步推进 / 活引擎句柄：headless 测试要「快进整局 + 逐个对拍报牌」，
+         没有这三个出口就只能靠 sleep 撞时间，测不出「报的牌 == 打的牌」。 */
+      pace: function () { return { n: G.pace.n, last: G.pace.last, min: G.pace.min, max: G.pace.max, list: G.pace.list.slice() }; },
+      step: dbgStep,
+      engine: function () { return G.E; },
+      /* 清空 Audio 缓存：测试要在同一个页面里整层换掉 Audio 实现（假 Audio 记账）。
+         不换的话 say() 会复用上一次缓存的旧 Audio 对象，播放流水/时序断言全乱。 */
+      voiceCacheClear: function () { VOICE_CACHE = Object.create(null); return true; },
       showResult: dbgShowResult,
       continueGame: dbgContinue,
       window: dbgWindow,
@@ -4865,6 +5039,10 @@
                  cached: Object.keys(VOICE_CACHE).length, total: Object.keys(VOICE_NAMES).length,
                  queued: VOICE_STAT.queued, started: VOICE_STAT.started, dropped: VOICE_STAT.dropped,
                  maxQueue: VOICE_STAT.maxQueue, gapMs: VOICE_GAP, qMax: VOICE_Q_MAX,
+                 startAt: VOICE_STAT.startAt, lost: VOICE_STAT.lost, mismatch: VOICE_STAT.mismatch,
+                 discN: VOICE_STAT.discN,
+                 disc: VOICE_STAT.disc.map(function (d) { return { seat: d.seat, tile: d.tile, file: d.file, landAt: d.landAt, sayAt: d.sayAt, said: d.said }; }),
+                 sayAfterMs: SAY_AFTER_DISCARD_MS, animMs: DISCARD_ANIM_MS, sayMinStepMs: SAY_MIN_STEP_MS,
                  playing: VOICE_PLAYING ? VOICE_PLAYING.file : "", queue: VOICE_Q.map(function (x) { return x.file; }),
                  base: voiceBase(), names: Object.keys(VOICE_NAMES).slice(), ting: G.ting.slice(),                 els: { toggle: !!byId("mjmVoiceToggle"), ting: !!byId("mjmTing") } };
       },
@@ -4934,6 +5112,10 @@
       voiceFile: voiceFile, VOICE_NAMES: VOICE_NAMES, VOICE_KEY: VOICE_KEY,
       VOICE_HONOR_WORDS: VOICE_HONOR_WORDS, VOICE_CALLS: VOICE_CALLS, VOICE_CALL_SET: VOICE_CALL_SET,
       VOICE_Q_MAX: VOICE_Q_MAX, VOICE_GAP: VOICE_GAP, VOICE_PRI_TILE: VOICE_PRI_TILE, VOICE_PRI_CALL: VOICE_PRI_CALL,
+      /* 节奏常量（单测按它们断言「步进不得快过下限」「报牌必须晚于落河」） */
+      AI_STEP_MS: AI_STEP_MS, AI_DRAW_MS: AI_DRAW_MS, AI_DISCARD_MS: AI_DISCARD_MS, AI_JITTER_MS: AI_JITTER_MS,
+      AI_MIN_MS: AI_MIN_MS, AI_MAX_MS: AI_MAX_MS, SAY_MIN_STEP_MS: SAY_MIN_STEP_MS,
+      DISCARD_ANIM_MS: DISCARD_ANIM_MS, DISCARD_FALL_PX: DISCARD_FALL_PX, SAY_AFTER_DISCARD_MS: SAY_AFTER_DISCARD_MS,
       voiceQueue: function () { return VOICE_Q.map(function (x) { return x.file; }); },
       voiceCurrent: function () { return VOICE_PLAYING ? VOICE_PLAYING.file : ""; }
     }

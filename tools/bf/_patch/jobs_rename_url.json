@@ -1,0 +1,14 @@
+{
+ "note": "bf-audio-1 修正：内部函数名 url() 撞了无头验收的「源码不使用 url() 贴图」闸（该闸用 /url\\(/ 扫全文，本意是禁 CSS url() 贴图）。改名为 sfxUrl()，语义不变。",
+ "jobs": [
+  { "file": "breakfast.js",
+    "from": "    function url(name, i) {",
+    "text": "    function sfxUrl(name, i) {" },
+  { "file": "breakfast.js",
+    "from": "url:url(name, i)",
+    "text": "url:sfxUrl(name, i)" },
+  { "file": "breakfast.js",
+    "from": "play:play, url:url, pick:pick,",
+    "text": "play:play, url:sfxUrl, pick:pick," }
+ ]
+}

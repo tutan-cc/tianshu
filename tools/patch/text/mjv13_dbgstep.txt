@@ -1,0 +1,16 @@
+  /** 调试：走一拍 AI（**与 pump() 同一条路径**：aiStep + playNewSfx + updateHud），只是不等定时器。
+   *  用途：无头测试要快进整局、逐个对拍「牌河里那张牌 ↔ 报出的文件名」。
+   *  ⚠ 不调 showHumanUI()：那会弹响应窗口 + 挂 15 秒挂机定时器，测试里不需要。 */
+  function dbgStep() {
+    if (!G.on || G.finished || G.result) return "off";
+    var E = G.E;
+    if (!E) return "off";
+    if (E.phase === "over") return "over";
+    var r = E.aiStep();
+    playNewSfx(); updateHud();
+    return r;
+  }
+  /** 调试：把某家做成「小胡」自摸直接结算（测结算分支）；kongDraw=true 造「杠上开花」 */
+  function dbgForceWin(seat, kongDraw) {
+    var E = G.E; if (!E || E.phase === "over") return false;
+    seat = seat || 0;

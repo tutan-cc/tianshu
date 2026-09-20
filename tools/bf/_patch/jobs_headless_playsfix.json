@@ -1,0 +1,8 @@
+{
+ "note": "修正：debug.audio() 的 plays / log 都是**数组快照**（不是取值函数）。无头里统一按数组读。",
+ "jobs": [
+  { "file": "tools/bf/headless.js",
+    "from": "A(d2.audio().plays().length === 0, \"台账里没有「播成功」的记录（全被标掉，不冒充满分）\");",
+    "text": "A(d2.audio().plays.length === 0, \"台账里没有「播成功」的记录（全被标掉，不冒充满分）\");" }
+ ]
+}

@@ -49,7 +49,7 @@ function makeElement(tag) {
     getBoundingClientRect() { return { left: 10, top: 20, width: 1180, height: 818 }; },
     getContext() {
       const noop = () => {};
-      return { setTransform: noop, clearRect: noop, fillRect: noop, beginPath: noop, moveTo: noop, lineTo: noop, arc: noop, ellipse: noop, fill: noop, stroke: noop, save: noop, restore: noop, clip: noop, translate: noop, scale: noop, quadraticCurveTo: noop, closePath: noop, fillText: noop, strokeText: noop, drawImage: noop, putImageData: noop, getImageData: () => ({ data: [] }), createLinearGradient: () => ({ addColorStop: noop }), createRadialGradient: () => ({ addColorStop: noop }), createPattern: () => null, measureText: () => ({ width: 8 }), set fillStyle(v) {}, set strokeStyle(v) {}, set font(v) {}, set lineWidth(v) {}, set shadowColor(v) {}, set shadowBlur(v) {}, set textAlign(v) {}, set textBaseline(v) {}, set lineCap(v) {}, set lineJoin(v) {}, set globalAlpha(v) {} };
+      return { setTransform: noop, clearRect: noop, fillRect: noop, beginPath: noop, moveTo: noop, lineTo: noop, arc: noop, ellipse: noop, fill: noop, stroke: noop, save: noop, restore: noop, clip: noop, translate: noop, scale: noop, rotate: noop, quadraticCurveTo: noop, closePath: noop, fillText: noop, strokeText: noop, drawImage: noop, putImageData: noop, getImageData: () => ({ data: [] }), createLinearGradient: () => ({ addColorStop: noop }), createRadialGradient: () => ({ addColorStop: noop }), createPattern: () => null, measureText: () => ({ width: 8 }), set fillStyle(v) {}, set strokeStyle(v) {}, set font(v) {}, set lineWidth(v) {}, set shadowColor(v) {}, set shadowBlur(v) {}, set textAlign(v) {}, set textBaseline(v) {}, set lineCap(v) {}, set lineJoin(v) {}, set globalAlpha(v) {} };
     },
     querySelector() { return null; }, querySelectorAll() { return []; }
   };
@@ -1671,10 +1671,22 @@ group("17. 结算亮牌数据结构");
   }
   {
     const handTile = MJ.debug.hand()[MJ.debug.hand().length - 1];
+    const playsBefore5 = MJ.debug.voiceStats().plays;
     eq(MJ.debug.act("discard", handTile), true, "调试出牌（打 " + handTile + "）");
-    eq(MJ.debug.voiceStats().last, T.voiceFile(handTile), "自己出牌立刻播该牌牌名 → " + T.voiceFile(handTile));
+    /* ⚠ 这几条的**时序期望变了**（玩法没变）：报牌不再在出牌那一刻入队 ——
+       用户实测「上一家的牌刚打完，下家的牌还没出来就先报了牌」，
+       所以现在要等**牌真正落进牌河**（落河动画走完，SAY_AFTER_DISCARD_MS）才出声。
+       断言一条没删，反而更强了：先断言「刚出牌、牌还没落定时先不报」，
+       再等落河完成断言「报了，而且报的就是打出去的那张」。 */
+    eq(MJ.debug.voiceStats().plays, playsBefore5, "刚出牌、牌还没落定时**先不报**（旧实现这里就已经报出去了）");
+    await sleep(T.SAY_AFTER_DISCARD_MS + 60);
+    eq(MJ.debug.voiceStats().last, T.voiceFile(handTile), "牌落定后才播该牌牌名 → " + T.voiceFile(handTile));
     eq(MJ.debug.voiceStats().lastSeat, 0, "播报来源标记为自己（seat=0）");
     ok(MJ.debug.voiceStats().lastUrl.indexOf(T.voiceFile(handTile)) >= 0, "播报 URL 指向该牌素材 → " + MJ.debug.voiceStats().lastUrl);
+    eq(MJ.debug.voiceStats().disc.length >= 1 &&
+       MJ.debug.voiceStats().disc[MJ.debug.voiceStats().disc.length - 1].tile, handTile,
+       "对账簿记的也是这张（牌河 = 唯一数据源）");
+
   }
   eq(MJ.debug.forceWin(0), true, "语音段：造胡（自摸）");
   {
@@ -1718,6 +1730,367 @@ group("17. 结算亮牌数据结构");
     eq(ft[18].tile, "1筒", "总览图第 19 张 = 1筒（筒排在条之后）");
     eq(ft[27].tile, "东", "总览图第 28 张 = 东（字牌最后）");
     eq(MJ.debug.faceSheet(false), false, "关闭牌面总览回到牌桌");
+  /* ─────────── 19b. 节奏 / 落河对齐 / 报牌对账 / 杠开收紧（用户实测四问的回归） ───────────
+     用户原话（本轮四个问题）：
+       ① 「语音衔接还是太快了，上一家的牌刚打完，下家的牌还没出来就先报了牌」
+       ② 「三个对家出牌还是要稍微慢一点，打的太快了」
+       ③ 「出现了打的牌跟报出来的牌不一样的情况」
+       ④ 「还有乱喊杠开的情况都要修正」
+     这一节就是把①③④钉死成断言，把②钉成可断言的常量 + 实测步进。 */
+  group("19b. 节奏 / 报牌时序 / 弃牌对账 / 杠开");
+
+  /* ── ① 节奏常量：单一出处 · 人类可读 · 报牌晚于落河 ── */
+  eq(T.AI_MIN_MS, T.AI_STEP_MS, "步进下限 = AI_STEP_MS（抖动只加不减，任何一拍都不会更快）");
+  eq(T.AI_MIN_MS >= 1200, true, "AI 步进下限 ≥1200ms（原来 500–800ms 太快）→ " + T.AI_MIN_MS);
+  eq(T.AI_STEP_MS <= 1800 && T.AI_DRAW_MS <= 1800 && T.AI_DISCARD_MS <= 1800, true,
+    "三段步进都在人类可读区间 1200–1800 → 通用 " + T.AI_STEP_MS + " / 摸牌 " + T.AI_DRAW_MS + " / 出牌 " + T.AI_DISCARD_MS);
+  eq(T.AI_DISCARD_MS > T.AI_STEP_MS, true, "出牌那一拍比通用步进长（留给报牌播到一半）");
+  eq(T.AI_DRAW_MS >= T.AI_STEP_MS, true, "摸牌那一拍不短于通用步进");
+  eq(T.AI_MAX_MS, T.AI_DISCARD_MS + T.AI_JITTER_MS, "步进上限 = 出牌拍 + 抖动上限（可断言的上界）");
+  eq(T.SAY_AFTER_DISCARD_MS, T.DISCARD_ANIM_MS, "报牌延迟 = 落河动画时长（同一个常量：牌落定即报牌）");
+  eq(T.SAY_AFTER_DISCARD_MS > 0, true, "报牌不是 0 延迟（0 就退回「先报后出」）→ " + T.SAY_AFTER_DISCARD_MS + "ms");
+  eq(T.AI_DISCARD_MS >= T.SAY_MIN_STEP_MS, true,
+    "出牌那一拍 ≥「上一条报牌开播后 N ms」的下限 → " + T.AI_DISCARD_MS + " ≥ " + T.SAY_MIN_STEP_MS);
+  eq(T.DISCARD_FALL_PX > 0, true, "落河动画有位移（不是瞬移）→ " + T.DISCARD_FALL_PX + "px");
+
+  /* ── ② 碰/杠事件播的就是这两个文件（念法「我碰 / 我杠」由素材侧 TTS 决定） ── */
+  eq(T.voiceFile("碰"), "碰.mp3", "碰事件 → 碰.mp3（文件名不变，只改音频内容念「我碰」）");
+  eq(T.voiceFile("杠"), "杠.mp3", "杠事件 → 杠.mp3（文件名不变，只改音频内容念「我杠」）");
+  {
+    const py = fs.readFileSync(path.join(ROOT, "tools", "audio", "gen_mj_bailian_tts.py"), "utf8");
+    ok(py.indexOf('("碰", "我碰")') >= 0, "TTS 词表：碰.mp3 念「我碰」（用户追加要求，第一人称）");
+    ok(py.indexOf('("杠", "我杠")') >= 0, "TTS 词表：杠.mp3 念「我杠」");
+    ok(py.indexOf("暗杠") < 0 && py.indexOf("补杠") < 0,
+      "暗杠/补杠仍不在 TTS 词表里（手上动作只出牌碰实音 mj-clack，与素材侧 SILENT 常量一致）");
+  }
+
+  /* ── ③ 假 Audio + **受控时钟** ──
+     ⚠ 必须先 voiceCacheClear()：本节前半段用过别的假 Audio，缓存里留着它们的实例，
+        不清掉的话 say() 会复用那些「不会 ended」的旧对象，队列直接卡死。
+     ⚠ 假 Audio **不再自动播完**（ended 由测试手动触发；只有 autoEnd=true 时才用真实时钟收尾）。
+        为什么改：上一版靠 40ms 真实 setTimeout 自动 ended，于是「报牌到底出没出声」变成
+        **依赖真实时钟的持续演化状态** —— 上级实测同一份代码 978 / 977 / 978 随机红，
+        失败项就是那条。现在 ④ 段用受控时钟（手动 advance + 手动 ended）把时序钉死，
+        ④b 段才开 autoEnd 跑真实时钟，而且 ④b 只断言**同步可观测量**。 */
+  const played = [];
+  const audioInsts = [];
+  let autoEnd = false, clack = 0, clock = null;
+  function fireEnded(a) { (a._ev["ended"] || []).slice().forEach(f => f()); }
+  function AutoAudio(url) { this.src = String(url); this.volume = 1; this.currentTime = 0; this.duration = 0.2; this._ev = {}; }
+  AutoAudio.prototype.addEventListener = function (t, fn) { (this._ev[t] = this._ev[t] || []).push(fn); };
+  AutoAudio.prototype.removeEventListener = function (t, fn) { const a = this._ev[t] || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };
+  AutoAudio.prototype.load = function () {};
+  AutoAudio.prototype.pause = function () {};
+  AutoAudio.prototype.play = function () {
+    const self = this;
+    played.push(String(this.src).replace(/^.*\//, ""));
+    audioInsts.push(this);
+    if (autoEnd) setTimeout(() => fireEnded(self), 40);        // 只有 ④b 之后才用真实时钟收尾
+    return Promise.resolve();
+  };
+  windowStub.Audio = AutoAudio;
+  windowStub.AudioSys.sfxFile = function (n) { if (n === "mj-clack") clack++; };
+  eq(MJ.debug.voiceCacheClear(), true, "清掉旧 Audio 缓存（换整层假 Audio 实现）");
+
+  /* 受控时钟：把 windowStub 上的 setTimeout/clearTimeout 换成**可手动推进**的队列。
+     于是「落河动画 260ms → 报牌」「队列间隔 120ms」全由测试精确推进，不看真实时钟脸色 ——
+     这是让「报牌次数 = 出牌次数」确定性的关键（黄金法则：只断言被操作动作自身的影响，
+     不读持续演化、依赖真实时钟的世界状态）。
+     mahjong.js 的 later() 走 root.setTimeout，而 root 就是这个 windowStub，换掉即可。 */
+  function makeClock() {
+    const q = [];
+    let now = 0, seq = 0;
+    const realST = windowStub.setTimeout, realCT = windowStub.clearTimeout;
+    windowStub.setTimeout = function (fn, ms) { const id = ++seq; q.push({ id: id, fn: fn, at: now + Math.max(0, +ms || 0) }); return id; };
+    windowStub.clearTimeout = function (id) { for (let i = 0; i < q.length; i++) if (q[i].id === id) { q.splice(i, 1); return; } };
+    return {
+      advance: function (ms) {
+        const target = now + ms;
+        for (;;) {
+          q.sort((a, b) => (a.at - b.at) || (a.id - b.id));
+          if (!q.length || q[0].at > target) break;
+          const t = q.shift(); now = t.at;
+          try { t.fn(); } catch (e) { /* 与生产 later() 一致：定时器里抛错不中断牌局 */ }
+        }
+        now = target;
+      },
+      restore: function () { windowStub.setTimeout = realST; windowStub.clearTimeout = realCT; }
+    };
+  }
+  /** 把「正在播的那条」立刻播完（手动 ended）并把队列往前推 —— 确定性，不用真实时钟 */
+  function flushAudio(rounds) {
+    for (let k = 0; k < (rounds || 8); k++) {
+      clock.advance(T.VOICE_GAP + 10);          // 队列间隔到点 → 下一条开播（play 被调用）
+      const a = audioInsts.pop();
+      if (!a) break;
+      fireEnded(a);                            // 立刻播完 → finish → voicePump
+    }
+  }
+
+
+  /* ── ④ 逐张对拍：报牌内容 == 牌河里那张牌（≥30 次出牌，四个座位轮流） ──
+     为什么用「摆好手牌直接 E.discard」而不是跑一整局：
+       整局的每一步都会触发智脑提示 / 向听数重算（实测一拍 0.3–1.5s），跑完一局要几十秒，
+       而且牌局什么时候结束、谁会碰杠都不确定，「30 次出牌」这个数就凑不稳。
+       这里把牌摆成**确定性牌序**：34 种牌各打一次、四个座位轮流、其他三家手握 13 张死牌
+       （任何一张进张都成不了牌，也不会有人碰/杠），于是
+         · 每一次 E.discard 必然落河一张、必然报一张；
+         · 期望序列可以逐字写出来（EXPECT）。
+       走的仍是**生产路径**：E.discard → 日志 → playNewSfx() → voiceHook() → discardLanded()。 */
+  const POOL = [];
+  for (const s of ["万", "条", "筒"]) for (let n = 1; n <= 9; n++) POOL.push(n + s);
+  POOL.push("东", "南", "西", "北", "中", "發", "白");              // 34 张，含 7 种字牌
+  const DEAD13 = ["1万", "4万", "7万", "1条", "4条", "7条", "1筒", "4筒", "7筒", "东", "南", "西", "中"];
+  eq(POOL.length, 34, "对拍牌序 = 全部 34 种牌（含字牌，覆盖念名全表）");
+  {
+    MJ.dispose();
+    clock = makeClock();                   // ④ 全程受控：连 start() 里那次 later(pump,520) 也只进队列、不会自己乱跑
+    eq(MJ.start(makeElement("div"), {}), true, "对拍段：开一局干净的（对账簿 / 日志 / 计数都从 0 起算）");
+    MJ.debug.voiceToggle(true);
+    MJ.debug.engine().phase = "idle";      // 挂起自动 pump：这 34 张由测试自己一张张打，牌序才确定
+    eq(MJ.debug.voiceStats().discN, 0, "对拍段：discN 从 0 起算");
+    let okDisc = true, okPair = true, notYet = 0, fired = 0, badFile = "", boundary259 = null, boundary260 = null;
+    for (let i = 0; i < POOL.length; i++) {
+      const seat = i % 4, tile = POOL[i], E = MJ.debug.engine();
+      if (!E) { okDisc = false; break; }
+      for (let s = 0; s < 4; s++) {                              // 四家手握死牌：谁也胡不了、谁也不用碰
+        E.P[s].hand = DEAD13.slice(); E.P[s].melds = []; E.P[s].drawn = null; E.P[s].kongDraw = false;
+      }
+      E.P[seat].hand = [tile].concat(DEAD13.slice(0, 13));        // 14 张，待打的这张在最前
+      E.cur = seat; E.phase = "turn"; E.result = null;
+      E.pending = { type: "turn", seat: seat, anGangs: [], addGangs: [] };
+      if (E.discard(seat, E.P[seat].hand.indexOf(tile)) !== true) { okDisc = false; break; }
+      E.phase = "idle";                                          // 让 debug.step() 只灌语音、不再推进一步
+      MJ.debug.step();                                           // 生产路径：playNewSfx → voiceHook
+      /* ⚠ voiceStats().disc 是**快照**（每次 map 出一批新对象）→ 推进时钟后必须**重新读那一格**，
+         不能拿推进前抓到的那份对象看 said：那份永远是 false（上一版就是这么假红的）。 */
+      const at = MJ.debug.voiceStats().disc.length - 1;
+      if (at >= 0 && MJ.debug.voiceStats().disc[at].said === false) notYet++;   // 刚落河：账已记、定时器已挂、还没出声
+      if (i === 0) {                                              // 精确边界：259ms 不报，260ms 才报
+        clock.advance(T.SAY_AFTER_DISCARD_MS - 1);
+        boundary259 = at >= 0 ? MJ.debug.voiceStats().disc[at].said : null;
+        clock.advance(1);
+        boundary260 = at >= 0 ? MJ.debug.voiceStats().disc[at].said : null;
+      } else {
+        clock.advance(T.SAY_AFTER_DISCARD_MS);
+      }
+      if (at >= 0 && MJ.debug.voiceStats().disc[at].said === true) fired++;
+      flushAudio();                                               // 手动播完 → 队列继续（确定性）
+    }
+    flushAudio(40);                                               // 收尾：把队列排空
+    const vs = MJ.debug.voiceStats();
+    const E = MJ.debug.engine();
+    const logSeq = E.log.filter(e => e.kind === "discard" && e.tile).map(e => e.tile);
+    const queued = (vs.playing ? 1 : 0) + vs.queue.length;
+    for (let i = 0; i < vs.disc.length; i++) {
+      const r = vs.disc[i];
+      if (r.seat !== i % 4 || r.file !== T.voiceFile(r.tile)) { okPair = false; if (!badFile) badFile = "第" + i + "条 " + r.seat + "|" + r.tile + "→" + r.file; }
+    }
+    clock.restore();                                              // ④b/⑥/⑦ 段回到真实时钟
+    eq(okDisc, true, "34 次出牌全部成功落河（四个座位轮流）");
+    eq(logSeq.join(","), POOL.join(","), "引擎日志里的出牌序列 == 期望牌序（34 张，逐字）");
+    eq(vs.disc.length, POOL.length, "对账簿条数 == 出牌次数（" + vs.disc.length + " = " + POOL.length + "，不丢不重）");
+    eq(vs.discN, POOL.length, "discN == 出牌次数（" + vs.discN + "）");
+    eq(vs.disc.map(r => r.tile).join(","), POOL.join(","), "**报的牌**逐字等于**实际打出的牌**（34/34 零不一致）");
+    eq(vs.disc.map(r => r.file).join(","), POOL.map(t => T.voiceFile(t)).join(","), "报牌文件名 == 该牌素材名（逐字）");
+    /* ↓ 时序口径改成**确定性**的（原来是读真实时钟有没有走完 → 负载下会随机红）：
+         受控时钟不推进就绝不会出声，推进 SAY_AFTER_DISCARD_MS 就必然出声 ——
+         只断言「被操作动作自身的影响」，不读持续演化的世界状态。 */
+    eq(notYet, POOL.length, "34 张刚落河时都**还没有**出声（受控时钟未推进 → 一定没响）");
+    eq(boundary259, false, "距落定 " + (T.SAY_AFTER_DISCARD_MS - 1) + "ms 时仍未报（报牌不早于落河）");
+    eq(boundary260, true, "落定后整 " + T.SAY_AFTER_DISCARD_MS + "ms 才报（= 落河动画时长）");
+    eq(fired, POOL.length, "受控时钟推进后 " + fired + "/" + POOL.length + " 张全部出声（不丢）");
+    eq(vs.started, POOL.length, "实际开播条数 == 出牌次数（started=" + vs.started + "）");
+    eq(queued, 0, "收尾时队列是空的（受控时钟下确定性排空）");
+    eq(vs.dropped, 0, "队列没有丢弃任何一条报牌（dropped=0）");
+    eq(vs.mismatch, 0, "牌河与日志没有一次不一致（mismatch=0）");
+    eq(vs.lost, 0, "没有因日志截断而丢掉的报牌（lost=0）");
+    eq(vs.misses, 0, "34 条报牌都拿到了素材（misses=0）");
+    eq(okPair, true, "逐条复核：座位轮转 + 文件名 == voiceFile(tile)" + (badFile ? " → " + badFile : ""));
+    console.log("  弃牌对账：34/34 张逐字一致 · 受控时钟下「落河 → 报牌」精确 = " + T.SAY_AFTER_DISCARD_MS +
+      "ms（" + (T.SAY_AFTER_DISCARD_MS - 1) + "ms 不报 / " + T.SAY_AFTER_DISCARD_MS + "ms 报）· started=" + vs.started +
+      " · dropped=" + vs.dropped + " · mismatch=" + vs.mismatch + " · lost=" + vs.lost);
+  }
+
+
+  /* ── ④b 真牌局抽样：同样逐张对拍（限 14 拍，快进只为了让测试几十秒内跑完） ── */
+  let paceMin = Infinity, paceMax = -Infinity, paceN = 0, liveDisc = 0;
+  {
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "真局抽样：开局");
+    MJ.debug.voiceToggle(true);
+    const live0 = MJ.debug.voiceStats().discN;
+    for (let i = 0; i < 14; i++) {
+      const st = MJ.debug.state();
+      const E1 = MJ.debug.engine();
+      if (!st || st.phase === "over") break;
+      const n0 = MJ.debug.voiceStats().discN;
+      const robMine = st.phase === "rob" && E1 && E1.pending && E1.pending.seats && E1.pending.seats.indexOf(0) >= 0;
+      if (st.phase === "turn" && st.cur === 0) {
+        if (st.handCount % 3 === 2) { const h = MJ.debug.hand(); MJ.debug.act("discard", h[h.length - 1]); }
+        else MJ.debug.act("draw");
+      } else if (st.phase === "claim" && st.pending && st.pending.seat === 0) {
+        MJ.debug.act("pass");
+      } else if (robMine) {
+        MJ.debug.act("pass");
+      } else {
+        MJ.debug.step();
+      }
+      if (MJ.debug.voiceStats().discN > n0) await sleep(T.SAY_AFTER_DISCARD_MS + 20);
+    }
+    for (let k = 0; k < 40; k++) {              // 等队列排空
+      const s = MJ.debug.voiceStats();
+      if (!s.playing && !s.queue.length) break;
+      await sleep(50);
+    }
+    autoEnd = true;                             // 这一段跑**真实时钟**：让假 Audio 自己播完，模拟真牌局的队列推进
+    const vs = MJ.debug.voiceStats(), E = MJ.debug.engine();
+    const logSeq = E.log.filter(e => e.kind === "discard" && e.tile).map(e => e.seat + "|" + e.tile);
+    liveDisc = vs.discN;
+    const pc = MJ.debug.pace();
+    paceN += pc.n;
+    if (pc.min && pc.min < paceMin) paceMin = pc.min;
+    if (pc.max > paceMax) paceMax = pc.max;
+    /* ⚠ 口径（黄金法则）：这一段是**活的生命周期**，只断言**同步可观测量** ——
+       入账条数 / 逐张对拍 / 文件名 / mismatch / lost。
+       **不**断言 said、started、dropped 这类「定时器有没有走完、播放有没有真的发生」的状态：
+       它们依赖真实时钟，负载一高就随机红（上级实测 978/977/978）。
+       那几项由 ④ 段的受控时钟确定性覆盖。 */
+    let same = true, firstBad = "", allFile = true, firedN = 0, lateBad = 0, minDy = Infinity, maxDy = -Infinity;
+    for (let i = 0; i < vs.disc.length; i++) {
+      const r = vs.disc[i];
+      if (r.seat + "|" + r.tile !== logSeq[i]) { same = false; if (!firstBad) firstBad = r.seat + "|" + r.tile + " vs " + logSeq[i]; }
+      if (r.file !== T.voiceFile(r.tile)) allFile = false;
+      /* 只对**已经出声**的那几条比时序：真实时钟只会让定时器更晚、绝不会更早，
+         所以「不早于落河」是单向确定量；还没到点的条目一律不算失败。 */
+      if (r.said) {
+        firedN++;
+        const dy = r.sayAt - (r.landAt + T.DISCARD_ANIM_MS);
+        if (dy < -8) lateBad++;
+        if (dy < minDy) minDy = dy;
+        if (dy > maxDy) maxDy = dy;
+      }
+    }
+    eq(liveDisc >= 6, true, "真牌局抽样里落了 " + liveDisc + " 张牌（14 拍）");
+    eq(vs.disc.length, logSeq.length, "真牌局：报牌**入账**条数 == 出牌条数（" + vs.disc.length + "）");
+    eq(vs.discN, logSeq.length, "真牌局：discN（落河次数）== 出牌条数（" + vs.discN + "）");
+    eq(same, true, "真牌局：逐张对拍「牌河里的牌 == 日志里的牌」（座位|牌面）" + (firstBad ? " → " + firstBad : ""));
+    eq(allFile, true, "真牌局：每条入账的报牌文件名 == voiceFile(tile)");
+    eq(lateBad, 0, "真牌局：凡已出声的报牌**都晚于**牌落定（不早于落河）→ 已出声 " + firedN + " 条 · 最早 dy=" +
+      (firedN ? Math.round(minDy) : "-") + "ms / 最晚 dy=" + (firedN ? Math.round(maxDy) : "-") + "ms");
+    eq(vs.mismatch, 0, "真牌局：牌河与日志没有一次不一致（mismatch=0）");
+    eq(vs.lost, 0, "真牌局：没有因日志截断而丢掉的报牌（lost=0）");
+    console.log("  真牌局抽样：入账 " + vs.disc.length + " 条（其中真实时钟下已出声 " + firedN + " 条 · 落定→出声 " +
+      (firedN ? Math.round(minDy) + "~" + Math.round(maxDy) + "ms" : "-") + "；未到点的条目不计入断言）");
+
+  }
+  eq(paceN > 0, true, "采到 AI 步进实测样本 " + paceN + " 个（来自真实 pump 排期，不是常量照抄）");
+  eq(paceMin >= T.AI_MIN_MS, true, "实测最快的一拍 = " + paceMin + "ms ≥ 步进下限 " + T.AI_MIN_MS + "ms");
+  eq(paceMax <= T.AI_MAX_MS, true, "实测最慢的一拍 = " + paceMax + "ms ≤ 步进上限 " + T.AI_MAX_MS + "ms");
+  console.log("  AI 步进实测：" + paceMin + "~" + paceMax + "ms（下限 " + T.AI_MIN_MS + " · 出牌拍 " + T.AI_DISCARD_MS +
+    " · 抖动上限 " + T.AI_JITTER_MS + " · 实测样本 " + paceN + " 个）");
+
+
+  /* ── ⑥ 杠开只在「杠后补摸的那张自摸」时播 ── */
+  {
+    /* ⑤-1 暗杠 + 杠后补摸（没胡）→ 一条语音都不该多播，出的是牌碰实音 */
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "杠开段：开局（暗杠）");
+    MJ.debug.voiceToggle(true);
+    /* 10 张怎么摸都成不了牌的散牌：任何一张进张都凑不出 3 面子 + 1 将 */
+    eq(MJ.debug.setHand(["1万", "1万", "1万", "1万", "2万", "4万", "6万", "8万", "1条", "3条", "5条", "东", "南", "西"], [], null),
+      true, "摆牌：四张 1万（可暗杠）+ 10 张死牌");
+    const bK = MJ.debug.voiceStats();
+    const bClack = clack;
+    eq(MJ.debug.act("gang"), true, "暗杠 1万（随后杠后补摸一张）");
+    await sleep(T.SAY_AFTER_DISCARD_MS + 120);
+    const vK = MJ.debug.voiceStats();
+    eq(vK.uniq.indexOf("杠开.mp3"), -1, "暗杠 + 补摸（没胡）**不播**杠开（用户实测「乱喊杠开」的就是这条路径）");
+    eq(vK.uniq.indexOf("杠.mp3"), -1, "暗杠也不喊「杠」（手上动作，只出牌碰实音）");
+    eq(vK.plays, bK.plays, "这条路径一条语音都不该播（plays 不变）→ " + bK.plays + " → " + vK.plays);
+    eq(clack, bClack + 1, "暗杠补摸出的是牌碰实音 mj-clack（clack " + bClack + " → " + clack + "）");
+  }
+  {
+    /* ⑤-2 补杠 + 杠后补摸（没胡）→ 同样不播杠开 */
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "杠开段：开局（补杠）");
+    MJ.debug.voiceToggle(true);
+    eq(MJ.debug.setHand(["9筒", "2万", "4万", "6万", "8万", "1条", "3条", "5条", "东", "南", "西"],
+      [{ type: "peng", tiles: ["9筒", "9筒", "9筒"], from: 1, an: false, kind: "ming" }], null), true,
+      "摆牌：碰了 9筒 + 手里第 4 张（可补杠）+ 10 张死牌");
+    const bB = MJ.debug.voiceStats();
+    const bClack2 = clack;
+    eq(MJ.debug.act("gang"), true, "补杠 9筒（随后杠后补摸一张）");
+    await sleep(T.SAY_AFTER_DISCARD_MS + 120);
+    const vB = MJ.debug.voiceStats();
+    eq(vB.uniq.indexOf("杠开.mp3"), -1, "补杠 + 补摸（没胡）**不播**杠开");
+    eq(vB.uniq.indexOf("杠.mp3"), -1, "补杠也不喊「杠」（手上动作，只出牌碰实音）");
+    eq(clack, bClack2 + 1, "补杠出的是牌碰实音 mj-clack");
+  }
+  {
+    /* ⑤-3 直杠本身：只喊「杠」，不喊杠开 */
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "杠开段：开局（直杠）");
+    MJ.debug.voiceToggle(true);
+    const E5 = MJ.debug.engine();
+    eq(MJ.debug.setHand(["5筒", "5筒", "5筒", "1万", "2万", "4万", "6万", "8万", "1条", "3条", "东", "南", "西"], [], null),
+      true, "摆牌：自己手里三张 5筒");
+    E5.P[1].hand = ["5筒", "1万", "2万", "3万", "4万", "5万", "6万", "7万", "8万", "9万", "1条", "2条", "3条", "4条"];
+    E5.cur = 1; E5.phase = "turn";
+    E5.pending = { type: "turn", seat: 1, anGangs: [], addGangs: [] };
+    eq(E5.discard(1, 0), true, "1 家打出 5筒（自己三张在手 → 可直杠）");
+    eq(MJ.debug.step(), "wait", "走一拍：轮到自己处理碰/杠窗口（debug.step 与 pump 同路径）");
+    eq(MJ.debug.state().phase, "claim", "响应窗口就是碰/杠（phase=claim）");
+    eq(MJ.debug.act("gang"), true, "直杠 5筒");
+    await sleep(60);
+    const vG = MJ.debug.voiceStats();
+    ok(vG.uniq.indexOf("杠.mp3") >= 0, "直杠喊的是 杠.mp3（念「我杠」由素材侧 TTS 决定）→ " + vG.list.join(","));
+    eq(vG.uniq.indexOf("杠开.mp3"), -1, "直杠本身不播杠开（杠开只属于杠后补摸自摸）");
+  }
+  {
+    /* ⑤-4 杠后补摸自摸 → 播杠开，且一局只播一次 */
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "杠开段：开局（杠上开花）");
+    MJ.debug.voiceToggle(true);
+    eq(MJ.debug.forceWin(0, true), true, "造一次「杠上开花」（杠后补摸的那张自摸）");
+    await sleep(60);
+    const vW = MJ.debug.voiceStats();
+    eq(vW.uniq.indexOf("杠开.mp3") >= 0, true, "杠后补摸自摸 → **播** 杠开.mp3 → " + vW.list.join(","));
+    eq(vW.list.filter(f => f === "杠开.mp3").length, 1, "杠开只播一次（list 里出现 1 次）");
+    const E6 = MJ.debug.engine();
+    E6.phase = "turn";                        // 让第二发能进去：模拟「同一局里又出现一次杠开事件」
+    eq(MJ.debug.forceWin(0, true), true, "同一局内再造一次杠开事件");
+    await sleep(60);
+    eq(MJ.debug.voiceStats().list.filter(f => f === "杠开.mp3").length, 1, "一局内不会重复播杠开（第二次被 G.kongSaid 挡住）");
+  }
+
+  /* ── ⑦ 碰事件播的确实是 碰.mp3（用户追加：碰牌要喊「我碰」） ── */
+  {
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "碰牌段：开局");
+    MJ.debug.voiceToggle(true);
+    const E7 = MJ.debug.engine();
+    const h0 = MJ.debug.hand();
+    h0[h0.length - 1] = "7筒";                // 手里留一张 7筒，打出去引 1 家碰
+    eq(MJ.debug.setHand(h0, [], null), true, "摆牌：自己手里有 7筒");
+    E7.P[1].hand = ["7筒", "7筒", "1万", "2万", "4万", "6万", "8万", "1条", "3条", "5条", "东", "南", "西"];
+    eq(MJ.debug.act("discard", "7筒"), true, "打出 7筒");
+    eq(MJ.debug.state().phase, "claim", "1 家可碰（phase=claim）");
+    eq(E7.claim(1, "peng"), true, "1 家碰下这张 7筒");
+    MJ.debug.step();
+    /* 碰是喊话（当场出声），自己那张 7筒 是报牌（要等落河）→ 两个时刻都要等够 */
+    await sleep(T.SAY_AFTER_DISCARD_MS + 80);
+    const vP = MJ.debug.voiceStats();
+    ok(vP.uniq.indexOf("碰.mp3") >= 0, "碰事件播的是 碰.mp3（内容念「我碰」由素材侧 TTS 决定）→ " + vP.list.join(","));
+    ok(vP.uniq.indexOf("7筒.mp3") >= 0, "自己打出的 7筒 也照常报牌 → " + vP.list.join(","));
+  }
+
+  MJ.dispose();
+  delete windowStub.Audio;                     // 收尾：把假 Audio 撤掉，缓存也清干净
+  MJ.debug.voiceCacheClear();
+  delete windowStub.AudioSys.sfxFile;
+  eq(MJ.isBusy(), false, "19b 收尾：dispose 后 isBusy=false");
+
   }
 
   /* ⑦ 播报队列：不打断 / 优先级 / 上限与间隔

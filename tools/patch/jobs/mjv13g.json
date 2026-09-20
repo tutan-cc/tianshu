@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "translate: noop, scale: noop, quadraticCurveTo: noop, closePath: noop,",
+      "text": "translate: noop, scale: noop, rotate: noop, quadraticCurveTo: noop, closePath: noop,"
+    },
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  /* ── ⑤ 杠开只在「杠后补摸的那张自摸」时播 ── */",
+      "text": "  /* ── ⑥ 杠开只在「杠后补摸的那张自摸」时播 ── */"
+    },
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  /* ── ⑥ 碰事件播的确实是 碰.mp3（用户追加：碰牌要喊「我碰」） ── */",
+      "text": "  /* ── ⑦ 碰事件播的确实是 碰.mp3（用户追加：碰牌要喊「我碰」） ── */"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+  /**
+   * 弃牌 → 落河 → 报牌（**唯一入口**，四个座位都走这里）。
+   *
+   * 用户实测反馈：「出现了打的牌跟报出来的牌不一样的情况」。两个根因一起掐掉：
+   *   ① 两个数据源。牌桌上真正画出来的是 p.discards 的最后一张，而报牌是在事件处理时
+   *      顺着日志字段取的（say(ev.tile)）—— 两者一旦不同步，声音和画面就各说各话。
+   *      现在只认一个来源：**牌河里那张牌**（渲染层画的就是它）；日志里的牌只用来对账，
+   *      对不上就记 VOICE_STAT.mismatch（应当恒为 0）。
+   *   ② 报牌在出牌那一刻就入队，而队列封顶 6 条、满了丢「最旧的低优先级项」。
+   *      旧节奏 500–800ms 一步，而一条报牌要占住播放位 0.6–1.2s（素材时长 0.33–1.07s
+   *      + VOICE_GAP 120ms）→ 队列必然堆积 → 弃牌报牌被成批丢弃 →
+   *      你盯着牌河里的第 N 张，耳朵里响的却是第 N-2 张。这正是「报的牌跟打的不一样」。
+   *      现在报牌推迟到落河之后，配合 AI_DISCARD_MS ≥ 一条报牌的时长，队列不再堆积
+   *      （测试断言 dropped=0、started=出牌次数）。
+   *
+   * 时序：本函数同时是**落河动画的起点**（G.anim.disc），报牌定时器 = DISCARD_ANIM_MS，
+   *       两者共用 SAY_AFTER_DISCARD_MS 一个常量 → 牌落定的那一刻出声，不早也不晚。
+   * expect：日志里那条 discard 事件带的牌面，只用于对账；为空则不校验。
+   */
+  function discardLanded(seat, expect) {
+    var E = G.E;
+    var p = (E && E.P && E.P[seat]) ? E.P[seat] : null;
+    if (!p || !p.discards.length) return "";
+    var tile = p.discards[p.discards.length - 1];              // ← 唯一数据源：牌河
+    if (expect && String(expect) !== tile) VOICE_STAT.mismatch++;
+    var at = Date.now(), f = voiceFile(tile);
+    G.anim.disc = { seat: seat, tile: tile, at: at };          // 落河动画起点（渲染层按它滑入）
+    VOICE_STAT.discN++;
+    var rec = { seat: seat, tile: tile, file: f, landAt: at, sayAt: 0, said: false };
+    VOICE_STAT.disc.push(rec);
+    if (VOICE_STAT.disc.length > 240) VOICE_STAT.disc.shift();  // 只留最近 240 条（够整局对账）
+    if (!f || !G.voiceOn) { rec.file = ""; return ""; }
+    later(function () {
+      /* 落河动画走完的这一刻才报牌；内容还是上面那一个 tile —— 不重取、不重算 */
+      rec.sayAt = Date.now();
+      rec.said = true;
+      say(tile, { seat: seat, vol: seat === 0 ? VOICE_VOL : VOICE_AI_VOL });
+    }, SAY_AFTER_DISCARD_MS);
+    return voiceUrl(tile, seat);
+  }

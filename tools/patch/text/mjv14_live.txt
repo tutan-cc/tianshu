@@ -1,0 +1,39 @@
+    autoEnd = true;                             // 这一段跑**真实时钟**：让假 Audio 自己播完，模拟真牌局的队列推进
+    const vs = MJ.debug.voiceStats(), E = MJ.debug.engine();
+    const logSeq = E.log.filter(e => e.kind === "discard" && e.tile).map(e => e.seat + "|" + e.tile);
+    liveDisc = vs.discN;
+    const pc = MJ.debug.pace();
+    paceN += pc.n;
+    if (pc.min && pc.min < paceMin) paceMin = pc.min;
+    if (pc.max > paceMax) paceMax = pc.max;
+    /* ⚠ 口径（黄金法则）：这一段是**活的生命周期**，只断言**同步可观测量** ——
+       入账条数 / 逐张对拍 / 文件名 / mismatch / lost。
+       **不**断言 said、started、dropped 这类「定时器有没有走完、播放有没有真的发生」的状态：
+       它们依赖真实时钟，负载一高就随机红（上级实测 978/977/978）。
+       那几项由 ④ 段的受控时钟确定性覆盖。 */
+    let same = true, firstBad = "", allFile = true, firedN = 0, lateBad = 0, minDy = Infinity, maxDy = -Infinity;
+    for (let i = 0; i < vs.disc.length; i++) {
+      const r = vs.disc[i];
+      if (r.seat + "|" + r.tile !== logSeq[i]) { same = false; if (!firstBad) firstBad = r.seat + "|" + r.tile + " vs " + logSeq[i]; }
+      if (r.file !== T.voiceFile(r.tile)) allFile = false;
+      /* 只对**已经出声**的那几条比时序：真实时钟只会让定时器更晚、绝不会更早，
+         所以「不早于落河」是单向确定量；还没到点的条目一律不算失败。 */
+      if (r.said) {
+        firedN++;
+        const dy = r.sayAt - (r.landAt + T.DISCARD_ANIM_MS);
+        if (dy < -8) lateBad++;
+        if (dy < minDy) minDy = dy;
+        if (dy > maxDy) maxDy = dy;
+      }
+    }
+    eq(liveDisc >= 6, true, "真牌局抽样里落了 " + liveDisc + " 张牌（14 拍）");
+    eq(vs.disc.length, logSeq.length, "真牌局：报牌**入账**条数 == 出牌条数（" + vs.disc.length + "）");
+    eq(vs.discN, logSeq.length, "真牌局：discN（落河次数）== 出牌条数（" + vs.discN + "）");
+    eq(same, true, "真牌局：逐张对拍「牌河里的牌 == 日志里的牌」（座位|牌面）" + (firstBad ? " → " + firstBad : ""));
+    eq(allFile, true, "真牌局：每条入账的报牌文件名 == voiceFile(tile)");
+    eq(lateBad, 0, "真牌局：凡已出声的报牌**都晚于**牌落定（不早于落河）→ 已出声 " + firedN + " 条 · 最早 dy=" +
+      (firedN ? Math.round(minDy) : "-") + "ms / 最晚 dy=" + (firedN ? Math.round(maxDy) : "-") + "ms");
+    eq(vs.mismatch, 0, "真牌局：牌河与日志没有一次不一致（mismatch=0）");
+    eq(vs.lost, 0, "真牌局：没有因日志截断而丢掉的报牌（lost=0）");
+    console.log("  真牌局抽样：入账 " + vs.disc.length + " 条（其中真实时钟下已出声 " + firedN + " 条 · 落定→出声 " +
+      (firedN ? Math.round(minDy) + "~" + Math.round(maxDy) + "ms" : "-") + "；未到点的条目不计入断言）");

@@ -38,12 +38,30 @@ Set-Location $repo
 # 期望数只是「基线参考」：对不上会标红提示，但不直接判失败（真正判失败的是进程退出码）
 $SUITES = @(
   [pscustomobject]@{ Layer = "logic";    Name = "内核单测（存档/剧情图/装备）"; Script = "tests/core.test.cjs";             Expect = 8 }
-  [pscustomobject]@{ Layer = "logic";    Name = "早餐店纯逻辑";                 Script = "tests/breakfast.test.cjs";        Expect = 56 }
+  [pscustomobject]@{ Layer = "logic";    Name = "早餐店纯逻辑";                 Script = "tests/breakfast.test.cjs";        Expect = 67 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将系统单测";                 Script = "tests/mj-system.test.cjs";        Expect = 15 }
-  [pscustomobject]@{ Layer = "logic";    Name = "麻将逻辑（最大的一套）";       Script = "tools/test/mahjong-logic.js";     Expect = 847 }
+  [pscustomobject]@{ Layer = "logic";    Name = "麻将逻辑（最大的一套）";       Script = "tools/test/mahjong-logic.js";     Expect = 978 }
   [pscustomobject]@{ Layer = "logic";    Name = "index.html 内联脚本语法闸";     Script = "tools/dev/check-inline.js";       Expect = 0 }
+  # 音频路径解析（素材 ↔ 代码 之间那道缝）。
+  # 必要性来自实测：素材库同时存在 `ui-click.mp3` 与 `sfx-fight-hit.mp3` 两种命名，
+  # 而代码只拼后者/只拼前者 → 54 条音效 + 9 条环境音永远取不到；
+  # 又因为 sfxFile() 无条件 return true，连"回落合成音"都没发生，彻底静音且不报错。
+  # 这一层把真实的 AudioSys 从 index.html 抽出来用 FakeAudio 驱动，测的是出货代码本身。
+  [pscustomobject]@{ Layer = "logic";    Name = "音频素材路径解析";             Script = "tests/audio-paths.test.cjs";      Expect = 20 }
+  # 打斗三档判定（P0）。判定条是 rAF 驱动的递归光标，这里用"排队 + 逐帧放行"的替身
+  # 把光标真实推到完美/良好/偏出三档再落下，所以三档都是被驱动出来的，不是改内部变量。
+  # 顺带锁住格斗音效的命名（写错名不报错、只会静音）。
+  [pscustomobject]@{ Layer = "logic";    Name = "打斗三档判定与格斗音效";       Script = "tests/fight-grade.test.cjs";      Expect = 25 }
+  [pscustomobject]@{ Layer = "logic";    Name = "打斗主回路（真实 startFight）"; Script = "tests/fight-loop.test.cjs";       Expect = 43 }
+  # P1：公共判定条 judgeBar + 键盘输入总线 InputBus。
+  # 守住两件最容易在重构里丢的事：① 拳击馆那场「等玩家按、不超时」与打斗「1.4 秒限时」
+  # 两种语义都还在；② 三档判定靠「完美区 + 良好区」两条区间，只给完美区会退化成两档。
+  [pscustomobject]@{ Layer = "logic";    Name = "公共判定条与输入总线";         Script = "tests/judge-bar.test.cjs";        Expect = 35 }
+  # 打斗 2.0 骨架（fight2）：接线正确性 —— 三档真的接进伤害、结果走 afterInter、
+  # 跳过战斗出口、DOM id 另起（旧的 #fightBtns 全局绑定不能抢走它的按钮）。
+  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0 骨架";                Script = "tests/fight2.test.cjs";           Expect = 50 }
   [pscustomobject]@{ Layer = "headless"; Name = "早餐店无头证据链";             Script = "tools/bf/headless.js";            Expect = 351 }
-  [pscustomobject]@{ Layer = "browser";  Name = "麻将浏览器实测（CDP→mshta）";  Script = "tools/e2e/mj-browser.js";         Expect = 162 }
+  [pscustomobject]@{ Layer = "browser";  Name = "麻将浏览器实测（CDP→mshta）";  Script = "tools/e2e/mj-browser.js";         Expect = 168 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将系统 E2E（mshta）";         Script = "tools/e2e/mj-system.js";          Expect = 115 }
   [pscustomobject]@{ Layer = "browser";  Name = "闲暇玩法 E2E（打斗/麻将/彩票）"; Script = "tools/e2e/leisure.js";           Expect = 8 }
   # 素材接线核对：确认代码点名的音频文件**真的能取到**。

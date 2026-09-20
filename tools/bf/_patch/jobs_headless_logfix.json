@@ -1,0 +1,17 @@
+{
+ "note": "修正：debug.audio() 返回的 log 是**数组**（不是取值函数），无头里误写成 log()。rules.audio.log() 才是函数（纯逻辑层的取值器）—— 两层 API 形状不同，这里统一按无头读法改成数组访问。",
+ "jobs": [
+  { "file": "tools/bf/headless.js",
+    "from": "const offLog0 = d.audio().log().length;",
+    "text": "const offLog0 = d.audio().log.length;" },
+  { "file": "tools/bf/headless.js",
+    "from": "const offLog = d.audio().log().slice(offLog0);",
+    "text": "const offLog = d.audio().log.slice(offLog0);" },
+  { "file": "tools/bf/headless.js",
+    "from": "A(d2.audio().log().some(r => r.why === \"load-error\" || r.why === \"blocked\"),",
+    "text": "A(d2.audio().log.some(r => r.why === \"load-error\" || r.why === \"blocked\")," },
+  { "file": "tools/bf/headless.js",
+    "from": "d2.audio().log().map(r => r.why).join(\",\"));",
+    "text": "d2.audio().log.map(r => r.why).join(\",\"));" }
+ ]
+}

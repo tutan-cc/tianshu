@@ -1,0 +1,11 @@
+{
+ "note": "修正：cv 要在 start() 之后才取（start() 之前宿主节点是空的，querySelector 得到 null）—— 上一版在 boot() 之后立刻取，等于拿到 null，点徽章那一步直接炸。",
+ "jobs": [
+  { "file": "tools/bf/headless.js",
+    "from": "const B = g.B, d = B.debug, rec = g.record, cv = g.canvas();",
+    "text": "const B = g.B, d = B.debug, rec = g.record;" },
+  { "file": "tools/bf/headless.js",
+    "from": "  const a0 = d.audio();",
+    "text": "  const cv = g.canvas();                           // ⚠ start() 之后才取：之前宿主节点是空的\r\n  const a0 = d.audio();" }
+ ]
+}

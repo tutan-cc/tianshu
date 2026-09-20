@@ -1,0 +1,207 @@
+  /* ═══════════ 1b. 音效 / 顾客语音（bf-audio-1：滴答 / 呜呼 / 哼，太慢了）═════════
+     用户三条要求（逐条对应到下面的触发点）：
+       ① 顾客耐心快到时要有「滴答」式倒计时提示音 —— 耐心剩余 ≤ TICK_AT(30%) 开始响，
+          越急越密（30% 档 1.0s 一下，≤10% 档 0.5s 一下）
+       ② 顾客拿到早餐 → 高兴地喊一声「呜呼～」（三个音色变体随机取，避免听腻）
+       ③ 等太久走掉的顾客 → 「哼，太慢了」
+     四条设计约束（都是用户/项目明确要求）：
+       · **有文件用文件，缺失静默回落**：文件不存在 / 环境里没有 Audio / 被浏览器自动播放
+         策略拦截 → 不抛错、不报错、不影响玩法（只在记录里留一个 why，验收读得到）。
+       · **不许叠成噪音**：滴答是**全店一条**（不是每位顾客各一条），按紧迫度限流，
+         再加一道 TICK_MIN_GAP 保险丝；「呜呼」「哼」各自也有最小间隔
+         （同一单连着上三样菜不会叠三声）。
+       · **不打断别的语音**：本模块只 new 自己的 Audio()，不排队、不暂停、不接管别人的播放 ——
+         麻将那条报牌队列在 mahjong.js 里，两套互不触碰。
+       · **开关沿用**：早餐店此前没有任何音量/静音设置，所以按用户要求用
+         localStorage.bfSoundOn（"0"/"off"/"false" = 关；缺省开）。
+         UI 两处都能点：顶栏的 🔊/🔇 按钮、图例条左端的同款小徽章。
+     素材：audio/bf/{tick,happy,happy2,happy3,slow}.mp3（48kHz / 128kbps / 单声道）      */
+  var TICK_AT = 0.30;        // 耐心剩余 ≤30% 开始滴答（可调常量）
+  var TICK_NEAR = 0.10;      // ≤10% 进入「更急」档
+  var TICK_GAP_FAR = 1.0;    // 30% 档：每秒 1 次
+  var TICK_GAP_NEAR = 0.5;   // 10% 档：每 0.5 秒 1 次
+  var TICK_MIN_GAP = 0.25;   // 全局节流下限（保险丝：任何两次滴答至少隔这么久）
+  var HAPPY_MIN_GAP = 0.90;  // 两条「呜呼」之间的最小间隔（≈最短那条喊声 0.91s：连续上菜不叠声）
+  var SLOW_MIN_GAP = 0.80;   // 两条「哼，太慢了」之间的最小间隔
+  var BF_SOUND_KEY = "bfSoundOn";     // localStorage 键（默认开）
+  var BF_AUDIO_DIR = "audio/bf/";     // 素材目录（相对页面，与 art/ 同一套解析口径）
+  var BF_SFX_VOL = { tick:0.35, happy:0.55, slow:0.55 };   // 音量（滴答压低，别吵）
+  var BF_SFX_FILES = {
+    tick:  ["tick.mp3"],
+    happy: ["happy.mp3", "happy2.mp3", "happy3.mp3"],      // 变体：随机取，且不连着重复同一条
+    slow:  ["slow.mp3"]
+  };
+  var AUDIO_NAMES = ["tick", "happy", "slow"];
+
+  /* ── 播放引擎（模块级单例；不依赖 DOM，纯逻辑测试里也能跑）─────────────────
+     三级回落，任何一级出问题都只是「这一声没响」：
+       ① 测试注入的 sink（rules.audio.hook(fn)）→ 只记录，不发声
+       ② 浏览器的 new Audio(url) + play()（.catch 吞掉自动播放策略拦截）
+       ③ 都没有（Node / 老环境）→ 记一条 why:"no-audio" 就结束            */
+  var audio = (function () {
+    var on = null;        // null = 还没读过开关（懒读；没有 localStorage 的环境照样能跑）
+    var sink = null;      // 测试注入的播放器：给了就不走 new Audio
+    var log = [];         // 播放 / 跳过记录（验收读它；上限 240 条，防无限增长）
+    var LOG_MAX = 240;
+    var lastPick = {};    // 每个通道上一条用过的变体下标（避免连着重复同一句）
+
+    function store() {
+      try { return (root && root.localStorage) ? root.localStorage : null; } catch (e) { return null; }
+    }
+    /** 开关：localStorage.bfSoundOn；读不到（无痕/沙箱/无 localStorage）→ 默认开 */
+    function enabled() {
+      if (on !== null) return on;
+      var raw = null;
+      try { var ls = store(); if (ls && ls.getItem) raw = ls.getItem(BF_SOUND_KEY); } catch (e) { raw = null; }
+      on = !(raw === "0" || raw === "off" || raw === "false");
+      return on;
+    }
+    function setEnabled(b) {
+      on = !!b;
+      try { var ls = store(); if (ls && ls.setItem) ls.setItem(BF_SOUND_KEY, on ? "1" : "0"); } catch (e) {}
+      return on;
+    }
+    function toggle() { return setEnabled(!enabled()); }
+    function sfxUrl(name, i) {
+      var f = BF_SFX_FILES[name]; if (!f || !f.length) return "";
+      var k = (typeof i === "number" && i >= 0 && i < f.length) ? Math.floor(i) : 0;
+      return BF_AUDIO_DIR + f[k];
+    }
+    /** 取一个变体下标（多条时避免连着重复同一条；单条恒 0）*/
+    function pick(name) {
+      var f = BF_SFX_FILES[name]; if (!f || f.length <= 1) return 0;
+      var i = Math.abs(Math.floor(rnd01() * f.length)) % f.length;
+      if (lastPick[name] === i) i = (i + 1) % f.length;
+      lastPick[name] = i;
+      return i;
+    }
+    function rec(name, i, ok, why, at) {
+      var r = { name:name, url:sfxUrl(name, i), volume:BF_SFX_VOL[name] || 0,
+                at:(typeof at === "number") ? round1(at) : 0, ok:!!ok, why:why || "" };
+      log.push(r);
+      if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
+      return r;
+    }
+    /** 播一条。**任何异常都不许冒泡**（缺文件 / 没有 Audio / 被策略拦截 → 静默） */
+    function play(name, at) {
+      if (!BF_SFX_FILES[name]) return null;
+      var i = pick(name);
+      if (!enabled()) return rec(name, i, false, "off", at);
+      if (typeof sink === "function") {
+        var r0 = rec(name, i, true, "sink", at);
+        try { sink(r0); } catch (e) { r0.ok = false; r0.why = "sink-error"; }
+        return r0;
+      }
+      var A = root ? root.Audio : null;
+      if (typeof A !== "function") return rec(name, i, false, "no-audio", at);
+      var r = rec(name, i, true, "", at);
+      try {
+        var a = new A(r.url);
+        try { a.volume = r.volume; } catch (e2) {}
+        /* 文件缺失（404 / 解码失败）→ error 事件；**静默**，只把这条记录标一下 */
+        if (a.addEventListener) a.addEventListener("error", function () { r.ok = false; r.why = "load-error"; });
+        var pr = a.play ? a.play() : null;
+        if (pr && typeof pr.catch === "function") pr.catch(function () { r.ok = false; r.why = "blocked"; });
+      } catch (e3) { r.ok = false; r.why = "throw"; }
+      return r;
+    }
+    return {
+      enabled:enabled, setEnabled:setEnabled, toggle:toggle, play:play, url:sfxUrl, pick:pick,
+      log:function () { return log.slice(); },
+      /** 真的播出去的记录（开关关掉 / 没有 Audio 的不算）—— 验收只断言它 */
+      plays:function () { var out = []; for (var i = 0; i < log.length; i++) if (log[i].ok) out.push(log[i]); return out; },
+      clear:function () { log.length = 0; lastPick = {}; },
+      hook:function (fn) { sink = (typeof fn === "function") ? fn : null; return !!sink; },
+      files:BF_SFX_FILES, vol:BF_SFX_VOL, key:BF_SOUND_KEY, dir:BF_AUDIO_DIR
+    };
+  })();
+
+  /* ── 滴答：触发阈值与节奏（全是纯函数，单测直接断言阈值 / 档位，不用起渲染层）── */
+  /** 某位顾客的耐心剩余比例（0..1）*/
+  function patienceRatioOf(c) {
+    if (!c) return 1;
+    var pat = Number(c.patience); if (!isFinite(pat)) pat = 0;
+    var max = Number(c.patienceMax); if (!isFinite(max) || max <= 0) max = 0.01;
+    return Math.max(0, pat) / Math.max(0.01, max);
+  }
+  /** 全店**最急**那位顾客的耐心比例；没有在等的顾客 → 1。
+      已经拿齐订单、正在离场的不算（不再催他）。 */
+  function minPatienceRatio(st) {
+    var list = activeCustomers(st), m = 1;
+    for (var i = 0; i < list.length; i++) {
+      if (remainOf(list[i]) <= 0) continue;
+      var r = patienceRatioOf(list[i]);
+      if (r < m) m = r;
+    }
+    return m;
+  }
+  /** 滴答节奏：≤10% 档更快（30% 档 1.0s / 10% 档 0.5s）*/
+  function tickGapFor(ratio) { return (Number(ratio) <= TICK_NEAR) ? TICK_GAP_NEAR : TICK_GAP_FAR; }
+  /** 这一帧该不该滴答（纯判定，不改状态）*/
+  function tickDue(st) {
+    if (!st || !st.audio) return false;
+    if (!(minPatienceRatio(st) <= TICK_AT)) return false;
+    return st.elapsed + 1e-9 >= st.audio.tickNext;
+  }
+  /** 每局一份的音频台账（跟着 st 走，不进 localStorage）*/
+  function newAudioState() {
+    return { tickNext:0, lastTickAt:-1e9, lastHappyAt:-1e9, lastSlowAt:-1e9,
+             ticks:0, happies:0, slows:0 };
+  }
+  /** 一帧一次的音频调度：滴答（全局节流）+ 本帧有人跑单时的「哼，太慢了」（只播一次）。
+      调用点在 step() 里、顾客账算完之后 —— 所以「顾客离开 / 被服务」当帧就会停滴答。 */
+  function stepAudio(st, leftNow) {
+    if (!st || !st.audio) return;
+    var a = st.audio, r = minPatienceRatio(st);
+    if (r <= TICK_AT) {
+      if (tickDue(st)) {
+        a.tickNext = st.elapsed + Math.max(TICK_MIN_GAP, tickGapFor(r));
+        a.lastTickAt = st.elapsed; a.ticks++;
+        audio.play("tick", st.elapsed);
+      }
+    } else {
+      /* 没人急了（都走了 / 都被服务完了）→ 计时器归位：下次一进 30% 立刻响，不残留节奏 */
+      a.tickNext = st.elapsed;
+    }
+    if (leftNow) playSlow(st);
+  }
+  /** 拿到早餐 → 「呜呼～」（同一次服务只播一次；HAPPY_MIN_GAP 内不重复叠声）*/
+  function playHappy(st) {
+    if (!st || !st.audio) return null;
+    var a = st.audio;
+    if (st.elapsed - a.lastHappyAt < HAPPY_MIN_GAP) return null;
+    a.lastHappyAt = st.elapsed; a.happies++;
+    return audio.play("happy", st.elapsed);
+  }
+  /** 等太久走掉 → 「哼，太慢了」（同一帧多人离开也只播一次）*/
+  function playSlow(st) {
+    if (!st || !st.audio) return null;
+    var a = st.audio;
+    if (st.elapsed - a.lastSlowAt < SLOW_MIN_GAP) return null;
+    a.lastSlowAt = st.elapsed; a.slows++;
+    return audio.play("slow", st.elapsed);
+  }
+  /** 开关的两处 UI 共用同一份文案 */
+  function soundLabel() { return audio.enabled() ? "🔊 音效" : "🔇 静音"; }
+  /** 顶栏按钮 / 图例徽章共用的切换（改了开关 → 同步按钮文案 + 重绘画布上的徽章）*/
+  function toggleSound() {
+    var on = audio.toggle();
+    if (inst) {
+      if (inst.btnSound) { try { inst.btnSound.textContent = soundLabel(); } catch (e) {} }
+      if (inst.render) { try { inst.render(); } catch (e) {} }
+    }
+    return on;
+  }
+  /** 对外暴露的规则层（单测用；与 UI 无关）*/
+  var audioRules = {
+    TICK_AT:TICK_AT, TICK_NEAR:TICK_NEAR, TICK_GAP_FAR:TICK_GAP_FAR, TICK_GAP_NEAR:TICK_GAP_NEAR,
+    TICK_MIN_GAP:TICK_MIN_GAP, HAPPY_MIN_GAP:HAPPY_MIN_GAP, SLOW_MIN_GAP:SLOW_MIN_GAP,
+    SOUND_KEY:BF_SOUND_KEY, DIR:BF_AUDIO_DIR, FILES:BF_SFX_FILES, VOL:BF_SFX_VOL, NAMES:AUDIO_NAMES,
+    enabled:audio.enabled, setEnabled:audio.setEnabled, toggle:audio.toggle, hook:audio.hook,
+    log:audio.log, plays:audio.plays, clear:audio.clear, url:audio.url,
+    patienceRatioOf:patienceRatioOf, minPatienceRatio:minPatienceRatio,
+    tickGapFor:tickGapFor, tickDue:tickDue, stepAudio:stepAudio, newAudioState:newAudioState,
+    playHappy:playHappy, playSlow:playSlow,
+    soundBox:soundBox, soundLabel:soundLabel, toggleSound:toggleSound
+  };
+

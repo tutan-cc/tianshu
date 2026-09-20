@@ -1,0 +1,8 @@
+{
+ "note": "bf-audio-1 追加一条用例：连着一单三样不叠声（HAPPY_MIN_GAP 节流）—— 同一时刻两次上餐只播一条「呜呼」，过了节流窗口再上餐才再响。插在末节（audio/bf 素材核对）之前。",
+ "jobs": [
+  { "file": "tests/breakfast.test.cjs",
+    "from": "test(\"音效：audio/bf 五个素材在磁盘上齐全",
+    "text": "test(\"音效②：连着一单三样不叠声 —— HAPPY_MIN_GAP 节流（同一时刻只响一条）\", () => {\r\n  audioArmed();\r\n  const st = plateState();\r\n  const c = R.spawnCustomer(st, [\"egg\", \"bacon\", \"juice\"]);\r\n  longPatience(c);\r\n  const serveOne = (food) => {                      // 做一份 + 落盘 + 端给同一位顾客\r\n    const col = R.columnOf(food);\r\n    cookTo(st, food, R.FOOD[food].dur, true);\r\n    assert.equal(R.takePlate(st, col), true, food + \" 落到第 \" + col + \" 列\");\r\n    return R.serveFromColumn(st, col);\r\n  };\r\n  assert.equal(serveOne(\"egg\").ok, true, \"第一样端上去\");\r\n  assert.equal(serveOne(\"bacon\").ok, true, \"紧接着第二样端上去（同一时刻）\");\r\n  assert.equal(played(\"happy\").length, 1, \"同一时刻连续上两样 → 只播一条「呜呼」（不叠声）\");\r\n  assert.ok(R.audio.HAPPY_MIN_GAP >= 0.8,\r\n    \"节流窗口 ≥ 最短那条喊声的长度（0.91s），不然两句会盖在一起：\" + R.audio.HAPPY_MIN_GAP);\r\n  advance(st, R.audio.HAPPY_MIN_GAP + 0.3);         // 推过窗口\r\n  assert.equal(serveOne(\"juice\").ok, true, \"第三样（过了节流窗口）端上去\");\r\n  assert.equal(played(\"happy\").length, 2, \"过窗口后再上餐 → 再响一条（节流不是「一局只响一次」）\");\r\n  assert.equal(played(\"tick\").length, 0, \"全程不误放滴答（耐心满）\");\r\n  audioUnhook();\r\n});\r\n\r\ntest(\"音效：audio/bf 五个素材在磁盘上齐全" }
+ ]
+}

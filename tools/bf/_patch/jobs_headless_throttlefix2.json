@@ -1,0 +1,8 @@
+{
+ "note": "节流用例再修：上一档是 1.0s 间隔，清空后紧接着的 1 秒窗口里可能只落进 1 条（相位）。改成先空跑 1.2 秒把旧窗口走完，再用 2 秒窗口计数（0.5s 档 → 3~5 条；逐人播会是 8~10 条），并保留「同一帧最多一条」这条与相位无关的硬判据。",
+ "jobs": [
+  { "file": "tools/bf/headless.js",
+    "from": "  rec.audio.length = 0;\r\n  let maxPerFrame = 0;\r\n  for (let i = 0; i < 60; i++) {                    // 连续 1 秒逐帧推进（相位无关的判据）\r\n    const before = rec.audio.length;\r\n    d.tick(1 / 60);\r\n    maxPerFrame = Math.max(maxPerFrame, rec.audio.length - before);\r\n    d.setPatience(idA, 0.05); d.setPatience(idB, 0.05);\r\n  }\r\n  A(maxPerFrame === 1, \"两位顾客同时 5% → 同一帧最多一条滴答（不是一人一条）\", maxPerFrame + \" 条/帧\");\r\n  A(tickCalls().length >= 2 && tickCalls().length <= 3,\r\n    \"1 秒窗口内 2~3 条（单通道节流；逐人播会响 4~6 条）\", tickCalls().length + \" 条\");",
+    "text": "  /* 上一档是 1.0s 间隔，先把那个窗口空跑掉，再开始计数（否则相位会把第一条挤到窗口外）*/\r\n  for (let i = 0; i < 72; i++) { d.tick(1 / 60); d.setPatience(idA, 0.05); d.setPatience(idB, 0.05); }\r\n  rec.audio.length = 0;\r\n  let maxPerFrame = 0;\r\n  for (let i = 0; i < 120; i++) {                   // 2 秒窗口（0.5s 档 → 3~5 条）\r\n    const before = rec.audio.length;\r\n    d.tick(1 / 60);\r\n    maxPerFrame = Math.max(maxPerFrame, rec.audio.length - before);\r\n    d.setPatience(idA, 0.05); d.setPatience(idB, 0.05);\r\n  }\r\n  A(maxPerFrame === 1, \"两位顾客同时 5% → 同一帧最多一条滴答（不是一人一条）\", maxPerFrame + \" 条/帧\");\r\n  A(tickCalls().length >= 3 && tickCalls().length <= 5,\r\n    \"2 秒窗口内 3~5 条（单通道节流；逐人播会是 8~10 条）\", tickCalls().length + \" 条\");" }
+ ]
+}

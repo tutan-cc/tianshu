@@ -1,0 +1,14 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  {\r\n    let okDisc = true, okPair = true, firstBad = \"\", minDy = Infinity, maxDy = -Infinity;",
+      "text": "  {\r\n    MJ.dispose();\r\n    eq(MJ.start(makeElement(\"div\"), {}), true, \"对拍段：开一局干净的（对账簿 / 日志 / 计数都从 0 起算）\");\r\n    MJ.debug.voiceToggle(true);\r\n    MJ.debug.engine().phase = \"idle\";      // 挂起自动 pump：这 34 张由测试自己一张张打，牌序才确定\r\n    eq(MJ.debug.voiceStats().discN, 0, \"对拍段：discN 从 0 起算\");\r\n    let okDisc = true, okPair = true, firstBad = \"\", minDy = Infinity, maxDy = -Infinity;"
+    },
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "    eq(E7.claim(1, \"peng\"), true, \"1 家碰下这张 7筒\");\r\n    MJ.debug.step();\r\n    await sleep(60);",
+      "text": "    eq(E7.claim(1, \"peng\"), true, \"1 家碰下这张 7筒\");\r\n    MJ.debug.step();\r\n    /* 碰是喊话（当场出声），自己那张 7筒 是报牌（要等落河）→ 两个时刻都要等够 */\r\n    await sleep(T.SAY_AFTER_DISCARD_MS + 80);"
+    }
+  ]
+}

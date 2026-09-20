@@ -1,0 +1,26 @@
+  function drawDiscards(g, seat) {
+    var p = G.E.P[seat], zone = DISC_ZONE[seat], d = LAYOUT.disc, i, pos, last = p.discards.length - 1, out = [];
+    /* 刚落河的那张牌：在 DISCARD_ANIM_MS 内从上方滑入 + 淡入（"啪"地落进牌河）。
+       这个时长与报牌延迟（SAY_AFTER_DISCARD_MS）是**同一个常量** ——
+       用户要求「牌出现 → 报牌」，靠的就是两者同源，而不是各写一个毫秒数去凑。 */
+    var a = G.anim.disc, k = 0;
+    if (a && a.seat === seat) {
+      k = (Date.now() - a.at) / DISCARD_ANIM_MS;
+      k = (k > 0 && k < 1) ? (1 - k) : 0;          // 1 → 0：越接近 0 越落定
+    }
+    for (i = 0; i < p.discards.length; i++) {
+      pos = discardPos(seat, i);
+      if (i === last && k > 0) {
+        g.save();
+        g.globalAlpha = 1 - k * 0.5;
+        g.translate(0, -Math.round(k * DISCARD_FALL_PX));
+        drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: true });
+        g.restore();
+      } else {
+        drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: i === last });
+      }
+      out.push({ x: pos.x, y: pos.y, w: d.tw, h: d.th });
+    }
+    G.stat.discards += p.discards.length;
+    return out;
+  }

@@ -1,0 +1,121 @@
+  /* ── ④ 逐张对拍：报牌内容 == 牌河里那张牌（≥30 次出牌，四个座位轮流） ──
+     为什么用「摆好手牌直接 E.discard」而不是跑一整局：
+       整局的每一步都会触发智脑提示 / 向听数重算（实测一拍 0.3–1.5s），跑完一局要几十秒，
+       而且牌局什么时候结束、谁会碰杠都不确定，「30 次出牌」这个数就凑不稳。
+       这里把牌摆成**确定性牌序**：34 种牌各打一次、四个座位轮流、其他三家手握 13 张死牌
+       （任何一张进张都成不了牌，也不会有人碰/杠），于是
+         · 每一次 E.discard 必然落河一张、必然报一张；
+         · 期望序列可以逐字写出来（EXPECT）。
+       走的仍是**生产路径**：E.discard → 日志 → playNewSfx() → voiceHook() → discardLanded()。 */
+  const POOL = [];
+  for (const s of ["万", "条", "筒"]) for (let n = 1; n <= 9; n++) POOL.push(n + s);
+  POOL.push("东", "南", "西", "北", "中", "發", "白");              // 34 张，含 7 种字牌
+  const DEAD13 = ["1万", "4万", "7万", "1条", "4条", "7条", "1筒", "4筒", "7筒", "东", "南", "西", "中"];
+  eq(POOL.length, 34, "对拍牌序 = 全部 34 种牌（含字牌，覆盖念名全表）");
+  {
+    let okDisc = true, okPair = true, firstBad = "", minDy = Infinity, maxDy = -Infinity;
+    for (let i = 0; i < POOL.length; i++) {
+      const seat = i % 4, tile = POOL[i], E = MJ.debug.engine();
+      if (!E) { okDisc = false; break; }
+      for (let s = 0; s < 4; s++) {                              // 四家手握死牌：谁也胡不了、谁也不用碰
+        E.P[s].hand = DEAD13.slice(); E.P[s].melds = []; E.P[s].drawn = null; E.P[s].kongDraw = false;
+      }
+      E.P[seat].hand = [tile].concat(DEAD13.slice(0, 13));        // 14 张，待打的这张在最前
+      E.cur = seat; E.phase = "turn"; E.result = null;
+      E.pending = { type: "turn", seat: seat, anGangs: [], addGangs: [] };
+      if (E.discard(seat, E.P[seat].hand.indexOf(tile)) !== true) { okDisc = false; break; }
+      E.phase = "idle";                                          // 让 debug.step() 只灌语音、不再推进一步
+      MJ.debug.step();                                           // 生产路径：playNewSfx → voiceHook
+      await sleep(T.SAY_AFTER_DISCARD_MS + 20);
+    }
+    eq(okDisc, true, "34 次出牌全部成功落河（四个座位轮流）");
+    for (let k = 0; k < 40; k++) {              // 等队列排空：最后一条报牌也要真的开播
+      const s = MJ.debug.voiceStats();
+      if (!s.playing && !s.queue.length) break;
+      await sleep(50);
+    }
+    const vs = MJ.debug.voiceStats();
+    const E = MJ.debug.engine();
+    const logSeq = E.log.filter(e => e.kind === "discard" && e.tile).map(e => e.tile);
+    eq(logSeq.join(","), POOL.join(","), "引擎日志里的出牌序列 == 期望牌序（34 张，逐字）");
+    eq(vs.disc.length, POOL.length, "对账簿条数 == 出牌次数（" + vs.disc.length + " = " + POOL.length + "，不丢不重）");
+    eq(vs.discN, POOL.length, "discN == 出牌次数（" + vs.discN + "）");
+    eq(vs.disc.map(r => r.tile).join(","), POOL.join(","), "**报的牌**逐字等于**实际打出的牌**（34/34 零不一致）");
+    eq(vs.disc.map(r => r.file).join(","), POOL.map(t => T.voiceFile(t)).join(","), "报牌文件名 == 该牌素材名（逐字）");
+    for (let i = 0; i < vs.disc.length; i++) {
+      const r = vs.disc[i];
+      if (r.seat !== i % 4 || !r.said) okPair = false;
+      if (r.file !== T.voiceFile(r.tile)) { okPair = false; if (!firstBad) firstBad = "第" + i + "条 " + r.tile + "→" + r.file; }
+      const dy = r.sayAt - (r.landAt + T.DISCARD_ANIM_MS);         // 落定 → 出声 的时差
+      if (dy < -8) okPair = false;
+      if (dy < minDy) minDy = dy;
+      if (dy > maxDy) maxDy = dy;
+    }
+    eq(okPair, true, "四条一组的座位/内容/时序全部合法" + (firstBad ? " → " + firstBad : ""));
+    eq(vs.dropped, 0, "队列没有丢弃任何一条报牌（dropped=0）");
+    eq(vs.started >= POOL.length, true, "34 条报牌全部进了播放位（started=" + vs.started + "）");
+    eq(vs.mismatch, 0, "牌河与日志没有一次不一致（mismatch=0）");
+    eq(vs.lost, 0, "没有因日志截断而丢掉的报牌（lost=0）");
+    eq(vs.misses, 0, "34 条报牌都拿到了素材（misses=0）");
+    eq(minDy >= -8, true, "报牌全部**晚于**牌落定：最早 " + Math.round(minDy) + "ms / 最晚 " + Math.round(maxDy) +
+      "ms（落河动画 " + T.DISCARD_ANIM_MS + "ms）");
+    console.log("  弃牌对账：34/34 张逐字一致 · 落定→报牌 实测 " + Math.round(minDy) + "~" + Math.round(maxDy) +
+      "ms（常量 SAY_AFTER_DISCARD_MS=" + T.SAY_AFTER_DISCARD_MS + "ms）");
+  }
+
+  /* ── ④b 真牌局抽样：同样逐张对拍（限 14 拍，快进只为了让测试几十秒内跑完） ── */
+  let paceMin = Infinity, paceMax = -Infinity, paceN = 0, liveDisc = 0;
+  {
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "真局抽样：开局");
+    MJ.debug.voiceToggle(true);
+    const live0 = MJ.debug.voiceStats().discN;
+    for (let i = 0; i < 14; i++) {
+      const st = MJ.debug.state();
+      const E1 = MJ.debug.engine();
+      if (!st || st.phase === "over") break;
+      const n0 = MJ.debug.voiceStats().discN;
+      const robMine = st.phase === "rob" && E1 && E1.pending && E1.pending.seats && E1.pending.seats.indexOf(0) >= 0;
+      if (st.phase === "turn" && st.cur === 0) {
+        if (st.handCount % 3 === 2) { const h = MJ.debug.hand(); MJ.debug.act("discard", h[h.length - 1]); }
+        else MJ.debug.act("draw");
+      } else if (st.phase === "claim" && st.pending && st.pending.seat === 0) {
+        MJ.debug.act("pass");
+      } else if (robMine) {
+        MJ.debug.act("pass");
+      } else {
+        MJ.debug.step();
+      }
+      if (MJ.debug.voiceStats().discN > n0) await sleep(T.SAY_AFTER_DISCARD_MS + 20);
+    }
+    for (let k = 0; k < 40; k++) {              // 等队列排空
+      const s = MJ.debug.voiceStats();
+      if (!s.playing && !s.queue.length) break;
+      await sleep(50);
+    }
+    const vs = MJ.debug.voiceStats(), E = MJ.debug.engine();
+    const logSeq = E.log.filter(e => e.kind === "discard" && e.tile).map(e => e.seat + "|" + e.tile);
+    liveDisc = vs.discN;
+    const pc = MJ.debug.pace();
+    paceN += pc.n;
+    if (pc.min && pc.min < paceMin) paceMin = pc.min;
+    if (pc.max > paceMax) paceMax = pc.max;
+    let same = true, said = true, firstBad = "";
+    for (let i = 0; i < vs.disc.length; i++) {
+      const r = vs.disc[i];
+      if (r.seat + "|" + r.tile !== logSeq[i]) { same = false; if (!firstBad) firstBad = r.seat + "|" + r.tile + " vs " + logSeq[i]; }
+      if (!r.said || r.file !== T.voiceFile(r.tile)) said = false;
+    }
+    eq(liveDisc >= 6, true, "真牌局抽样里落了 " + liveDisc + " 张牌（14 拍）");
+    eq(vs.disc.length, logSeq.length, "真牌局：报牌条数 == 出牌条数（" + vs.disc.length + "）");
+    eq(same, true, "真牌局：逐张对拍「报的牌 == 实际打出的牌」" + (firstBad ? " → " + firstBad : ""));
+    eq(said, true, "真牌局：每一张都报了牌、且文件名对得上");
+    eq(vs.dropped, 0, "真牌局：队列没有丢弃任何一条报牌（dropped=0）");
+    eq(vs.mismatch, 0, "真牌局：牌河与日志没有一次不一致（mismatch=0）");
+    eq(vs.lost, 0, "真牌局：没有因日志截断而丢掉的报牌（lost=0）");
+  }
+  eq(paceN > 0, true, "采到 AI 步进实测样本 " + paceN + " 个（来自真实 pump 排期，不是常量照抄）");
+  eq(paceMin >= T.AI_MIN_MS, true, "实测最快的一拍 = " + paceMin + "ms ≥ 步进下限 " + T.AI_MIN_MS + "ms");
+  eq(paceMax <= T.AI_MAX_MS, true, "实测最慢的一拍 = " + paceMax + "ms ≤ 步进上限 " + T.AI_MAX_MS + "ms");
+  console.log("  AI 步进实测：" + paceMin + "~" + paceMax + "ms（下限 " + T.AI_MIN_MS + " · 出牌拍 " + T.AI_DISCARD_MS +
+    " · 抖动上限 " + T.AI_JITTER_MS + " · 实测样本 " + paceN + " 个）");

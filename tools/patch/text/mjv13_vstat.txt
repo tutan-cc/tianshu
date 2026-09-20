@@ -1,0 +1,10 @@
+  var VOICE_STAT = { plays: 0, misses: 0, last: "", lastUrl: "", lastSeat: -1, lastAt: 0, errors: 0,
+                     queued: 0, started: 0, dropped: 0, maxQueue: 0, list: [], uniq: Object.create(null),
+                     /* ── 弃牌报牌对账簿（用户要求：报的牌必须逐字等于实际打出的那张）──
+                        disc    ：每次「牌落河」一条 {seat, tile, file, landAt, sayAt, said}
+                                  tile 取的是**牌河里那张牌**，file 是它对应的素材名
+                        discN   ：落河次数 = 应当报牌的次数
+                        startAt ：最近一条**真正开播**的时刻（AI 步进节奏按它回推）
+                        lost    ：日志被截断而永久丢掉的报牌条数（应当恒为 0）
+                        mismatch：牌河里的牌 ≠ 日志里的牌 的次数（应当恒为 0；非 0 = 两个来源打架） */
+                     startAt: 0, discN: 0, lost: 0, mismatch: 0, disc: [] };

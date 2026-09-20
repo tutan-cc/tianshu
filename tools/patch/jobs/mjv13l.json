@@ -1,0 +1,29 @@
+{
+  "jobs": [
+    {
+      "file": "tools/audio/gen_mj_by_seat_tts.py",
+      "from": "CALLS = [\"碰\", \"杠\", \"胡\", \"自摸\", \"抢杠\", \"杠开\", \"听\", \"过\", \"流局\"]",
+      "text": "# ⚠⚠ 本文件的**字牌表已过期**，别整表直接跑（跑一次就会静默把新素材覆盖回旧念法）：\r\n#   ① HONORS 仍是旧念法（东/南/西/北/中/发/白）—— 素材侧早已改名 东风/红中/发财/白板；\r\n#   ② CALLS 已按用户新要求改成第一人称（碰→「我碰」、杠→「我杠」；**文件名不变**）。\r\n#   现在的权威词表在 tools/audio/gen_mj_bailian_tts.py（百炼 qwen3-tts，四个目录都用它重做）。\r\n#   确实要用本文件（StepAudio 座位音色）重做时，先把 HONORS 表同步成新念法。\r\nCALLS = [(\"碰\", \"我碰\"), (\"杠\", \"我杠\"), (\"胡\", \"胡\"), (\"自摸\", \"自摸\"), (\"抢杠\", \"抢杠\"),\r\n         (\"杠开\", \"杠开\"), (\"听\", \"听\"), (\"过\", \"过\"), (\"流局\", \"流局\")]"
+    },
+    {
+      "file": "tools/audio/gen_mj_by_seat_tts.py",
+      "from": "def job(word: str, seat: int, is_call: bool) -> dict:\r\n    v = SEATS[seat][\"voice\"]\r\n    if is_call:\r\n        text = f\"（{MOODS.get(word, '自然地')}）{word}\"\r\n    else:\r\n        text = f\"（{TILE_MOOD}）{word}\"",
+      "text": "def job(word: str, seat: int, is_call: bool, spoken: str = None) -> dict:\r\n    \"\"\"spoken = **念法**，允许与文件名不同：碰.mp3 念「我碰」、杠.mp3 念「我杠」。\r\n    用户要求第一人称报牌，但**文件名一个字都不能改**（玩法侧 voiceFile(\"碰\") 指向 碰.mp3）。\"\"\"\r\n    v = SEATS[seat][\"voice\"]\r\n    say = spoken if spoken else word\r\n    if is_call:\r\n        text = f\"（{MOODS.get(word, '自然地')}）{say}\"\r\n    else:\r\n        text = f\"（{TILE_MOOD}）{say}\""
+    },
+    {
+      "file": "tools/audio/gen_mj_by_seat_tts.py",
+      "from": "        items = [job(w, s, False) for w in TILES] + [job(w, s, True) for w in CALLS]",
+      "text": "        # CALLS 是 (文件基名, 念法) 对：碰.mp3 念「我碰」、杠.mp3 念「我杠」\r\n        items = [job(w, s, False) for w in TILES] + [job(w, s, True, t) for w, t in CALLS]"
+    },
+    {
+      "file": "run-all-tests.ps1",
+      "from": "Script = \"tools/test/mahjong-logic.js\";     Expect = 847 }",
+      "text": "Script = \"tools/test/mahjong-logic.js\";     Expect = 978 }"
+    },
+    {
+      "file": "run-all-tests.ps1",
+      "from": "Script = \"tools/e2e/mj-browser.js\";         Expect = 162 }",
+      "text": "Script = \"tools/e2e/mj-browser.js\";         Expect = 168 }"
+    }
+  ]
+}

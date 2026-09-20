@@ -1,0 +1,188 @@
+/* ══════════════ 音效 / 顾客语音（bf-audio-1）无头验收 ══════════════
+   证据链：真起一局 → 用 debug API 把顾客耐心压到阈值上下 → 断言**假 Audio 的调用序列**
+   （谁、哪个文件、什么音量、第几次），再验开关、素材缺失 / 被拦两种回落、玩法不受影响。
+
+   为什么要在无头里单独做这一层：
+     breakfast.js 的音效层是「有文件用文件，缺失静默回落」，这跟素材接线那个坑一模一样 ——
+     静默回落会让「素材缺了 / 根本没接线」在断言层面**看不出来**。所以这里既查磁盘素材规格，
+     也查运行时真的 new 了 Audio 并调了 play()（而不是只写了个函数没接上）。 */
+function runAudio() {
+  const bfDir = path.join(OUT, "audio", "bf");
+  const FILES = ["tick.mp3", "happy.mp3", "happy2.mp3", "happy3.mp3", "slow.mp3"];
+
+  /* ── ① 素材：都在磁盘上、规格统一 ── */
+  const missing = FILES.filter(f => !fs.existsSync(path.join(bfDir, f)) || fs.statSync(path.join(bfDir, f)).size < 600);
+  A(missing.length === 0, "audio/bf 五个素材都在磁盘上且非空",
+    missing.length ? "缺：" + missing.join(",") : FILES.join(" · "));
+  const tk = mp3.mp3Info(path.join(bfDir, "tick.mp3"));
+  A(tk.decoded > 0.02 && tk.decoded <= 0.120, "tick.mp3 是「短促一声」：解码长度 ≤120ms",
+    (tk.decoded * 1000).toFixed(0) + "ms（" + tk.frames + " 帧）");
+  A(tk.sampleRate === 48000 && tk.channels === 1, "tick.mp3 规格 48kHz / 单声道",
+    tk.sampleRate + "Hz / " + tk.channels + "ch");
+  const voices = ["happy.mp3", "happy2.mp3", "happy3.mp3", "slow.mp3"].map(f => mp3.mp3Info(path.join(bfDir, f)));
+  A(voices.every(i => i.sampleRate === 48000 && i.channels === 1), "四条语音都是 48kHz / 单声道",
+    voices.map(i => i.duration.toFixed(2)).join("s / ") + "s");
+  A(voices.every(i => i.decoded > 0.4), "四条语音都有实际内容（>0.4s，不是空文件）",
+    voices.map(i => (i.decoded * 1000).toFixed(0) + "ms").join(" · "));
+
+  /* ── ② 真跑一局，记录假 Audio 的调用序列 ── */
+  const g = boot();
+  const B = g.B, d = B.debug, rec = g.record;
+  const tickCalls = () => rec.audio.filter(c => /audio\/bf\/tick\.mp3$/.test(c.src));
+  const happyCalls = () => rec.audio.filter(c => /audio\/bf\/happy(2|3)?\.mp3$/.test(c.src));
+  const slowCalls = () => rec.audio.filter(c => /audio\/bf\/slow\.mp3$/.test(c.src));
+
+  A(B.start(g.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 300, goal: 99, onFinish() {} }) === true,
+    "音效用例：新开一局（duration 300 / goal 99，不会自己结束）");
+  g.pump(10);
+  const cv = g.canvas();                           // ⚠ start() 之后才取：之前宿主节点是空的
+  const a0 = d.audio();
+  A(typeof d.audio === "function" && !!a0, "debug.audio() 台账可读");
+  A(a0.on === true, "默认开（localStorage 里没有 bfSoundOn 时也是开）", String(a0.on));
+  A(a0.tickAt === 0.30 && a0.gapFar === 1.0 && a0.gapNear === 0.5,
+    "常量与规格一致：TICK_AT=0.30 · 30% 档 1.0s · 10% 档 0.5s",
+    a0.tickAt + " / " + a0.gapFar + "s / " + a0.gapNear + "s");
+  A(a0.files.happy.length === 3 && a0.files.tick.length === 1 && a0.files.slow.length === 1,
+    "词表：滴答 1 条 · 呜呼 3 个变体 · 哼 1 条",
+    "tick=" + a0.files.tick.join(",") + " happy=" + a0.files.happy.join(","));
+  A(a0.vol.tick < a0.vol.happy && a0.vol.happy <= 0.8, "滴答音量低于语音（不吵人）",
+    "tick=" + a0.vol.tick + " happy=" + a0.vol.happy + " slow=" + a0.vol.slow);
+  A(a0.key === "bfSoundOn" && a0.dir === "audio/bf/", "开关键 / 素材目录就是约定的那两个",
+    a0.key + " · " + a0.dir);
+
+  const idA = d.pushCustomer(["congee"]);
+  const idB = d.pushCustomer(["egg"]);
+  g.pump(6);
+  A(rec.audio.length === 0, "顾客刚进店（耐心充足）→ 一条音效都没播", rec.audio.length + " 次调用");
+
+  /* ── ③ 滴答：30% 阈值 ── */
+  d.setPatience(idA, 0.31); d.setPatience(idB, 0.95);
+  d.tick(1 / 60);
+  A(tickCalls().length === 0, "耐心 31%（>30%）→ 不播滴答");
+  d.setPatience(idA, 0.29);
+  d.tick(1 / 60);
+  A(tickCalls().length === 1, "耐心 29%（≤30%）→ 当帧就播一条滴答",
+    tickCalls()[0] && tickCalls()[0].src);
+  A(tickCalls()[0] && tickCalls()[0].volume > 0 && tickCalls()[0].volume < 0.6,
+    "滴答音量压低（" + (tickCalls()[0] || {}).volume + "）");
+
+  /* ── ④ 滴答：全局节流（两位同时低耐心也只有一条）── */
+  /* 上一档是 1.0s 间隔，先把那个窗口空跑掉，再开始计数（否则相位会把第一条挤到窗口外）*/
+  for (let i = 0; i < 72; i++) { d.tick(1 / 60); d.setPatience(idA, 0.05); d.setPatience(idB, 0.05); }
+  rec.audio.length = 0;
+  let maxPerFrame = 0;
+  for (let i = 0; i < 120; i++) {                   // 2 秒窗口（0.5s 档 → 3~5 条）
+    const before = rec.audio.length;
+    d.tick(1 / 60);
+    maxPerFrame = Math.max(maxPerFrame, rec.audio.length - before);
+    d.setPatience(idA, 0.05); d.setPatience(idB, 0.05);
+  }
+  A(maxPerFrame === 1, "两位顾客同时 5% → 同一帧最多一条滴答（不是一人一条）", maxPerFrame + " 条/帧");
+  A(tickCalls().length >= 3 && tickCalls().length <= 5,
+    "2 秒窗口内 3~5 条（单通道节流；逐人播会是 8~10 条）", tickCalls().length + " 条");
+
+  /* ── ⑤ 滴答：越急越密 ── */
+  const countTicks = (ratio, seconds) => {
+    rec.audio.length = 0;
+    const n = Math.round(seconds * 60);
+    for (let i = 0; i < n; i++) { d.tick(1 / 60); d.setPatience(idA, ratio); d.setPatience(idB, 0.95); }
+    return tickCalls().length;
+  };
+  const far = countTicks(0.28, 3.0), near = countTicks(0.08, 3.0);
+  A(near > far, "越急越密：30% 档 3 秒 " + far + " 条 → 10% 档 3 秒 " + near + " 条");
+
+  /* ── ⑥ 上餐成功 → 「呜呼」只播一次 ── */
+  rec.audio.length = 0;
+  let served = false;
+  for (let guard = 0; guard < 6000 && !served; guard++) {
+    d.orders().forEach(o => d.setPatience(o.id, 0.95));      // 别让谁在这一段里跑单
+    const os = d.orders();
+    if (!os.length) { d.tick(0.2); continue; }
+    const c = os[0];
+    let want = null;
+    for (const f of c.order) if (c.done.indexOf(f) < 0) { want = f; break; }
+    if (!want) { d.tick(0.1); continue; }
+    const col = d.columnOf(want);
+    const s = d.stations()[col];
+    if (!s.food && !s.plate) d.drop(want, col);
+    d.tick(1 / 60);
+    const s2 = d.stations()[col];
+    if (s2.plate && s2.plateState !== "burnt") { const r = d.serveCol(col); if (r.ok) served = true; }
+  }
+  A(served, "无头里真的完成了一次上餐（happy 断言的前提）");
+  A(happyCalls().length === 1, "上餐成功 → 恰好播一条「呜呼」", happyCalls().length + " 条");
+  A(!!happyCalls()[0] && /^audio\/bf\/happy(2|3)?\.mp3$/.test(happyCalls()[0].src),
+    "播的是三个变体之一：" + ((happyCalls()[0] || {}).src || "无"));
+  A(tickCalls().length === 0, "这一段没有误播滴答（耐心被压住 ≥95%）");
+
+  /* ── ⑦ 跑单 → 「哼，太慢了」，同一帧多人也只播一条 ── */
+  rec.audio.length = 0;
+  const ids = d.orders().map(o => o.id);
+  A(ids.length >= 1, "在场还有顾客可以演「等太久走掉」", ids.length + " 位");
+  const angry0 = d.state().angry;
+  ids.forEach(id => d.setPatience(id, 0));
+  d.tick(1 / 60);
+  A(slowCalls().length === 1, "同一帧 " + ids.length + " 位顾客离开 → 只播一条「哼，太慢了」", slowCalls().length + " 条");
+  A(!!slowCalls()[0] && slowCalls()[0].src === "audio/bf/slow.mp3", "播的是 audio/bf/slow.mp3");
+  A(d.state().angry >= angry0 + 1, "顾客确实跑单了（angry 计数上升）", angry0 + " → " + d.state().angry);
+  const nAfterSlow = tickCalls().length;
+  for (let i = 0; i < 60; i++) d.tick(1 / 60);
+  A(tickCalls().length === nAfterSlow, "跑单之后 1 秒内不再滴答（人已经不催了）");
+
+  /* ── ⑧ 开关：顶栏按钮 + 图例徽章 + localStorage ── */
+  const btn = g.host.querySelector("#bfSound");
+  A(!!btn, "顶栏生成了 #bfSound 音效开关（与「收 摊」同款 bf-wood）", btn ? String(btn.className) : "无");
+  A(!!btn && /🔊/.test(String(btn.textContent)), "开着的时候按钮写「🔊 音效」", btn && String(btn.textContent));
+  const box = d.soundBox();
+  A(!!box && box.w > 60 && box.h >= 18 && box.x >= 0 && box.y > 0,
+    "图例条左端有徽章命中框（可点）", JSON.stringify(box));
+  if (btn) btn.click();
+  A(d.audio().on === false, "点顶栏按钮 → 关掉", String(d.audio().on));
+  A(!!btn && /🔇/.test(String(btn.textContent)), "关掉后按钮写「🔇 静音」", btn && String(btn.textContent));
+  A(rec.storage["bfSoundOn"] === "0", "开关写进 localStorage.bfSoundOn", JSON.stringify(rec.storage));
+  g.pump(2);
+  A(d.audio().badge === "off", "画布徽章跟着变（badge=off）", String(d.audio().badge));
+  const offLog0 = d.audio().log.length;
+  rec.audio.length = 0;
+  const idC = d.pushCustomer(["egg"]);
+  d.setPatience(idC, 0.10);
+  d.tick(1 / 60);                                  // 本该滴答
+  d.setPatience(idC, 0);
+  d.tick(1 / 60);                                  // 本该跑单语音
+  A(rec.audio.length === 0, "关掉之后：滴答 / 哼 一条都不播（没有 new Audio）", rec.audio.length + " 次调用");
+  const offLog = d.audio().log.slice(offLog0);
+  A(offLog.length >= 1 && offLog.every(r => r.why === "off"), "但台账留了 off 记录（可诊断）",
+    offLog.map(r => r.name + ":" + r.why).join(","));
+  cv.dispatch("mousedown", { clientX: box.x + box.w / 2, clientY: box.y + box.h / 2, preventDefault() {} });
+  A(d.audio().on === true, "点画布图例徽章 → 同样能开回来（两个入口同一个开关）");
+  A(rec.storage["bfSoundOn"] === "1", "开回来也写 localStorage", JSON.stringify(rec.storage));
+  g.pump(2);
+  A(d.audio().badge === "on", "徽章回到 🔊 开");
+  A(rec.audioPauses.length === 0, "全程没有 pause() 过任何音频（不打断正在播的语音）",
+    rec.audioPauses.length + " 次 pause");
+
+  /* ── ⑨ 素材缺失 / 被浏览器策略拦：静默、不影响玩法 ── */
+  const g2 = boot({ audioBlock: true });
+  const B2 = g2.B, d2 = B2.debug, rec2 = g2.record;
+  A(B2.start(g2.host, { duration: 300, goal: 99, onFinish() {} }) === true, "素材缺失场景：照样能开局");
+  let threw = null;
+  try {
+    const id2 = d2.pushCustomer(["egg"]);
+    d2.setPatience(id2, 0.10);
+    d2.tick(1 / 60);                                // 滴答
+    d2.setPatience(id2, 0);
+    d2.tick(1 / 60);                                // 跑单
+    g2.pump(5);
+  } catch (e) { threw = e; }
+  A(threw === null, "文件缺失 / play() 被拦 → 不抛错、不冒泡", threw ? String(threw.message) : "无异常");
+  A(rec2.audio.length >= 2, "确实尝试播过（有调用记录可查）", rec2.audio.length + " 次调用");
+  A(rec2.audio.every(c => c.blocked === true), "每次调用都被环境标成被拦/缺失");
+  A(B2.isBusy() === true && d2.state().running === true, "玩法照常：游戏还在跑（isBusy / running 都为真）");
+  A(d2.audio().plays.length === 0, "台账里没有「播成功」的记录（全被标掉，不冒充满分）");
+  A(d2.audio().log.some(r => r.why === "load-error" || r.why === "blocked"),
+    "记录里能看到 load-error / blocked",
+    d2.audio().log.map(r => r.why).join(","));
+  B2.dispose();
+  B.dispose();
+  A(B.isBusy() === false, "音效用例收尾：两局都已 dispose（不留后台循环）");
+}

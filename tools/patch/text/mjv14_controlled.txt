@@ -1,0 +1,67 @@
+  {
+    MJ.dispose();
+    clock = makeClock();                   // ④ 全程受控：连 start() 里那次 later(pump,520) 也只进队列、不会自己乱跑
+    eq(MJ.start(makeElement("div"), {}), true, "对拍段：开一局干净的（对账簿 / 日志 / 计数都从 0 起算）");
+    MJ.debug.voiceToggle(true);
+    MJ.debug.engine().phase = "idle";      // 挂起自动 pump：这 34 张由测试自己一张张打，牌序才确定
+    eq(MJ.debug.voiceStats().discN, 0, "对拍段：discN 从 0 起算");
+    let okDisc = true, okPair = true, notYet = 0, fired = 0, badFile = "", boundary259 = null, boundary260 = null;
+    for (let i = 0; i < POOL.length; i++) {
+      const seat = i % 4, tile = POOL[i], E = MJ.debug.engine();
+      if (!E) { okDisc = false; break; }
+      for (let s = 0; s < 4; s++) {                              // 四家手握死牌：谁也胡不了、谁也不用碰
+        E.P[s].hand = DEAD13.slice(); E.P[s].melds = []; E.P[s].drawn = null; E.P[s].kongDraw = false;
+      }
+      E.P[seat].hand = [tile].concat(DEAD13.slice(0, 13));        // 14 张，待打的这张在最前
+      E.cur = seat; E.phase = "turn"; E.result = null;
+      E.pending = { type: "turn", seat: seat, anGangs: [], addGangs: [] };
+      if (E.discard(seat, E.P[seat].hand.indexOf(tile)) !== true) { okDisc = false; break; }
+      E.phase = "idle";                                          // 让 debug.step() 只灌语音、不再推进一步
+      MJ.debug.step();                                           // 生产路径：playNewSfx → voiceHook
+      const rec = MJ.debug.voiceStats().disc[MJ.debug.voiceStats().disc.length - 1];
+      if (rec && rec.said === false) notYet++;                    // 刚落河：账已记、定时器已挂、还没出声
+      if (i === 0) {                                              // 精确边界：259ms 不报，260ms 才报
+        clock.advance(T.SAY_AFTER_DISCARD_MS - 1);
+        boundary259 = rec ? rec.said : null;
+        clock.advance(1);
+        boundary260 = rec ? rec.said : null;
+      } else {
+        clock.advance(T.SAY_AFTER_DISCARD_MS);
+      }
+      if (rec && rec.said === true) fired++;
+      flushAudio();                                               // 手动播完 → 队列继续（确定性）
+    }
+    flushAudio(40);                                               // 收尾：把队列排空
+    const vs = MJ.debug.voiceStats();
+    const E = MJ.debug.engine();
+    const logSeq = E.log.filter(e => e.kind === "discard" && e.tile).map(e => e.tile);
+    const queued = (vs.playing ? 1 : 0) + vs.queue.length;
+    for (let i = 0; i < vs.disc.length; i++) {
+      const r = vs.disc[i];
+      if (r.seat !== i % 4 || r.file !== T.voiceFile(r.tile)) { okPair = false; if (!badFile) badFile = "第" + i + "条 " + r.seat + "|" + r.tile + "→" + r.file; }
+    }
+    clock.restore();                                              // ④b/⑥/⑦ 段回到真实时钟
+    eq(okDisc, true, "34 次出牌全部成功落河（四个座位轮流）");
+    eq(logSeq.join(","), POOL.join(","), "引擎日志里的出牌序列 == 期望牌序（34 张，逐字）");
+    eq(vs.disc.length, POOL.length, "对账簿条数 == 出牌次数（" + vs.disc.length + " = " + POOL.length + "，不丢不重）");
+    eq(vs.discN, POOL.length, "discN == 出牌次数（" + vs.discN + "）");
+    eq(vs.disc.map(r => r.tile).join(","), POOL.join(","), "**报的牌**逐字等于**实际打出的牌**（34/34 零不一致）");
+    eq(vs.disc.map(r => r.file).join(","), POOL.map(t => T.voiceFile(t)).join(","), "报牌文件名 == 该牌素材名（逐字）");
+    /* ↓ 时序口径改成**确定性**的（原来是读真实时钟有没有走完 → 负载下会随机红）：
+         受控时钟不推进就绝不会出声，推进 SAY_AFTER_DISCARD_MS 就必然出声 ——
+         只断言「被操作动作自身的影响」，不读持续演化的世界状态。 */
+    eq(notYet, POOL.length, "34 张刚落河时都**还没有**出声（受控时钟未推进 → 一定没响）");
+    eq(boundary259, false, "距落定 " + (T.SAY_AFTER_DISCARD_MS - 1) + "ms 时仍未报（报牌不早于落河）");
+    eq(boundary260, true, "落定后整 " + T.SAY_AFTER_DISCARD_MS + "ms 才报（= 落河动画时长）");
+    eq(fired, POOL.length, "受控时钟推进后 " + fired + "/" + POOL.length + " 张全部出声（不丢）");
+    eq(vs.started, POOL.length, "实际开播条数 == 出牌次数（started=" + vs.started + "）");
+    eq(queued, 0, "收尾时队列是空的（受控时钟下确定性排空）");
+    eq(vs.dropped, 0, "队列没有丢弃任何一条报牌（dropped=0）");
+    eq(vs.mismatch, 0, "牌河与日志没有一次不一致（mismatch=0）");
+    eq(vs.lost, 0, "没有因日志截断而丢掉的报牌（lost=0）");
+    eq(vs.misses, 0, "34 条报牌都拿到了素材（misses=0）");
+    eq(okPair, true, "逐条复核：座位轮转 + 文件名 == voiceFile(tile)" + (badFile ? " → " + badFile : ""));
+    console.log("  弃牌对账：34/34 张逐字一致 · 受控时钟下「落河 → 报牌」精确 = " + T.SAY_AFTER_DISCARD_MS +
+      "ms（" + (T.SAY_AFTER_DISCARD_MS - 1) + "ms 不报 / " + T.SAY_AFTER_DISCARD_MS + "ms 报）· started=" + vs.started +
+      " · dropped=" + vs.dropped + " · mismatch=" + vs.mismatch + " · lost=" + vs.lost);
+  }

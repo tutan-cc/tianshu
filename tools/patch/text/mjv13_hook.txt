@@ -1,0 +1,72 @@
+  function voiceHook() {
+    var E = G.E;
+    if (!E || !E.log) return;
+    /* 游标用**引擎累计事件数** E.logSeq，而不是 log.length：
+       push 里日志超过 400 条会 shift 掉最旧的一条，长度从此不再增长 ——
+       拿长度当游标的话 voiceN 会永远等于长度，之后**所有**报牌静默消失，
+       而 plays / 队列长度看起来全都正常（这类"静默停摆"最难查）。累计数只增不减，不受截断影响。 */
+    var total = E.logSeq || E.log.length;
+    var i, ev, kind, seat, tile, txt, res, sc, after, cur;
+    var start = E.log.length - (total - G.voiceN);
+    if (start < 0) { VOICE_STAT.lost += -start; start = 0; }   // 落后超过日志容量：记账，不重播旧的
+    for (i = start; i < E.log.length; i++) {
+      ev = E.log[i];
+      if (!ev) continue;
+      kind = ev.kind; seat = ev.seat; tile = ev.tile || "";
+      txt = String(ev.text || "");
+      if (kind === "discard") {
+        /* 四个座位一视同仁，都走 discardLanded（报什么只由**牌河**决定）。
+           ⚠ 没有牌面的 discard 事件是「（超时自动出牌）」那条纯文本标记，必须跳过 ——
+             否则同一次弃牌会被报两遍（用户要求：报牌次数 = 出牌次数，不丢不重）。 */
+        if (tile) discardLanded(seat, tile);
+      } else if (kind === "peng") {
+        say("碰", { seat: seat });
+      } else if (kind === "gang") {
+        /* 「暗杠」「补杠」不喊牌，出**牌碰实音** —— 与素材侧一致：
+           gen_mj_by_seat_tts.py 的 SILENT 常量把它们排除在语音之外，理由是
+           「手上动作，用牌碰声表现」。之前这里却调 say("暗杠")，
+           而四个座位目录都没有这个文件 => 必然 404 => 静默无声。
+           现在改成明确播放 sfx-mj-clack，不再走语音层。 */
+        if (txt.indexOf("暗杠") >= 0 || txt.indexOf("补杠") >= 0) gangClack();
+        else say("杠", { seat: seat });
+      } else if (kind === "rob") {
+        if (txt.indexOf("有人可以") < 0) say("抢杠", { seat: seat });    // 真抢杠胡（排除「有人可以抢杠」提示）
+      } else if (kind === "draw") {
+        if (txt.indexOf("杠后补牌") >= 0) {
+          /* ⚠ 这里只是**补摸**，不是胡牌。
+             原来在这一支里 say("杠开")，于是明杠 / 暗杠 / 补杠只要补摸一张就喊「杠开」，
+             而绝大多数补摸根本没胡 —— 用户实测原话：「还有乱喊杠开的情况」。
+             杠上开花是一手**胡牌**，只在下面的 win 分支播，判据用引擎的结算标记
+             res.kongDraw（权威字段），不抠文案、也不看"这局杠过没有"。 */
+          G.ting[seat] = false;                     // 补牌后必然未听，允许再次播「听」
+        }
+      } else if (kind === "win") {
+        sc = E.P && E.P[seat];
+        after = sc ? voiceTingOf(sc, E.honors) : false;
+        /* 结算标记是**权威判据**（settle() 写进 E.result 的那一份），不再靠文案猜：
+           文案里出现「杠开」两个字就喊杠开，等于把"话术"当规则用。 */
+        res = (E.result && E.result.seat === seat) ? E.result : null;
+        G.ting[seat] = after;
+        if ((res && res.draw) || txt.indexOf("流局") >= 0 || txt.indexOf("荒庄") >= 0) {
+          say("流局", { seat: seat });
+        } else if ((res && res.robKong) || txt.indexOf("抢杠") >= 0) {
+          say("抢杠", { seat: seat });
+        } else if (res && res.kongDraw) {
+          /* 杠开 = 杠后补摸的那张自摸。一局最多喊一次：
+             引擎只会 settle 一次，但 voiceHook 可能被重复调用（造胡 / 探针），
+             用 G.kongSaid 兜底，保证「一局内不重复播」。 */
+          if (!G.kongSaid) { G.kongSaid = true; say("杠开", { seat: seat }); }
+        } else if (seat === 0) {
+          say(txt.indexOf("自摸") >= 0 ? "自摸" : "胡", { seat: seat });
+        } else {
+          say("胡", { seat: seat });
+        }
+      } else if (kind === "turn" && seat === 0 && E.P && E.P[0]) {
+        // 自己「听牌」提示：只在没听 → 听牌 的那一刻播一次，绝不重复
+        cur = voiceTingOf(E.P[0], E.honors);
+        if (cur && !G.ting[0]) say("听", { seat: 0 });
+        G.ting[0] = cur;
+      }
+    }
+    G.voiceN = total;
+  }

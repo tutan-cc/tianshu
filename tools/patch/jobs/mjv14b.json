@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "      const rec = MJ.debug.voiceStats().disc[MJ.debug.voiceStats().disc.length - 1];\r\n      if (rec && rec.said === false) notYet++;                    // 刚落河：账已记、定时器已挂、还没出声\r\n      if (i === 0) {                                              // 精确边界：259ms 不报，260ms 才报\r\n        clock.advance(T.SAY_AFTER_DISCARD_MS - 1);\r\n        boundary259 = rec ? rec.said : null;\r\n        clock.advance(1);\r\n        boundary260 = rec ? rec.said : null;\r\n      } else {\r\n        clock.advance(T.SAY_AFTER_DISCARD_MS);\r\n      }\r\n      if (rec && rec.said === true) fired++;\r\n      flushAudio();                                               // 手动播完 → 队列继续（确定性）",
+      "text": "      /* ⚠ voiceStats().disc 是**快照**（每次 map 出一批新对象）→ 推进时钟后必须**重新读那一格**，\r\n         不能拿推进前抓到的那份对象看 said：那份永远是 false（上一版就是这么假红的）。 */\r\n      const at = MJ.debug.voiceStats().disc.length - 1;\r\n      if (at >= 0 && MJ.debug.voiceStats().disc[at].said === false) notYet++;   // 刚落河：账已记、定时器已挂、还没出声\r\n      if (i === 0) {                                              // 精确边界：259ms 不报，260ms 才报\r\n        clock.advance(T.SAY_AFTER_DISCARD_MS - 1);\r\n        boundary259 = at >= 0 ? MJ.debug.voiceStats().disc[at].said : null;\r\n        clock.advance(1);\r\n        boundary260 = at >= 0 ? MJ.debug.voiceStats().disc[at].said : null;\r\n      } else {\r\n        clock.advance(T.SAY_AFTER_DISCARD_MS);\r\n      }\r\n      if (at >= 0 && MJ.debug.voiceStats().disc[at].said === true) fired++;\r\n      flushAudio();                                               // 手动播完 → 队列继续（确定性）"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+    const handTile = MJ.debug.hand()[MJ.debug.hand().length - 1];
+    const playsBefore5 = MJ.debug.voiceStats().plays;
+    eq(MJ.debug.act("discard", handTile), true, "调试出牌（打 " + handTile + "）");
+    /* ⚠ 这几条的**时序期望变了**（玩法没变）：报牌不再在出牌那一刻入队 ——
+       用户实测「上一家的牌刚打完，下家的牌还没出来就先报了牌」，
+       所以现在要等**牌真正落进牌河**（落河动画走完，SAY_AFTER_DISCARD_MS）才出声。
+       断言一条没删，反而更强了：先断言「刚出牌、牌还没落定时先不报」，
+       再等落河完成断言「报了，而且报的就是打出去的那张」。 */
+    eq(MJ.debug.voiceStats().plays, playsBefore5, "刚出牌、牌还没落定时**先不报**（旧实现这里就已经报出去了）");
+    await sleep(T.SAY_AFTER_DISCARD_MS + 60);
+    eq(MJ.debug.voiceStats().last, T.voiceFile(handTile), "牌落定后才播该牌牌名 → " + T.voiceFile(handTile));
+    eq(MJ.debug.voiceStats().lastSeat, 0, "播报来源标记为自己（seat=0）");
+    ok(MJ.debug.voiceStats().lastUrl.indexOf(T.voiceFile(handTile)) >= 0, "播报 URL 指向该牌素材 → " + MJ.debug.voiceStats().lastUrl);
+    eq(MJ.debug.voiceStats().disc.length >= 1 &&
+       MJ.debug.voiceStats().disc[MJ.debug.voiceStats().disc.length - 1].tile, handTile,
+       "对账簿记的也是这张（牌河 = 唯一数据源）");

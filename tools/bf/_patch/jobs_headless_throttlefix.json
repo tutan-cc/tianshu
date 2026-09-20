@@ -1,0 +1,8 @@
+{
+ "note": "修正节流用例的相位问题：上一档（29%）刚播过一条，tickNext 已经推到 +1.0s，紧接着清空记录再 tick 一帧当然一条都没有。改成：连续 1 秒逐帧推进，断言「同一帧最多一条」（逐人播的实现第一帧就会是 2 条）与「1 秒内 2~3 条」（与相位无关）。",
+ "jobs": [
+  { "file": "tools/bf/headless.js",
+    "from": "  rec.audio.length = 0;\r\n  d.setPatience(idA, 0.05); d.setPatience(idB, 0.05);\r\n  d.tick(1 / 60);\r\n  A(tickCalls().length === 1, \"两位顾客同时 5% → 同一时刻只有一条滴答（不是一人一条）\");\r\n  for (let i = 0; i < 30; i++) { d.tick(1 / 60); d.setPatience(idA, 0.05); d.setPatience(idB, 0.05); }\r\n  A(tickCalls().length >= 2 && tickCalls().length <= 3,\r\n    \"0.5 秒窗口内 2~3 条（单通道节流；逐人播会响 4~6 条）\", tickCalls().length + \" 条\");",
+    "text": "  rec.audio.length = 0;\r\n  let maxPerFrame = 0;\r\n  for (let i = 0; i < 60; i++) {                    // 连续 1 秒逐帧推进（相位无关的判据）\r\n    const before = rec.audio.length;\r\n    d.tick(1 / 60);\r\n    maxPerFrame = Math.max(maxPerFrame, rec.audio.length - before);\r\n    d.setPatience(idA, 0.05); d.setPatience(idB, 0.05);\r\n  }\r\n  A(maxPerFrame === 1, \"两位顾客同时 5% → 同一帧最多一条滴答（不是一人一条）\", maxPerFrame + \" 条/帧\");\r\n  A(tickCalls().length >= 2 && tickCalls().length <= 3,\r\n    \"1 秒窗口内 2~3 条（单通道节流；逐人播会响 4~6 条）\", tickCalls().length + \" 条\");" }
+ ]
+}

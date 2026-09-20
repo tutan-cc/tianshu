@@ -1,0 +1,35 @@
+  function renderLog() {
+    var E = G.E, box = byId("mjmLogB");
+    if (!box || !E) return;
+    /* 与 voiceHook / playNewSfx 同一口径的游标（累计事件数）：日志被 shift 截断也不会停更 */
+    var total = E.logSeq || E.log.length, i = E.log.length - (total - G.logRendered);
+    if (i < 0) i = 0;
+    for (; i < E.log.length; i++) {
+      var d = mkEl("div");
+      d.textContent = E.log[i].text;
+      var k = E.log[i].kind;
+      if (k === "win") d.style.color = "#5dffa0";
+      else if (k === "gang" || k === "peng") d.style.color = "#ffd76e";
+      box.appendChild(d);
+    }
+    G.logRendered = total;
+    while (box.children.length > 140) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+  function playNewSfx() {
+    var E = G.E; if (!E) return;
+    /* 游标口径与 voiceHook 一致（累计事件数 E.logSeq），日志被截断也不会停摆 */
+    var total = E.logSeq || E.log.length, i = E.log.length - (total - G.sfxN);
+    if (i < 0) i = 0;
+    for (; i < E.log.length; i++) {
+      var ev = E.log[i];
+      if (!ev) continue;
+      if (ev.kind === "win") sfx("good");
+      else if (ev.kind === "peng" || ev.kind === "gang") sfx("ding");
+      else if (ev.kind === "discard") sfx("click");
+      else sfx("blip");
+    }
+    G.sfxN = total;
+    voiceHook();
+    renderLog();
+  }

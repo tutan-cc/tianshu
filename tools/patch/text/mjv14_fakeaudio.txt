@@ -1,0 +1,62 @@
+  /* ── ③ 假 Audio + **受控时钟** ──
+     ⚠ 必须先 voiceCacheClear()：本节前半段用过别的假 Audio，缓存里留着它们的实例，
+        不清掉的话 say() 会复用那些「不会 ended」的旧对象，队列直接卡死。
+     ⚠ 假 Audio **不再自动播完**（ended 由测试手动触发；只有 autoEnd=true 时才用真实时钟收尾）。
+        为什么改：上一版靠 40ms 真实 setTimeout 自动 ended，于是「报牌到底出没出声」变成
+        **依赖真实时钟的持续演化状态** —— 上级实测同一份代码 978 / 977 / 978 随机红，
+        失败项就是那条。现在 ④ 段用受控时钟（手动 advance + 手动 ended）把时序钉死，
+        ④b 段才开 autoEnd 跑真实时钟，而且 ④b 只断言**同步可观测量**。 */
+  const played = [];
+  const audioInsts = [];
+  let autoEnd = false, clack = 0, clock = null;
+  function fireEnded(a) { (a._ev["ended"] || []).slice().forEach(f => f()); }
+  function AutoAudio(url) { this.src = String(url); this.volume = 1; this.currentTime = 0; this.duration = 0.2; this._ev = {}; }
+  AutoAudio.prototype.addEventListener = function (t, fn) { (this._ev[t] = this._ev[t] || []).push(fn); };
+  AutoAudio.prototype.removeEventListener = function (t, fn) { const a = this._ev[t] || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };
+  AutoAudio.prototype.load = function () {};
+  AutoAudio.prototype.pause = function () {};
+  AutoAudio.prototype.play = function () {
+    const self = this;
+    played.push(String(this.src).replace(/^.*\//, ""));
+    audioInsts.push(this);
+    if (autoEnd) setTimeout(() => fireEnded(self), 40);        // 只有 ④b 之后才用真实时钟收尾
+    return Promise.resolve();
+  };
+  windowStub.Audio = AutoAudio;
+  windowStub.AudioSys.sfxFile = function (n) { if (n === "mj-clack") clack++; };
+  eq(MJ.debug.voiceCacheClear(), true, "清掉旧 Audio 缓存（换整层假 Audio 实现）");
+
+  /* 受控时钟：把 windowStub 上的 setTimeout/clearTimeout 换成**可手动推进**的队列。
+     于是「落河动画 260ms → 报牌」「队列间隔 120ms」全由测试精确推进，不看真实时钟脸色 ——
+     这是让「报牌次数 = 出牌次数」确定性的关键（黄金法则：只断言被操作动作自身的影响，
+     不读持续演化、依赖真实时钟的世界状态）。
+     mahjong.js 的 later() 走 root.setTimeout，而 root 就是这个 windowStub，换掉即可。 */
+  function makeClock() {
+    const q = [];
+    let now = 0, seq = 0;
+    const realST = windowStub.setTimeout, realCT = windowStub.clearTimeout;
+    windowStub.setTimeout = function (fn, ms) { const id = ++seq; q.push({ id: id, fn: fn, at: now + Math.max(0, +ms || 0) }); return id; };
+    windowStub.clearTimeout = function (id) { for (let i = 0; i < q.length; i++) if (q[i].id === id) { q.splice(i, 1); return; } };
+    return {
+      advance: function (ms) {
+        const target = now + ms;
+        for (;;) {
+          q.sort((a, b) => (a.at - b.at) || (a.id - b.id));
+          if (!q.length || q[0].at > target) break;
+          const t = q.shift(); now = t.at;
+          try { t.fn(); } catch (e) { /* 与生产 later() 一致：定时器里抛错不中断牌局 */ }
+        }
+        now = target;
+      },
+      restore: function () { windowStub.setTimeout = realST; windowStub.clearTimeout = realCT; }
+    };
+  }
+  /** 把「正在播的那条」立刻播完（手动 ended）并把队列往前推 —— 确定性，不用真实时钟 */
+  function flushAudio(rounds) {
+    for (let k = 0; k < (rounds || 8); k++) {
+      clock.advance(T.VOICE_GAP + 10);          // 队列间隔到点 → 下一条开播（play 被调用）
+      const a = audioInsts.pop();
+      if (!a) break;
+      fireEnded(a);                            // 立刻播完 → finish → voicePump
+    }
+  }

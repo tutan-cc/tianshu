@@ -1,0 +1,24 @@
+{
+  "jobs": [
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  '    VW.before = before; VW.tile = tile; VW.n = 0; VW.st0 = st0;',",
+      "text": "  '    VW.before = before; VW.tile = tile; VW.n = 0; VW.st0 = st0; VW.u1 = u1; VW.u2 = u2;',"
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  'var VW = { before: 0, tile: \"\", n: 0, st0: null };   /* stepVoice → stepVoiceLanded 之间传递的待断言上下文 */',",
+      "text": "  'var VW = { before: 0, tile: \"\", n: 0, st0: null, u1: \"\", u2: \"\" };   /* stepVoice → stepVoiceLanded 之间传递的待断言上下文 */',"
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  '  var st0, st2, st3, okW, q1;',",
+      "text": "  '  var st0, u1, u2, st2, st3, okW, q1;',"
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  '    st0 = VW.st0;                       /* ③ 段那次读的计数（③ 在 stepVoice 里，跨函数要显式带过来） */',",
+      "text": "  '    st0 = VW.st0; u1 = VW.u1; u2 = VW.u2;   /* ③ 段那次读的值（③ 在 stepVoice 里，跨函数要显式带过来） */',"
+    }
+  ]
+}

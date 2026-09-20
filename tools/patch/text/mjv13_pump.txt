@@ -1,0 +1,40 @@
+  /**
+   * 下一拍等多久 —— **节奏只有一个出处**（改上面的常量就够，别在别处写死毫秒）。
+   *   · 刚打出一张牌 → AI_DISCARD_MS：这段时间留给报牌（播到一半才允许进入下一步）
+   *   · 刚摸到一张牌（上一条事件是摸牌：过牌 / 杠后补牌）→ AI_DRAW_MS
+   *   · 其余（碰 / 杠 / 抢杠 / 流局…）→ AI_STEP_MS
+   * 抖动只加不减，所以任何一拍都不会快过 AI_STEP_MS（断言 AI_MIN_MS 就是它）。
+   * 最后兜住用户那条硬要求：**下一步不得早于上一条报牌真正开播后 SAY_MIN_STEP_MS**。
+   * 报牌是异步的（要等落河、要排队、素材有时长），所以按「真正开播的时刻」回推，
+   * 不能按入队时刻算 —— 否则排队时的那几条等于没被保护。 */
+  function aiPaceMs(r) {
+    var E = G.E, log = (E && E.log) ? E.log : [];
+    var tail = log.length ? log[log.length - 1].kind : "";
+    var ms = (r === "discard") ? AI_DISCARD_MS : (tail === "draw" ? AI_DRAW_MS : AI_STEP_MS);
+    ms += Math.random() * AI_JITTER_MS;
+    if (VOICE_STAT.startAt) {
+      var el = Date.now() - VOICE_STAT.startAt;
+      if (el < SAY_MIN_STEP_MS) ms = Math.max(ms, SAY_MIN_STEP_MS - el);
+    }
+    return Math.round(ms);
+  }
+  /** 排下一拍并记账（节奏可观测 / 可断言：G.pace.min 就是"最快的一拍有多快"） */
+  function nextPump(ms) {
+    G.pace.n++;
+    G.pace.last = ms;
+    if (!G.pace.min || ms < G.pace.min) G.pace.min = ms;
+    if (ms > G.pace.max) G.pace.max = ms;
+    if (G.pace.list.length < 240) G.pace.list.push(ms);
+    later(pump, ms);
+  }
+  /** 主循环：AI 走一步 → 等待人类 → 下一拍 */
+  function pump() {
+    if (!G.on || G.finished || G.result) return;
+    var E = G.E;
+    if (E.phase === "over") { later(showResult, 400); return; }
+    var r = E.aiStep();
+    playNewSfx(); updateHud();
+    if (r === "wait") { showHumanUI(); return; }
+    if (E.phase === "over") { later(showResult, 620); return; }
+    nextPump(aiPaceMs(r === "none" ? "" : r));
+  }

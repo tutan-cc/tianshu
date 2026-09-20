@@ -399,7 +399,216 @@
     return "晚了。袋子凉了，" + nm + "没多说什么。";
   }
 
+  /* ═══════════ 1b. 音效 / 顾客语音（bf-audio-1：滴答 / 呜呼 / 哼，太慢了）═════════
+     用户三条要求（逐条对应到下面的触发点）：
+       ① 顾客耐心快到时要有「滴答」式倒计时提示音 —— 耐心剩余 ≤ TICK_AT(30%) 开始响，
+          越急越密（30% 档 1.0s 一下，≤10% 档 0.5s 一下）
+       ② 顾客拿到早餐 → 高兴地喊一声「呜呼～」（三个音色变体随机取，避免听腻）
+       ③ 等太久走掉的顾客 → 「哼，太慢了」
+     四条设计约束（都是用户/项目明确要求）：
+       · **有文件用文件，缺失静默回落**：文件不存在 / 环境里没有 Audio / 被浏览器自动播放
+         策略拦截 → 不抛错、不报错、不影响玩法（只在记录里留一个 why，验收读得到）。
+       · **不许叠成噪音**：滴答是**全店一条**（不是每位顾客各一条），按紧迫度限流，
+         再加一道 TICK_MIN_GAP 保险丝；「呜呼」「哼」各自也有最小间隔
+         （同一单连着上三样菜不会叠三声）。
+       · **不打断别的语音**：本模块只 new 自己的 Audio()，不排队、不暂停、不接管别人的播放 ——
+         麻将那条报牌队列在 mahjong.js 里，两套互不触碰。
+       · **开关沿用**：早餐店此前没有任何音量/静音设置，所以按用户要求用
+         localStorage.bfSoundOn（"0"/"off"/"false" = 关；缺省开）。
+         UI 两处都能点：顶栏的 🔊/🔇 按钮、图例条左端的同款小徽章。
+     素材：audio/bf/{tick,happy,happy2,happy3,slow}.mp3（48kHz / 128kbps / 单声道）      */
+  var TICK_AT = 0.30;        // 耐心剩余 ≤30% 开始滴答（可调常量）
+  var TICK_NEAR = 0.10;      // ≤10% 进入「更急」档
+  var TICK_GAP_FAR = 1.0;    // 30% 档：每秒 1 次
+  var TICK_GAP_NEAR = 0.5;   // 10% 档：每 0.5 秒 1 次
+  var TICK_MIN_GAP = 0.25;   // 全局节流下限（保险丝：任何两次滴答至少隔这么久）
+  var HAPPY_MIN_GAP = 0.90;  // 两条「呜呼」之间的最小间隔（≈最短那条喊声 0.91s：连续上菜不叠声）
+  var SLOW_MIN_GAP = 0.80;   // 两条「哼，太慢了」之间的最小间隔
+  var BF_SOUND_KEY = "bfSoundOn";     // localStorage 键（默认开）
+  var BF_AUDIO_DIR = "audio/bf/";     // 素材目录（相对页面，与 art/ 同一套解析口径）
+  var BF_SFX_VOL = { tick:0.35, happy:0.55, slow:0.55 };   // 音量（滴答压低，别吵）
+  var BF_SFX_FILES = {
+    tick:  ["tick.mp3"],
+    happy: ["happy.mp3", "happy2.mp3", "happy3.mp3"],      // 变体：随机取，且不连着重复同一条
+    slow:  ["slow.mp3"]
+  };
+  var AUDIO_NAMES = ["tick", "happy", "slow"];
+
+  /* ── 播放引擎（模块级单例；不依赖 DOM，纯逻辑测试里也能跑）─────────────────
+     三级回落，任何一级出问题都只是「这一声没响」：
+       ① 测试注入的 sink（rules.audio.hook(fn)）→ 只记录，不发声
+       ② 浏览器的 new Audio(url) + play()（.catch 吞掉自动播放策略拦截）
+       ③ 都没有（Node / 老环境）→ 记一条 why:"no-audio" 就结束            */
+  var audio = (function () {
+    var on = null;        // null = 还没读过开关（懒读；没有 localStorage 的环境照样能跑）
+    var sink = null;      // 测试注入的播放器：给了就不走 new Audio
+    var log = [];         // 播放 / 跳过记录（验收读它；上限 240 条，防无限增长）
+    var LOG_MAX = 240;
+    var lastPick = {};    // 每个通道上一条用过的变体下标（避免连着重复同一句）
+
+    function store() {
+      try { return (root && root.localStorage) ? root.localStorage : null; } catch (e) { return null; }
+    }
+    /** 开关：localStorage.bfSoundOn；读不到（无痕/沙箱/无 localStorage）→ 默认开 */
+    function enabled() {
+      if (on !== null) return on;
+      var raw = null;
+      try { var ls = store(); if (ls && ls.getItem) raw = ls.getItem(BF_SOUND_KEY); } catch (e) { raw = null; }
+      on = !(raw === "0" || raw === "off" || raw === "false");
+      return on;
+    }
+    function setEnabled(b) {
+      on = !!b;
+      try { var ls = store(); if (ls && ls.setItem) ls.setItem(BF_SOUND_KEY, on ? "1" : "0"); } catch (e) {}
+      return on;
+    }
+    function toggle() { return setEnabled(!enabled()); }
+    function sfxUrl(name, i) {
+      var f = BF_SFX_FILES[name]; if (!f || !f.length) return "";
+      var k = (typeof i === "number" && i >= 0 && i < f.length) ? Math.floor(i) : 0;
+      return BF_AUDIO_DIR + f[k];
+    }
+    /** 取一个变体下标（多条时避免连着重复同一条；单条恒 0）*/
+    function pick(name) {
+      var f = BF_SFX_FILES[name]; if (!f || f.length <= 1) return 0;
+      var i = Math.abs(Math.floor(rnd01() * f.length)) % f.length;
+      if (lastPick[name] === i) i = (i + 1) % f.length;
+      lastPick[name] = i;
+      return i;
+    }
+    function rec(name, i, ok, why, at) {
+      var r = { name:name, url:sfxUrl(name, i), volume:BF_SFX_VOL[name] || 0,
+                at:(typeof at === "number") ? round1(at) : 0, ok:!!ok, why:why || "" };
+      log.push(r);
+      if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
+      return r;
+    }
+    /** 播一条。**任何异常都不许冒泡**（缺文件 / 没有 Audio / 被策略拦截 → 静默） */
+    function play(name, at) {
+      if (!BF_SFX_FILES[name]) return null;
+      var i = pick(name);
+      if (!enabled()) return rec(name, i, false, "off", at);
+      if (typeof sink === "function") {
+        var r0 = rec(name, i, true, "sink", at);
+        try { sink(r0); } catch (e) { r0.ok = false; r0.why = "sink-error"; }
+        return r0;
+      }
+      var A = root ? root.Audio : null;
+      if (typeof A !== "function") return rec(name, i, false, "no-audio", at);
+      var r = rec(name, i, true, "", at);
+      try {
+        var a = new A(r.url);
+        try { a.volume = r.volume; } catch (e2) {}
+        /* 文件缺失（404 / 解码失败）→ error 事件；**静默**，只把这条记录标一下 */
+        if (a.addEventListener) a.addEventListener("error", function () { r.ok = false; r.why = "load-error"; });
+        var pr = a.play ? a.play() : null;
+        if (pr && typeof pr.catch === "function") pr.catch(function () { r.ok = false; r.why = "blocked"; });
+      } catch (e3) { r.ok = false; r.why = "throw"; }
+      return r;
+    }
+    return {
+      enabled:enabled, setEnabled:setEnabled, toggle:toggle, play:play, url:sfxUrl, pick:pick,
+      log:function () { return log.slice(); },
+      /** 真的播出去的记录（开关关掉 / 没有 Audio 的不算）—— 验收只断言它 */
+      plays:function () { var out = []; for (var i = 0; i < log.length; i++) if (log[i].ok) out.push(log[i]); return out; },
+      clear:function () { log.length = 0; lastPick = {}; },
+      hook:function (fn) { sink = (typeof fn === "function") ? fn : null; return !!sink; },
+      files:BF_SFX_FILES, vol:BF_SFX_VOL, key:BF_SOUND_KEY, dir:BF_AUDIO_DIR
+    };
+  })();
+
+  /* ── 滴答：触发阈值与节奏（全是纯函数，单测直接断言阈值 / 档位，不用起渲染层）── */
+  /** 某位顾客的耐心剩余比例（0..1）*/
+  function patienceRatioOf(c) {
+    if (!c) return 1;
+    var pat = Number(c.patience); if (!isFinite(pat)) pat = 0;
+    var max = Number(c.patienceMax); if (!isFinite(max) || max <= 0) max = 0.01;
+    return Math.max(0, pat) / Math.max(0.01, max);
+  }
+  /** 全店**最急**那位顾客的耐心比例；没有在等的顾客 → 1。
+      已经拿齐订单、正在离场的不算（不再催他）。 */
+  function minPatienceRatio(st) {
+    var list = activeCustomers(st), m = 1;
+    for (var i = 0; i < list.length; i++) {
+      if (remainOf(list[i]) <= 0) continue;
+      var r = patienceRatioOf(list[i]);
+      if (r < m) m = r;
+    }
+    return m;
+  }
+  /** 滴答节奏：≤10% 档更快（30% 档 1.0s / 10% 档 0.5s）*/
+  function tickGapFor(ratio) { return (Number(ratio) <= TICK_NEAR) ? TICK_GAP_NEAR : TICK_GAP_FAR; }
+  /** 这一帧该不该滴答（纯判定，不改状态）*/
+  function tickDue(st) {
+    if (!st || !st.audio) return false;
+    if (!(minPatienceRatio(st) <= TICK_AT)) return false;
+    return st.elapsed + 1e-9 >= st.audio.tickNext;
+  }
+  /** 每局一份的音频台账（跟着 st 走，不进 localStorage）*/
+  function newAudioState() {
+    return { tickNext:0, lastTickAt:-1e9, lastHappyAt:-1e9, lastSlowAt:-1e9,
+             ticks:0, happies:0, slows:0 };
+  }
+  /** 一帧一次的音频调度：滴答（全局节流）+ 本帧有人跑单时的「哼，太慢了」（只播一次）。
+      调用点在 step() 里、顾客账算完之后 —— 所以「顾客离开 / 被服务」当帧就会停滴答。 */
+  function stepAudio(st, leftNow) {
+    if (!st || !st.audio) return;
+    var a = st.audio, r = minPatienceRatio(st);
+    if (r <= TICK_AT) {
+      if (tickDue(st)) {
+        a.tickNext = st.elapsed + Math.max(TICK_MIN_GAP, tickGapFor(r));
+        a.lastTickAt = st.elapsed; a.ticks++;
+        audio.play("tick", st.elapsed);
+      }
+    } else {
+      /* 没人急了（都走了 / 都被服务完了）→ 计时器归位：下次一进 30% 立刻响，不残留节奏 */
+      a.tickNext = st.elapsed;
+    }
+    if (leftNow) playSlow(st);
+  }
+  /** 拿到早餐 → 「呜呼～」（同一次服务只播一次；HAPPY_MIN_GAP 内不重复叠声）*/
+  function playHappy(st) {
+    if (!st || !st.audio) return null;
+    var a = st.audio;
+    if (st.elapsed - a.lastHappyAt < HAPPY_MIN_GAP) return null;
+    a.lastHappyAt = st.elapsed; a.happies++;
+    return audio.play("happy", st.elapsed);
+  }
+  /** 等太久走掉 → 「哼，太慢了」（同一帧多人离开也只播一次）*/
+  function playSlow(st) {
+    if (!st || !st.audio) return null;
+    var a = st.audio;
+    if (st.elapsed - a.lastSlowAt < SLOW_MIN_GAP) return null;
+    a.lastSlowAt = st.elapsed; a.slows++;
+    return audio.play("slow", st.elapsed);
+  }
+  /** 开关的两处 UI 共用同一份文案 */
+  function soundLabel() { return audio.enabled() ? "🔊 音效" : "🔇 静音"; }
+  /** 顶栏按钮 / 图例徽章共用的切换（改了开关 → 同步按钮文案 + 重绘画布上的徽章）*/
+  function toggleSound() {
+    var on = audio.toggle();
+    if (inst) {
+      if (inst.btnSound) { try { inst.btnSound.textContent = soundLabel(); } catch (e) {} }
+      if (inst.render) { try { inst.render(); } catch (e) {} }
+    }
+    return on;
+  }
+  /** 对外暴露的规则层（单测用；与 UI 无关）*/
+  var audioRules = {
+    TICK_AT:TICK_AT, TICK_NEAR:TICK_NEAR, TICK_GAP_FAR:TICK_GAP_FAR, TICK_GAP_NEAR:TICK_GAP_NEAR,
+    TICK_MIN_GAP:TICK_MIN_GAP, HAPPY_MIN_GAP:HAPPY_MIN_GAP, SLOW_MIN_GAP:SLOW_MIN_GAP,
+    SOUND_KEY:BF_SOUND_KEY, DIR:BF_AUDIO_DIR, FILES:BF_SFX_FILES, VOL:BF_SFX_VOL, NAMES:AUDIO_NAMES,
+    enabled:audio.enabled, setEnabled:audio.setEnabled, toggle:audio.toggle, hook:audio.hook,
+    log:audio.log, plays:audio.plays, clear:audio.clear, url:audio.url,
+    patienceRatioOf:patienceRatioOf, minPatienceRatio:minPatienceRatio,
+    tickGapFor:tickGapFor, tickDue:tickDue, stepAudio:stepAudio, newAudioState:newAudioState,
+    playHappy:playHappy, playSlow:playSlow,
+    soundBox:soundBox, soundLabel:soundLabel, toggleSound:toggleSound
+  };
+
   /* ═══════════════ 2. 运行时状态（纯数据，step() 驱动，无 DOM） ═══════════════ */
+  /* ═══════════════ 2. 运行时状态（纯数据，step() 驱动，无 DOM） ═══════════════ */
+
 
   function newState(cfg) {
     cfg = cfg || {};
@@ -414,6 +623,7 @@
       served:0, perfect:0, normal:0, hot:0, burnt:0, burntServed:0, wrong:0, angry:0, made:0,
       heat:{ hot:0, warm:0, cold:0 }, prepped:0, lastPlace:null, expire:0, tossed:0,
       customers:[], stations:[], plates:[], floats:[], smoke:[], seq:1,
+      audio:newAudioState(),                       // 音效台账（滴答节奏 / 各通道节流时钟 / 计数）
       selected:{ kind:null, idx:-1 }, nextIn:0.45, win:false, reason:"", result:null
     };
     var i;
@@ -774,6 +984,9 @@
       c.left = true; c.leftAt = st.elapsed;          // 立刻让出座位，1.3s 后再从画面移除
       st.served++;
     }
+    /* ② 拿到早餐 → 高兴地「呜呼～」：一次成功上餐只播一次；
+       糊的 / 上错的在上面两个分支就 return 了，不会响（那种情况顾客要走，不该欢呼）。 */
+    playHappy(st);
     return { ok:true, kind: perfect ? (tier === "hot" ? "perfect-hot" : "perfect") : "over",
              food:foodId, state:foodState, heat:tier, delta:d, perfect:perfect, cookSec:cookSec, customer:c };
   }
@@ -893,6 +1106,7 @@
     }
     /* 顾客耐心 */
     var list = activeCustomers(st);
+    var leftNow = false;          // 本帧有没有人「等太久走掉」（同一帧多人也只播一次「哼，太慢了」）
     for (i = 0; i < list.length; i++) {
       c = list[i];
       if (remainOf(c) <= 0) { c.left = true; c.leftAt = st.elapsed; continue; }
@@ -904,6 +1118,7 @@
           st.angry++; st.score += scoreDelta("leave");
           addFloat(st, "顾客走了 " + SCORE.leave, "#ff4d6d", 26);
           ev.push({ t:"leave", id:c.id });
+          leftNow = true;
         }
       }
     }
@@ -911,6 +1126,10 @@
     for (i = st.customers.length - 1; i >= 0; i--) {
       c = st.customers[i];
       if (c.left && c.leftAt !== undefined && st.elapsed - c.leftAt > 1.3) st.customers.splice(i, 1);
+
+    /* 音效 / 顾客语音调度：放在顾客账算完**之后** —— 所以「顾客跑单 / 被服务完」当帧就会停滴答。
+       滴答的阈值 / 节奏 / 全局节流、以及「哼，太慢了」的只播一次，都在 stepAudio 里（纯函数可单测）。*/
+    stepAudio(st, leftNow);
     }
     /* 粒子 / 飘字 */
     for (i = st.smoke.length - 1; i >= 0; i--) { st.smoke[i].t += dt; if (st.smoke[i].t > st.smoke[i].life) st.smoke.splice(i, 1); }
@@ -1426,7 +1645,10 @@
     stove: { x0:COLSX0, y:450, cols:9, panW:113, panH:158, plateW:121, plateH:110, cellGap:8, colGap:COLGAP, rowGap:0, colW:COLW },
     buckets: { x0:COLSX0, y:624, w:121, h:152, gap:COLGAP },
     platesLabelY: 312,          // 兼容旧字段（现在这一行画的是操作图例）
-    bucketLabelDy: -14
+    bucketLabelDy: -14,
+    /* 图例条左端的 🔊/🔇 小开关（可点）——那一行左侧本来就是空的（居中说明文字从 ~170px 才起），
+       所以徽章塞在这里不会挤到任何既有元素 */
+    soundBadge: { x:20, y:287, w:124, h:22 }
   };
   /** 第 i 列的左边界 / 中心线（列内三者共用同一条中心线）*/
   function colX(i) { return LAY.stove.x0 + i * (COLW + COLGAP); }
@@ -1448,6 +1670,8 @@
     return { x:colCX(i) - w / 2, y:LAY.buckets.y, w:w, h:h };
   }
   function customerCardBox(i) { return { x:LAY.cards.x0 + i * (LAY.cards.w + LAY.cards.gap), y:LAY.cards.y, w:LAY.cards.w, h:LAY.cards.h }; }
+  /** 声音开关徽章的命中框（绘制与点击共用同一个框）*/
+  function soundBox() { return LAY.soundBadge; }
 
   function roundRect(g, x, y, w, h, r) {
     if (r > w / 2) r = w / 2; if (r > h / 2) r = h / 2;
@@ -1679,6 +1903,13 @@
     bar.appendChild(el("div", "bf-tip",
       "① 点食材 → 自动进它正上方那一列的锅 ｜ ② 点上方专属盘 → 自动送给正在等的顾客（优先最急的） ｜ " +
       "③ 双击盘 → 丢垃圾桶（不扣分）· 盘上停留超过 " + SERVE_WINDOW.toFixed(1) + "s 会糊，糊了只能双击丢掉"));
+    /* 声音开关：早餐店此前没有任何静音 / 音量设置 → 按用户要求用 localStorage.bfSoundOn（默认开），
+       这里给一个真实按钮（与「收 摊」同款木牌样式，风格一致）；图例条左端的徽章是同一个开关的第二入口。 */
+    var btnSound = mkBtn(soundLabel(), "bf-wood");
+    btnSound.id = "bfSound";
+    btnSound.setAttribute("data-act", "sound");
+    btnSound.title = "音效开关（记在 localStorage.bfSoundOn）";
+    bar.appendChild(btnSound);
     var btnEnd = mkBtn("收 摊", "bf-wood");
     bar.appendChild(btnEnd);
     var stage = el("div", "bf-stage");
@@ -1697,7 +1928,7 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     var IA = {
-      st:st, host:hostEl, wrap:wrap, cv:cv, g:g, panel:panel, btnEnd:btnEnd,
+      st:st, host:hostEl, wrap:wrap, cv:cv, g:g, panel:panel, btnEnd:btnEnd, btnSound:btnSound,
       dpr:dpr, raf:0, last:nowMs(), acc:0, drag:null, hover:-1, hoverBucket:-1, finished:false,
       drawn:{ plates:0, pans:0, cards:0, buckets:0, foods:0 }
     };
@@ -1793,6 +2024,8 @@
     function onDown(evt) {
       if (st.over || !doc) return;
       var p = toLocal(evt);
+      /* ⓪ 图例条左端的 🔊/🔇 徽章：切换音效开关（与顶栏按钮同一个开关）*/
+      if (hit(p.x, p.y, soundBox())) { resetDouble(); toggleSound(); return; }
       /* ① 底部食材桶：单击 = 自动进它自己那一列的锅（也可以拖，见 onUp） */
       var bi = bucketAt(p.x, p.y);
       if (bi >= 0) {
@@ -1886,6 +2119,10 @@
       if (IA.escOn && doc && doc.removeEventListener) { doc.removeEventListener("keydown", onEsc); lifecycle.escRemoved++; }
       IA.escOn = false;
     };
+    btnSound.addEventListener("click", function (ev) {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      toggleSound();
+    });
     btnEnd.addEventListener("click", function () { finishNow("主动收摊"); });
 
     /* ── 渲染（Canvas 只画食物 / 锅具 / 盘子 / 卡片底与进度环，文字全部用真系统字体）── */
@@ -2388,6 +2625,16 @@
                  x + w / 2, y + h / 2);
       /* 厨具素材里的「锅铲 + 夹子」放在图例条右端的空位（不挤文字，纯装饰）*/
       if (drawAssetFit(g, assetOf(GEAR_ICON, "tools"), { x: x + w - 60, y: y + 2, w: 54, h: h - 4 }, null)) IA.drawn.gearTools = (IA.drawn.gearTools || 0) + 1;
+      /* 声音开关徽章（图例条左端空位；可点，见 onDown）—— 🔊 开 / 🔇 关 一眼可见 */
+      var sb = soundBox(), sOn = audio.enabled();
+      g.fillStyle = sOn ? "rgba(255,214,110,.16)" : "rgba(255,255,255,.05)";
+      roundRect(g, sb.x, sb.y, sb.w, sb.h, 6); g.fill();
+      g.strokeStyle = sOn ? "rgba(255,214,110,.60)" : "rgba(255,255,255,.22)";
+      g.lineWidth = 2; roundRect(g, sb.x, sb.y, sb.w, sb.h, 6); g.stroke();
+      g.font = fontOf(FONT.micro, true);
+      g.fillStyle = sOn ? PAL.gold : PAL.dim;
+      g.fillText(sOn ? "🔊 音效 开" : "🔇 音效 关", sb.x + sb.w / 2, sb.y + sb.h / 2);
+      IA.drawn.soundBadge = sOn ? "on" : "off";
       g.restore();
       g.textAlign = "left";
       IA.drawn.legend = true;
@@ -2614,7 +2861,9 @@
     scoreDelta: scoreDelta, SCORE_KINDS: SCORE_KINDS, isFoodInOrder: isFoodInOrder,
     bondDeltaWin: bondDeltaWin, bondDeltaLose: bondDeltaLose, bondDeltaFor: bondDeltaFor, bondHeat: bondHeat,
     eligibleTargets: eligibleTargets, canSend: canSend, markSent: markSent, sentToday: sentToday,
-    quoteFor: quoteFor, impactOf: impactOf, quotaOf: quotaOf, QUOTES: QUOTES, QUOTE_FALLBACK: QUOTE_FALLBACK
+    quoteFor: quoteFor, impactOf: impactOf, quotaOf: quotaOf, QUOTES: QUOTES, QUOTE_FALLBACK: QUOTE_FALLBACK,
+    /* 音效 / 顾客语音（bf-audio-1）：阈值 / 节奏 / 节流 / 开关 / 播放记录，全在这里 */
+    audio: audioRules
   };
 
   var ui = {
@@ -2922,7 +3171,31 @@
                  escActive:!!(inst && inst.escOn), busy:!!inst };
       },
       /** 结算面板的出口按钮（结算前为 null）——浏览器 / 无头 DOM 都取得到 #bfGo */
-      goBtn: function () { return inst ? (inst.goBtn || null) : null; }
+      goBtn: function () { return inst ? (inst.goBtn || null) : null; },
+      /** 音效 / 顾客语音的现场台账（无头验收读它：常量、开关、比例、计数、播放序列）*/
+      audio: function () {
+        var st = curState();
+        return { on:audio.enabled(), key:BF_SOUND_KEY, dir:BF_AUDIO_DIR,
+                 tickAt:TICK_AT, tickNear:TICK_NEAR, gapFar:TICK_GAP_FAR, gapNear:TICK_GAP_NEAR,
+                 minGap:TICK_MIN_GAP, happyGap:HAPPY_MIN_GAP, slowGap:SLOW_MIN_GAP,
+                 vol:audio.vol, files:audio.files,
+                 ratio:(st ? Math.round(minPatienceRatio(st) * 1000) / 1000 : null),
+                 tickDue:(st ? tickDue(st) : false),
+                 ticks:(st && st.audio ? st.audio.ticks : 0),
+                 happies:(st && st.audio ? st.audio.happies : 0),
+                 slows:(st && st.audio ? st.audio.slows : 0),
+                 badge:(inst && inst.drawn) ? (inst.drawn.soundBadge || null) : null,
+                 label:soundLabel(),
+                 plays:audio.plays(), log:audio.log() };
+      },
+      /** 开关（浏览器 / 无头都能用；与两个 UI 入口是同一个开关）*/
+      setSound: function (b) { return audio.setEnabled(b); },
+      toggleSound: function () { return toggleSound(); },
+      /** 顶栏音效按钮（#bfSound）与图例徽章的命中框 */
+      soundBtn: function () { return inst ? (inst.btnSound || null) : null; },
+      soundBox: function () { return soundBox(); },
+      /** 清空播放记录（验收每个场景前调一次，读到的序列才是这一段产生的）*/
+      clearAudio: function () { audio.clear(); return true; }
     },
     /* ── 贴图相关的测试挂钩（不属规格，页面代码不需要用）───────────────
        __bfIconFlags()  : 读写 FOOD_ICON 的开关（测试用来分别走「图片」与「矢量回退」）

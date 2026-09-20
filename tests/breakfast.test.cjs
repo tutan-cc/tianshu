@@ -1879,3 +1879,334 @@ test("本轮新增：stud/office/uncle 的 happy 贴图补齐（15 张齐全）+
   }
 });
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   9. 音效 / 顾客语音（bf-audio-1）
+
+   用户三条要求 → 本节的断言：
+     ① 顾客耐心快到时要有「滴答」倒计时提示音（≤30% 开始，越急越密，全局只一条，人走即停）
+     ② 顾客拿到早餐 → 高兴的「呜呼～」（一次成功上餐只播一次，音量适中）
+     ③ 等太久走掉的顾客 → 「哼，太慢了」（同一帧多人离开也只播一次）
+     外加：开关关掉三类音都不播；素材缺失 / 没有 Audio / 播放被拦 → 静默不抛错。
+
+   脚手架：`rules.audio.hook(fn)` 注入一个**只记录不发声**的播放器。
+     断言看的是**调用序列**（谁、哪个文件、什么音量、第几次），完全不依赖浏览器音频栈；
+     纯逻辑 vm 里本来就没有 Audio / localStorage —— 那正好也是「素材缺失」那条用例的真实环境。
+   ═══════════════════════════════════════════════════════════════════════════ */
+const mp3info = require("../tools/bf/mp3info.js");
+
+const PLAYS = [];                        // hook 收到的播放序列（每个用例开头清空）
+/** 开声音 + 挂钩子 + 清记录 */
+function audioArmed() {
+  R.audio.setEnabled(true);
+  R.audio.hook(function (r) { PLAYS.push(r); });
+  R.audio.clear(); PLAYS.length = 0;
+}
+/** 关声音（钩子留着，验证「一条都不播」而不是「没挂钩子」）*/
+function audioMuted() {
+  R.audio.setEnabled(false);
+  R.audio.clear(); PLAYS.length = 0;
+}
+/** 回到「环境里没有 Audio、也没有钩子」的默认态（每个用例收尾都调它，避免串场）*/
+function audioUnhook() {
+  R.audio.hook(null); R.audio.setEnabled(true); R.audio.clear(); PLAYS.length = 0;
+}
+const played = (name) => PLAYS.filter(p => p.name === name);
+/** 把某位顾客的耐心定在指定比例（配合每帧回填，避免边跑边掉档）*/
+function hold(c, ratio) { c.patienceMax = 1000; c.patience = ratio * 1000; }
+
+test("音效①：滴答阈值 —— 耐心 31% 不响、29% 响（TICK_AT = 0.30 可调）", () => {
+  assert.equal(R.audio.TICK_AT, 0.30, "阈值常量 TICK_AT = 0.30");
+  assert.equal(R.audio.SOUND_KEY, "bfSoundOn", "开关键就是用户指定的 localStorage.bfSoundOn");
+  audioArmed();
+  const st = plateState();                       // duration 999 / goal 99 / 不自动进店
+  const c = R.spawnCustomer(st);
+  hold(c, 0.31);
+  R.step(st, 1 / 60);
+  assert.equal(played("tick").length, 0, "31%（>30%）不播滴答");
+  assert.equal(R.audio.tickDue(st), false, "tickDue() 同判 false");
+  hold(c, 0.29);
+  R.step(st, 1 / 60);
+  assert.equal(played("tick").length, 1, "29%（≤30%）当帧就响一条");
+  assert.equal(played("tick")[0].url, "audio/bf/tick.mp3", "播的是 audio/bf/tick.mp3");
+  assert.ok(played("tick")[0].volume > 0 && played("tick")[0].volume < 0.6,
+    "滴答音量压得低（" + played("tick")[0].volume + "）");
+  audioUnhook();
+});
+
+test("音效①：滴答节奏 —— 30% 档 1.0s 一下、10% 档 0.5s 一下（越急越密）", () => {
+  assert.equal(R.audio.tickGapFor(0.29), 1.0, "30% 档 → 1.0s");
+  assert.equal(R.audio.tickGapFor(0.09), 0.5, "10% 档 → 0.5s");
+  assert.equal(R.audio.TICK_GAP_FAR > R.audio.TICK_GAP_NEAR, true, "远档间隔确实更长");
+  const st = plateState();
+  const c = R.spawnCustomer(st);
+  c.patienceMax = 1000;
+  function runFor(ratio, seconds) {              // 同一局里换档跑同样长的窗口
+    audioArmed();
+    c.patience = ratio * 1000;
+    const n = Math.round(seconds * 60);
+    for (let i = 0; i < n; i++) { R.step(st, 1 / 60); c.patience = ratio * 1000; }
+    return played("tick").length;
+  }
+  const far = runFor(0.29, 3.0);
+  const near = runFor(0.09, 3.0);
+  assert.equal(far, 3, "30% 档 3 秒响 3 下（0 / 1 / 2 秒）");
+  assert.equal(near, 6, "10% 档 3 秒响 6 下（每 0.5 秒一下）");
+  assert.ok(near > far, "越急越密：" + far + " → " + near);
+  audioUnhook();
+});
+
+test("音效①：滴答全局节流 —— 两位顾客同时低耐心，同一时刻只有一条", () => {
+  audioArmed();
+  const st = plateState();
+  const a = R.spawnCustomer(st), b = R.spawnCustomer(st);
+  hold(a, 0.05); hold(b, 0.05);                  // 两位都在 5%
+  R.step(st, 1 / 60);
+  assert.equal(played("tick").length, 1, "同一帧只播一条（不是每位顾客各一条）");
+  for (let i = 0; i < 60; i++) { R.step(st, 1 / 60); a.patience = b.patience = 50; }
+  const n = played("tick").length;
+  /* 逐位顾客各播一条的实现，这一秒会响 4~6 下；单通道节流最多 3 下 */
+  assert.ok(n >= 2 && n <= 3, "1 秒内 " + n + " 条（单通道 0.5s 档，≤3）");
+  assert.equal(played("tick").every(p => p.url === "audio/bf/tick.mp3"), true, "全是同一条滴答素材");
+  audioUnhook();
+});
+
+test("音效①：顾客离开 / 被服务完 → 立刻停滴答", () => {
+  audioArmed();
+  const st = plateState();
+  const c = R.spawnCustomer(st, ["egg"]);
+  hold(c, 0.01);                                 // 1% —— 已经进入 10% 档
+  R.step(st, 1 / 60);
+  assert.equal(played("tick").length, 1, "先正常响一条");
+  const col = R.columnOf("egg");
+  cookTo(st, "egg", R.FOOD.egg.dur, true);
+  assert.equal(R.takePlate(st, col), true);
+  const r = R.serveFromColumn(st, col);
+  assert.equal(r.ok, true, "服务成功");
+  const nAfterServe = played("tick").length;
+  for (let i = 0; i < 90; i++) R.step(st, 1 / 60);
+  assert.equal(played("tick").length, nAfterServe, "拿齐订单后 1.5 秒内不再滴答（人已不催）");
+  /* 反过来：另一位等太久走掉之后也不能继续滴答 */
+  const st2 = plateState();
+  const c2 = R.spawnCustomer(st2);
+  hold(c2, 0.01);
+  R.step(st2, 1 / 60);
+  c2.patience = 0.001;                           // 下一帧跑单
+  PLAYS.length = 0;
+  R.step(st2, 1 / 60);
+  assert.equal(c2.left, true, "顾客走掉");
+  assert.equal(played("tick").length, 0, "他走的那一帧就不再滴答");
+  assert.equal(played("slow").length, 1, "取而代之是「哼，太慢了」");
+  audioUnhook();
+});
+
+test("音效②：拿到早餐 → 播「呜呼」（一次成功上餐只播一次，变体 3 选 1）", () => {
+  audioArmed();
+  const st = plateState();
+  const c = R.spawnCustomer(st, ["egg"]);
+  longPatience(c);
+  const col = R.columnOf("egg");
+  cookTo(st, "egg", R.FOOD.egg.dur, true);
+  assert.equal(R.takePlate(st, col), true);
+  const r = R.serveFromColumn(st, col);
+  assert.equal(r.ok, true, "服务成功");
+  assert.equal(r.customer, c, "送给了点煎蛋的那位");
+  const h = played("happy");
+  assert.equal(h.length, 1, "只播一次「呜呼」（不是每个分支都播一遍）");
+  assert.ok(/^audio\/bf\/happy(2|3)?\.mp3$/.test(h[0].url), "取的是 happy 变体之一：" + h[0].url);
+  assert.ok(h[0].volume >= 0.3 && h[0].volume <= 0.8, "音量适中：" + h[0].volume);
+  assert.equal(played("tick").length, 0, "不误放滴答");
+  assert.equal(played("slow").length, 0, "不误放「哼，太慢了」");
+  /* 三个变体确实都在词表里（随机取，避免听腻） */
+  jsonEq(R.audio.FILES.happy, ["happy.mp3", "happy2.mp3", "happy3.mp3"]);
+  /* 同一次服务只播一次：再调一次同一份出餐（盘已空）不会重复播 */
+  const again = R.serveFromColumn(st, col);
+  assert.equal(again.ok, false, "盘空了 → 出餐被拒");
+  assert.equal(played("happy").length, 1, "仍然是 1 次");
+  audioUnhook();
+});
+
+test("音效②：糊的端上桌不播「呜呼」（顾客是被气走的，不该欢呼）", () => {
+  audioArmed();
+  const st = plateState();
+  const c = R.spawnCustomer(st, ["egg"]);
+  longPatience(c);
+  const col = cookWalk(st, "egg", "burnt");       // 一路煮到糊
+  assert.equal(R.takePlate(st, col), true, "糊的也能落到盘上（规则不变：只能丢 / 端上去气人）");
+  const r = R.serveCustomer(st, ci(st, c), R.plateIdxOfStation(st, col));
+  assert.equal(r.kind, "burnt", "确实走了「糊菜上桌」分支");
+  assert.equal(played("happy").length, 0, "没有「呜呼」");
+  assert.equal(played("slow").length, 0, "「哼，太慢了」只属于「等太久走掉」，糊菜上桌不算");
+  audioUnhook();
+});
+
+test("音效③：等太久走掉 → 播「哼，太慢了」（同一帧多人离开也只播一次）", () => {
+  audioArmed();
+  const st = plateState();
+  const a = R.spawnCustomer(st), b = R.spawnCustomer(st);
+  hold(a, 0.01); hold(b, 0.01);
+  a.patience = 0.001; b.patience = 0.001;         // 两位同一帧耗光
+  R.step(st, 1 / 60);
+  assert.equal(a.left === true && a.angry === true, true, "顾客 A 生气离开");
+  assert.equal(b.left === true && b.angry === true, true, "顾客 B 生气离开");
+  const s = played("slow");
+  assert.equal(s.length, 1, "同一帧两位离开 → 只播一次");
+  assert.equal(s[0].url, "audio/bf/slow.mp3", "播的是 audio/bf/slow.mp3");
+  assert.ok(s[0].volume >= 0.3 && s[0].volume <= 0.8, "音量适中：" + s[0].volume);
+  assert.equal(played("happy").length, 0, "走掉不播「呜呼」");
+  /* 隔得够久再走一位 → 会再响一次（节流不是「一局只响一次」）*/
+  const c3 = R.spawnCustomer(st);
+  hold(c3, 0.01); c3.patience = 0.001;
+  R.step(st, 1 / 60);
+  assert.equal(played("slow").length, 1, "同帧内仍只有一条");
+  for (let i = 0; i < 120; i++) R.step(st, 1 / 60);       // 推进 2 秒（> SLOW_MIN_GAP）
+  const c4 = R.spawnCustomer(st);
+  hold(c4, 0.01); c4.patience = 0.001;
+  R.step(st, 1 / 60);
+  assert.equal(played("slow").length, 2, "过了节流窗口后新一位走掉 → 再响一条");
+  audioUnhook();
+});
+
+test("音效：开关关闭 → 三类音一条都不播（记录里标 off）", () => {
+  audioMuted();
+  /* 三种触发各走一遍：滴答（还在等的最急那位）/ 跑单（等太久走掉）/ 服务成功（呜呼）*/
+  const st = plateState();
+  const c = R.spawnCustomer(st);
+  hold(c, 0.10);                       // 10%：进滴答档，但这一帧还不至于走
+  R.step(st, 1 / 60);                  // → 滴答
+  c.patience = 0.001;
+  R.step(st, 1 / 60);                  // → 等太久走掉 → 「哼，太慢了」
+  /* 服务成功那条路 */
+  const st2 = plateState();
+  const c2 = R.spawnCustomer(st2, ["egg"]);
+  longPatience(c2);
+  const col = R.columnOf("egg");
+  cookTo(st2, "egg", R.FOOD.egg.dur, true);
+  R.takePlate(st2, col);
+  assert.equal(R.serveFromColumn(st2, col).ok, true);
+  assert.equal(PLAYS.length, 0, "钩子一次都没被调用（三类音全不播）");
+  assert.equal(R.audio.plays().length, 0, "plays() 也是空");
+  const log = R.audio.log();
+  assert.ok(log.length >= 3, "但每次触发都留了记录（可诊断）：" + log.length + " 条");
+  assert.equal(log.every(r => r.ok === false && r.why === "off"), true,
+    "记录全是 off：" + JSON.stringify(log.map(r => r.why)));
+  const names = log.map(r => r.name);
+  assert.equal(["tick", "happy", "slow"].every(n => names.indexOf(n) >= 0), true,
+    "三类触发都留下了 off 记录：" + names.join(","));
+  audioUnhook();
+});
+
+test("音效：素材缺失 / 没有 Audio / 播放器抛错 → 全部静默，玩法不受影响", () => {
+  /* ① 环境里根本没有 Audio（纯逻辑 vm 就是这样）—— 不许抛错，只记 why:"no-audio" */
+  R.audio.hook(null); R.audio.setEnabled(true); R.audio.clear(); PLAYS.length = 0;
+  const st = plateState();
+  const c = R.spawnCustomer(st);
+  hold(c, 0.10);
+  assert.doesNotThrow(() => R.step(st, 1 / 60), "低耐心触发滴答时不抛错");
+  c.patience = 0.001;
+  assert.doesNotThrow(() => R.step(st, 1 / 60), "跑单触发语音时不抛错");
+  /* 服务成功那条路也走一遍（呜呼）*/
+  const stS = plateState();
+  const cS = R.spawnCustomer(stS, ["egg"]);
+  longPatience(cS);
+  const colS = R.columnOf("egg");
+  cookTo(stS, "egg", R.FOOD.egg.dur, true);
+  R.takePlate(stS, colS);
+  assert.doesNotThrow(() => R.serveFromColumn(stS, colS), "上餐成功触发呜呼时不抛错");
+  const log = R.audio.log();
+  assert.ok(log.length >= 3, "三类触发都留了记录：" + log.length + " 条");
+  assert.equal(log.every(r => r.ok === false && r.why === "no-audio"), true,
+    "全记 no-audio：" + JSON.stringify(log.map(r => r.why)));
+  const names0 = log.map(r => r.name);
+  assert.equal(["tick", "happy", "slow"].every(n => names0.indexOf(n) >= 0), true,
+    "三类音都尝试过：" + names0.join(","));
+  assert.equal(R.audio.plays().length, 0, "plays() 里没有「播成功」的记录");
+  /* ② 播放器抛错（模拟文件坏 / 被浏览器自动播放策略拦）—— 同样不许冒泡 */
+  R.audio.hook(function () { throw new Error("blocked by policy"); });
+  const st2 = plateState();
+  const c2 = R.spawnCustomer(st2);
+  hold(c2, 0.01); c2.patience = 0.001;
+  assert.doesNotThrow(() => R.step(st2, 1 / 60), "钩子抛错也不冒泡");
+  assert.equal(R.audio.plays().every(r => r.ok === false), true, "抛错的记录被标掉（不冒充成功）");
+  assert.ok(R.audio.log().some(r => r.why === "sink-error"), "记录里能看到 sink-error");
+  /* ③ 源码层面的三条回落路径都写死了（可被静态核对） */
+  assert.ok(/typeof A !== "function"\) return rec\(name, i, false, "no-audio", at\)/.test(SRC),
+    "没有 Audio → 记 no-audio 后静默返回");
+  assert.ok(/pr\.catch\(function \(\) \{ r\.ok = false; r\.why = "blocked"; \}\)/.test(SRC),
+    "play() 返回的 Promise 被拦 → catch 吞掉（不 unhandled rejection）");
+  assert.ok(/a\.addEventListener\("error", function \(\) \{ r\.ok = false; r\.why = "load-error"; \}\)/.test(SRC),
+    "文件缺失（404 / 解码失败）→ error 事件只标记录，不弹错");
+  audioUnhook();
+});
+
+test("音效：不打断别人的语音 + 台账 / 徽章接口齐全（对页面层友好）", () => {
+  /* 本模块只 new 自己的 Audio：既不 pause() 别人，也不排队别人的语音（麻将队列在 mahjong.js）*/
+  assert.ok(!/\.pause\(\)/.test(SRC), "breakfast.js 里没有任何 .pause()（不会打断正在播的语音）");
+  assert.ok(/stepAudio\(st, leftNow\)/.test(SRC), "音频调度挂在 step() 里（无定时器、不额外起循环）");
+  /* 台账 / UI 钩子：无头与浏览器验收都读它们 */
+  ["TICK_AT", "TICK_GAP_FAR", "TICK_GAP_NEAR", "TICK_MIN_GAP", "HAPPY_MIN_GAP", "SLOW_MIN_GAP",
+   "SOUND_KEY", "DIR", "FILES", "VOL", "plays", "log", "hook", "setEnabled", "tickDue",
+   "tickGapFor", "minPatienceRatio", "patienceRatioOf", "stepAudio", "newAudioState",
+   "playHappy", "playSlow", "soundBox", "soundLabel", "toggleSound"].forEach(k => {
+    assert.ok(R.audio[k] !== undefined, "rules.audio." + k + " 存在");
+  });
+  /* 徽章命中框落在图例条里（不会压到别的东西） */
+  const sb = R.audio.soundBox();
+  assert.ok(sb && sb.w > 60 && sb.h >= 18, "徽章尺寸合理：" + JSON.stringify(sb));
+  /* 缺 st.audio 的老状态对象也不能炸（防御性）*/
+  assert.doesNotThrow(() => R.audio.stepAudio({ elapsed: 0 }, false), "stepAudio 对残缺 state 安全");
+  assert.equal(R.audio.stepAudio(null, true), undefined, "state 为 null 直接返回");
+  audioUnhook();
+});
+
+test("音效②：连着一单三样不叠声 —— HAPPY_MIN_GAP 节流（同一时刻只响一条）", () => {
+  audioArmed();
+  const st = plateState();
+  const c = R.spawnCustomer(st, ["egg", "bacon", "juice"]);
+  longPatience(c);
+  const serveOne = (food) => {                      // 做一份 + 落盘 + 端给同一位顾客
+    const col = R.columnOf(food);
+    cookTo(st, food, R.FOOD[food].dur, true);
+    assert.equal(R.takePlate(st, col), true, food + " 落到第 " + col + " 列");
+    return R.serveFromColumn(st, col);
+  };
+  assert.equal(serveOne("egg").ok, true, "第一样端上去");
+  assert.equal(serveOne("bacon").ok, true, "紧接着第二样端上去（同一时刻）");
+  assert.equal(played("happy").length, 1, "同一时刻连续上两样 → 只播一条「呜呼」（不叠声）");
+  assert.ok(R.audio.HAPPY_MIN_GAP >= 0.8,
+    "节流窗口 ≥ 最短那条喊声的长度（0.91s），不然两句会盖在一起：" + R.audio.HAPPY_MIN_GAP);
+  advance(st, R.audio.HAPPY_MIN_GAP + 0.3);         // 推过窗口
+  assert.equal(serveOne("juice").ok, true, "第三样（过了节流窗口）端上去");
+  assert.equal(played("happy").length, 2, "过窗口后再上餐 → 再响一条（节流不是「一局只响一次」）");
+  assert.equal(played("tick").length, 0, "全程不误放滴答（耐心满）");
+  audioUnhook();
+});
+
+test("音效：audio/bf 五个素材在磁盘上齐全，且规格统一（tick ≤120ms / 48kHz / 单声道）", () => {
+  const dir = path.join(ROOT, "audio", "bf");
+  const want = ["tick.mp3", "happy.mp3", "happy2.mp3", "happy3.mp3", "slow.mp3"];
+  want.forEach(f => {
+    const p = path.join(dir, f);
+    assert.ok(fs.existsSync(p), "audio/bf/" + f + " 存在");
+    assert.ok(fs.statSync(p).size > 600, "audio/bf/" + f + " 非空（" + fs.statSync(p).size + " B）");
+    const info = mp3info.mp3Info(p);
+    assert.equal(info.sampleRate, 48000, f + " 是 48kHz（与 audio/ 其它素材一致）");
+    assert.equal(info.channels, 1, f + " 是单声道");
+    assert.ok(info.bitrate >= 96000 && info.bitrate <= 192000, f + " 码率 " + info.bitrate / 1000 + "kbps");
+  });
+  /* 滴答必须「短促」：按**逐帧解码长度**算（播放器真正会播的长度，含编码器填充）*/
+  const tick = mp3info.mp3Info(path.join(dir, "tick.mp3"));
+  assert.ok(tick.decoded > 0.02 && tick.decoded <= 0.120,
+    "tick.mp3 解码长度 " + (tick.decoded * 1000).toFixed(0) + "ms ≤120ms（硬性要求）");
+  assert.ok(tick.duration <= 0.120, "tick.mp3 gapless 时长也 ≤120ms：" + (tick.duration * 1000).toFixed(0) + "ms");
+  /* 三条语音都要有人声时长（>0.4s），不是空文件 */
+  ["happy.mp3", "happy2.mp3", "happy3.mp3", "slow.mp3"].forEach(f => {
+    const info = mp3info.mp3Info(path.join(dir, f));
+    assert.ok(info.decoded > 0.4, f + " 时长 " + (info.decoded * 1000).toFixed(0) + "ms，像一条语音");
+  });
+  /* 素材目录与代码里写的目录一致（改目录时两边一起改） */
+  assert.equal(R.audio.DIR, "audio/bf/", "代码里的素材目录 = audio/bf/");
+  assert.equal(R.audio.url("tick", 0), "audio/bf/tick.mp3", "url() 拼出来的路径对得上");
+});
+
+

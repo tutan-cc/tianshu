@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "tools/audio/gen_mj_bailian_tts.py",
+      "from": "# 动作类：**保留**（用户明确「保留动作类」），念法即文件名。\nCALLS = [\"碰\", \"杠\", \"杠开\", \"抢杠\", \"胡\", \"自摸\", \"听\", \"过\", \"流局\"]",
+      "textFile": "tools/patch/text/mjv13_calls.txt"
+    },
+    {
+      "file": "tools/audio/gen_mj_bailian_tts.py",
+      "from": "    items += [(w, w) for w in CALLS]",
+      "text": "    items += list(CALLS)                      # 已经是 (文件基名, 念法) 对"
+    },
+    {
+      "file": "tools/audio/gen_mj_bailian_tts.py",
+      "from": "  万/条/筒 不变，仍是「一万…九筒」（**文件名仍是 1万.mp3，文件名与念法本来就是两回事**）。",
+      "text": "  万/条/筒 不变，仍是「一万…九筒」（**文件名仍是 1万.mp3，文件名与念法本来就是两回事**）。\n  本轮追加（用户要求 · 第一人称）：碰 → 「我碰」· 杠 → 「我杠」。\n  ⚠ 只改念法，**文件名一个字不动**（玩法侧 voiceFile(\"碰\") 仍解析到 碰.mp3），\n     所以调用方、断言、素材清单都不受影响；重生成后四个目录的条目数仍是 43。"
+    }
+  ]
+}

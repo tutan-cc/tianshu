@@ -1,0 +1,21 @@
+{
+ "note": "bf-audio-1 单测修正：两位「开关关闭 / 素材缺失」用例原先让顾客在同一帧就跑了单 —— 那一帧滴答本来就不该响（人已经不算在等），所以只留 1 条记录。改成先触发滴答（10% 但没走），再让他走（跑单语音），三类通道各自走一遍。",
+ "jobs": [
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  /* 滴答 + 跑单（同一帧里两种都会触发）*/\r\n  const st = plateState();\r\n  const c = R.spawnCustomer(st);\r\n  hold(c, 0.01); c.patience = 0.001;\r\n  R.step(st, 1 / 60);",
+   "text": "  /* 三种触发各走一遍：滴答（还在等的最急那位）/ 跑单（等太久走掉）/ 服务成功（呜呼）*/\r\n  const st = plateState();\r\n  const c = R.spawnCustomer(st);\r\n  hold(c, 0.10);                       // 10%：进滴答档，但这一帧还不至于走\r\n  R.step(st, 1 / 60);                  // → 滴答\r\n  c.patience = 0.001;\r\n  R.step(st, 1 / 60);                  // → 等太久走掉 → 「哼，太慢了」"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  assert.equal(log.every(r => r.ok === false && r.why === \"off\"), true,\r\n    \"记录全是 off：\" + JSON.stringify(log.map(r => r.why)));",
+   "text": "  assert.equal(log.every(r => r.ok === false && r.why === \"off\"), true,\r\n    \"记录全是 off：\" + JSON.stringify(log.map(r => r.why)));\r\n  const names = log.map(r => r.name);\r\n  assert.equal([\"tick\", \"happy\", \"slow\"].every(n => names.indexOf(n) >= 0), true,\r\n    \"三类触发都留下了 off 记录：\" + names.join(\",\"));"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  const st = plateState();\r\n  const c = R.spawnCustomer(st);\r\n  hold(c, 0.01); c.patience = 0.001;\r\n  assert.doesNotThrow(() => R.step(st, 1 / 60), \"没有 Audio 也不抛错\");\r\n  const log = R.audio.log();\r\n  assert.ok(log.length >= 2, \"触发了至少两条（滴答 + 跑单）\");\r\n  assert.equal(log.every(r => r.ok === false && r.why === \"no-audio\"), true,\r\n    \"全记 no-audio：\" + JSON.stringify(log.map(r => r.why)));",
+   "text": "  const st = plateState();\r\n  const c = R.spawnCustomer(st);\r\n  hold(c, 0.10);\r\n  assert.doesNotThrow(() => R.step(st, 1 / 60), \"低耐心触发滴答时不抛错\");\r\n  c.patience = 0.001;\r\n  assert.doesNotThrow(() => R.step(st, 1 / 60), \"跑单触发语音时不抛错\");\r\n  /* 服务成功那条路也走一遍（呜呼）*/\r\n  const stS = plateState();\r\n  const cS = R.spawnCustomer(stS, [\"egg\"]);\r\n  longPatience(cS);\r\n  const colS = R.columnOf(\"egg\");\r\n  cookTo(stS, \"egg\", R.FOOD.egg.dur, true);\r\n  R.takePlate(stS, colS);\r\n  assert.doesNotThrow(() => R.serveFromColumn(stS, colS), \"上餐成功触发呜呼时不抛错\");\r\n  const log = R.audio.log();\r\n  assert.ok(log.length >= 3, \"三类触发都留了记录：\" + log.length + \" 条\");\r\n  assert.equal(log.every(r => r.ok === false && r.why === \"no-audio\"), true,\r\n    \"全记 no-audio：\" + JSON.stringify(log.map(r => r.why)));\r\n  const names0 = log.map(r => r.name);\r\n  assert.equal([\"tick\", \"happy\", \"slow\"].every(n => names0.indexOf(n) >= 0), true,\r\n    \"三类音都尝试过：\" + names0.join(\",\"));"
+  }
+ ],
+ "eol": "CRLF"
+}
