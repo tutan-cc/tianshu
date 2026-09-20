@@ -55,12 +55,26 @@ MODEL_ROOT = _first_dir(
 )
 
 # ── 常用子目录（方便各脚本直接引用，不必自己拼）─────────────────────
-AUDIO = os.path.join(MEDIA_ROOT, "audio")
+#
+# ⚠⚠ 成品音频的**唯一权威在仓库里**（<仓库根>/audio/），不在媒体库。
+#   因为 audio/ 是自产素材、已随仓库入库（305 个文件）。
+#   若让工具去媒体库读写，就会出现两份副本 —— 工具验收一份、git 提交另一份，
+#   迟早分叉。所以成品路径一律指向仓库。
+#
+#   媒体库（MEDIA_ROOT）现在只用于：
+#     · 第三方实拍视频（video/，授权未核实，不入库）—— pack-media.ps1 从这里取
+#     · 历史遗留的 audio/ 副本（旧布局留下的，可忽略；以仓库那份为准）
+#
+#   加工中转与原始件仍走 WORK_ROOT（仓库外，不入库、不分发）。
+AUDIO = os.path.join(REPO_ROOT, "audio")
 DIR_SFX = os.path.join(AUDIO, "sfx")
 DIR_AMB = os.path.join(AUDIO, "amb")
 DIR_BGM = os.path.join(AUDIO, "bgm")
 DIR_MJ = os.path.join(AUDIO, "mj")
 DIR_VO = os.path.join(AUDIO, "vo_real")
+
+# 媒体库里的视频（第三方，不入库）
+DIR_VIDEO_LIB = os.path.join(MEDIA_ROOT, "video")
 
 # 原始件（生成直出，未加工）：不入库、不分发，放工作区
 SRC_SFX = os.path.join(WORK_ROOT, "_sfx_src")
