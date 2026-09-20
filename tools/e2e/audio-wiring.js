@@ -70,8 +70,15 @@ async function ev(e) {
     process.exit(0);
   }
 
+  /* ⚠ --disk-cache-size=1：**必须关掉 Chrome 的磁盘缓存**。
+     本脚本用的是固定 profile（仓库里的 _prof_wiring），缓存会跨次运行留着。
+     改完 mahjong.js 再跑，浏览器可能仍在跑缓存里的**旧脚本** ——
+     实测：素材侧全绿（251 个文件 HTTP 200），却报「空URL seat0/东风」，
+     因为跑的是旧词表（旧表里没有「东风」这个键）；换个全新 profile 立刻正常。
+     那等于「断言测的不是你改的那份代码」，比测试失败更危险。 */
   const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, "--window-size=1440,900",
     "--enable-unsafe-swiftshader", "--use-gl=angle", "--use-angle=swiftshader",
+    "--disk-cache-size=1", "--media-cache-size=1",
     `--user-data-dir=${OUT}\\_prof_wiring`, "about:blank"], { stdio: "ignore" });
   for (let i = 0; i < 60; i++) { try { await req("GET", "/json/version"); break; } catch (e) { await sleep(400); } }
   const tab = await req("PUT", "/json/new?" + encodeURIComponent(HTTP_BASE + "/index.html"));
@@ -82,7 +89,15 @@ async function ev(e) {
   await sleep(3000);
 
   /* ── 1. 音效 / 环境音：从磁盘清单交叉核对（代码里是变量拼名，跑不到全部）── */
-  const MEDIA = process.env.MEDIA_ROOT || "H:\\GAMEDEV\\Tianshu-Prototype-媒体素材";
+  /* ⚠ 默认值必须是**仓库根**，不是那个外部媒体库。
+     音频早已随仓库入库（仓库根 audio/ 是唯一权威，见 tools/audio/paths.py 的说明），
+     媒体库现在只放第三方视频。写死 "H:\\GAMEDEV\\..." 的后果实测过：
+     换台机器 / 换个人 clone，这条路根本不存在 →
+     names.sfx/amb/bgm/mj 全是空数组 → 「音效文件数 ≥60」「环境音 9 个」「BGM 5 种情绪」
+     「voiceStats().total 与素材文件数一致」四条直接失败（本地实测 6/10）。
+     更坏的是「四个座位牌名集合完全相同」这类**空集合对比**会假绿（0 == 0）——
+     素材全丢也照样通过。所以默认值只能是仓库根，媒体库靠 MEDIA_ROOT 显式覆盖。 */
+  const MEDIA = process.env.MEDIA_ROOT || path.join(__dirname, "..", "..");
   const dirs = {
     sfx: path.join(MEDIA, "audio", "sfx"),
     amb: path.join(MEDIA, "audio", "amb"),
@@ -146,12 +161,12 @@ async function ev(e) {
     '  var d = window.Mahjong && window.Mahjong.debug;',
     '  if (!d || !d.voiceUrl) return JSON.stringify({ err: "无 Mahjong.debug.voiceUrl" });',
     '  var out = { words: 0, bad: [], total: 0, stats: null };',
-    '  /* 素材文件名是「发」，但代码里牌面名是「發」(U+767C) —— voiceFile() 负责这层转换',
-    '     （VOICE_NAMES 里登记的是「發」）。所以要用**代码的词汇表**去问，',
-    '     不能直接拿文件名当参数，否则「发」会被判成无效牌名、返回空 URL（误报）。 */',
-    '  var names = ' + JSON.stringify(seatSets[0]) + '.map(function(n){',
-    '    return n.charAt(0) === "\\u53d1" ? "\\u767c" + n.slice(1) : n;',
-    '  });',
+    '  /* 改字牌念法之后，**素材文件名就是语音词表的键**（东风/南风/…/红中/发财/白板），',
+    '     所以直接把文件名交给 voiceUrl() 即可。这里原先有一层「发 → 發」的首字替换：',
+    '     它把文件名当"代码词汇"来猜，改名后会造出「發财」这种不存在的名字（误报），',
+    '     那个「看到首字就替换」的写法本身就是隐患，已随改造删掉。',
+    '     牌面字符（东/發/白…）→ 词的映射由 tools/test/mahjong-logic.js 单测覆盖。 */',
+    '  var names = ' + JSON.stringify(seatSets[0]) + ';',
     '  for (var s = 0; s < 4; s++) {',
     '    for (var i = 0; i < names.length; i++) {',
     '      var u = d.voiceUrl(names[i], s); out.total++;',

@@ -1551,10 +1551,32 @@ group("17. 结算亮牌数据结构");
   eq(T.voiceFile("1筒"), "1筒.mp3", "牌名映射：1筒 → 1筒.mp3");
   eq(T.voiceFile("9万"), "9万.mp3", "牌名映射：9万 → 9万.mp3");
   eq(T.voiceFile("5条"), "5条.mp3", "牌名映射：5条 → 5条.mp3");
-  eq(T.voiceFile("东"), "东.mp3", "字牌映射：东 → 东.mp3");
-  eq(T.voiceFile("白"), "白.mp3", "字牌映射：白 → 白.mp3");
-  eq(T.voiceFile("發"), "发.mp3", "字牌映射：「發」用素材名 发.mp3");
-  eq(T.voiceFile("中"), "中.mp3", "字牌映射：中 → 中.mp3");
+  /* ⚠ 本节 4 条断言的**期望值在本次改造中变了**（原期望 → 新期望 → 原因）：
+       · 东 → "东.mp3"      变成 "东风.mp3"  ——用户要求：打「东」必须念「东风」
+       · 白 → "白.mp3"      变成 "白板.mp3"  ——用户要求：打「白」必须念「白板」
+       · 中 → "中.mp3"      变成 "红中.mp3"  ——用户要求：打「中」必须念「红中」
+       · 發 → "发.mp3"      变成 "发财.mp3"  ——字牌一律念全名；「发」单音节同样含糊
+     断言一条没删，只是期望值跟着需求走（素材侧已按新念法重新生成）。 */
+  eq(T.voiceFile("东"), "东风.mp3", "字牌映射：东 → 东风.mp3（原 东.mp3，用户要求念「东风」）");
+  eq(T.voiceFile("南"), "南风.mp3", "字牌映射：南 → 南风.mp3（原 南.mp3）");
+  eq(T.voiceFile("西"), "西风.mp3", "字牌映射：西 → 西风.mp3（原 西.mp3）");
+  eq(T.voiceFile("北"), "北风.mp3", "字牌映射：北 → 北风.mp3（原 北.mp3）");
+  eq(T.voiceFile("中"), "红中.mp3", "字牌映射：中 → 红中.mp3（原 中.mp3，用户要求念「红中」）");
+  eq(T.voiceFile("白"), "白板.mp3", "字牌映射：白 → 白板.mp3（原 白.mp3，用户要求念「白板」）");
+  eq(T.voiceFile("發"), "发财.mp3", "字牌映射：牌面「發」(U+767C) → 素材名 发财.mp3（原 发.mp3）");
+  /* 素材文件名 = 词表的键：拿素材名直接问也必须通（e2e 是拿文件名来问的） */
+  eq(T.voiceFile("红中"), "红中.mp3", "素材名直接可解析：红中 → 红中.mp3（幂等）");
+  eq(T.voiceFile("发财"), "发财.mp3", "素材名直接可解析：发财 → 发财.mp3");
+  eq(T.voiceFile("白板"), "白板.mp3", "素材名直接可解析：白板 → 白板.mp3");
+  /* 旧名必须解析不出来：旧素材已删，代码里若还有残留引用，这里立刻炸 */
+  eq(T.voiceFile("发"), "", "旧名「发」已停用 → 空（素材改名 发财.mp3）");
+  eq(T.VOICE_HONOR_WORDS["东"], "东风", "字牌词表：东 → 东风");
+  eq(T.VOICE_HONOR_WORDS["中"], "红中", "字牌词表：中 → 红中");
+  eq(T.VOICE_HONOR_WORDS["白"], "白板", "字牌词表：白 → 白板");
+  eq(T.VOICE_HONOR_WORDS["發"], "发财", "字牌词表：發 → 发财");
+  eq(Object.keys(T.VOICE_HONOR_WORDS).length, 7, "字牌词表 7 条（东南西北中發白）");
+  /* 万/条/筒 念法不变：文件名即词，不参与字牌改名 */
+  eq(T.voiceFile("1万"), "1万.mp3", "万/条/筒 映射不变：1万 → 1万.mp3（念法仍是「一万」）");
   eq(T.voiceFile("碰"), "碰.mp3", "动作映射：碰 → 碰.mp3");
   eq(T.voiceFile("杠"), "杠.mp3", "动作映射：杠 → 杠.mp3");
   /* 暗杠 / 补杠 **不是语音词**：它们是手上动作，出牌碰实音（sfx-mj-clack）。
@@ -1696,6 +1718,134 @@ group("17. 结算亮牌数据结构");
     eq(ft[18].tile, "1筒", "总览图第 19 张 = 1筒（筒排在条之后）");
     eq(ft[27].tile, "东", "总览图第 28 张 = 东（字牌最后）");
     eq(MJ.debug.faceSheet(false), false, "关闭牌面总览回到牌桌");
+  }
+
+  /* ⑦ 播报队列：不打断 / 优先级 / 上限与间隔
+     为什么必须用假 Audio：这三条都是**时序**性质 ——
+     「第二条有没有在第一条 ended 之前开始」在真浏览器里要靠耳朵听，
+     在单测里只能让 Audio 变成可记录 play/ended 的假对象。
+     ⚠ 假 Audio 必须在这里才装：本节前半段有「无 Audio 环境不抛错」的断言，
+       提前装上会把那条断言测成假的（永远是另一条路径）。 */
+  {
+    const plays = [];                    // 播放流水：{url, start, end}
+    let clock = 0;                       // 逻辑时钟：每次 play/end 各 +1，用来比先后
+    const all = [];                      // 所有 Audio 实例
+    function FakeAudio(url) {
+      this.src = String(url); this.volume = 1; this.currentTime = 0;
+      this.duration = 0.5; this.preload = ""; this._ev = {}; this._rec = null;
+      all.push(this);
+    }
+    FakeAudio.last = null;
+    FakeAudio.prototype.addEventListener = function (t, fn) { (this._ev[t] = this._ev[t] || []).push(fn); };
+    FakeAudio.prototype.removeEventListener = function (t, fn) {
+      const a = this._ev[t] || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1);
+    };
+    FakeAudio.prototype.load = function () {};
+    FakeAudio.prototype.pause = function () { if (this._rec && !this._rec.end) this._rec.end = ++clock; };
+    FakeAudio.prototype.play = function () {
+      this._rec = { url: this.src, start: ++clock, end: 0, inst: this };
+      plays.push(this._rec); FakeAudio.last = this;
+      return Promise.resolve();
+    };
+    FakeAudio.prototype.fire = function (t) { (this._ev[t] || []).slice().forEach((f) => f()); };
+    FakeAudio.prototype.end = function () { if (this._rec && !this._rec.end) this._rec.end = ++clock; this.fire("ended"); };
+
+    MJ.dispose();                        // 先收掉牌局：否则 AI 出牌的自动播报会混进队列
+    windowStub.Audio = FakeAudio;        // say() → voiceAudio() 从这里 new Audio
+    eq(MJ.debug.voiceToggle(true), true, "队列段：语音开关打开");
+    const VS = () => MJ.debug.voiceStats();
+
+    /* ① 不打断：连说三条 → 只有第一条进播放位，后两条排队 */
+    MJ.debug.say("1万"); MJ.debug.say("2万"); MJ.debug.say("3万");
+    eq(VS().playing, "1万.mp3", "连说三条：只有第一条进播放位，后两条只排队");
+    eq(VS().queue.join(","), "2万.mp3,3万.mp3", "后两条在队列里等着（原来的实现会在这里 pause 掉第一条）");
+    await sleep(240);
+    eq(plays.length, 1, "同一时刻**只播一条**（连说三条也只有一条真正 play）→ " + plays.length);
+    ok(plays[0].url.indexOf("1万.mp3") >= 0, "在播的是第一条 → " + plays[0].url);
+
+    /* ② ended 之后才轮到第二条，且第二条的开始晚于第一条的结束 */
+    FakeAudio.last.end();
+    await sleep(300);
+    eq(VS().playing, "2万.mp3", "第一条 ended 后才轮到第二条");
+    eq(plays.length, 2, "第二条此时才开始播 → " + plays.length);
+    ok(plays[1].start > plays[0].end,
+      "第二条在第一条 ended **之后**才开始（未打断）：end=" + plays[0].end + " < start=" + plays[1].start);
+    eq(VS().queue.join(","), "3万.mp3", "队列里只剩第三条");
+
+    /* ③ 优先级只改排队顺序：喊话插到报牌之前，同级 FIFO；正在播的不受影响 */
+    MJ.debug.say("4万");
+    eq(VS().queue.join(","), "3万.mp3,4万.mp3", "报牌依次排队（同级 FIFO）");
+    MJ.debug.say("胡");
+    eq(VS().queue.join(","), "胡.mp3,3万.mp3,4万.mp3", "「胡」插队到报牌之前（高优先级可以插队）");
+    eq(VS().playing, "2万.mp3", "插队**不动正在播的那条**（2万.mp3 照常播完）");
+    MJ.debug.say("碰");
+    eq(VS().queue.join(","), "胡.mp3,碰.mp3,3万.mp3,4万.mp3", "同级喊话 FIFO：碰 排在 胡 之后");
+    MJ.debug.say("5万");
+    eq(VS().queue.join(","), "胡.mp3,碰.mp3,3万.mp3,4万.mp3,5万.mp3", "报牌一律排在喊话之后，不打乱喊话顺序");
+    ok(T.VOICE_CALL_SET["胡"] && T.VOICE_CALL_SET["碰"] && T.VOICE_CALL_SET["抢杠"] && T.VOICE_CALL_SET["自摸"],
+      "喊话白名单含 碰/杠/杠开/抢杠/胡/自摸");
+    eq(!!T.VOICE_CALL_SET["1万"], false, "牌名不是喊话（低优先级，只排队）");
+    eq(T.VOICE_PRI_CALL > T.VOICE_PRI_TILE, true, "喊话优先级高于报牌（" + T.VOICE_PRI_CALL + " > " + T.VOICE_PRI_TILE + "）");
+
+    /* ④ 上限：队满丢**最旧的低优先级**项，喊话一条不丢 */
+    MJ.debug.say("6万");
+    eq(VS().queue.length, T.VOICE_Q_MAX, "队列涨到上限 " + T.VOICE_Q_MAX + " 条");
+    const dropBefore = VS().dropped;
+    MJ.debug.say("7万");
+    eq(VS().queue.length, T.VOICE_Q_MAX, "再塞一条仍然封顶在 " + T.VOICE_Q_MAX + "（不会排到天荒地老）");
+    eq(VS().dropped, dropBefore + 1, "队满时丢弃了 1 条（dropped=" + VS().dropped + "）");
+    eq(VS().queue.indexOf("3万.mp3"), -1, "被丢的是**最旧的低优先级**项 3万.mp3，不是喊话");
+    eq(VS().queue.join(","), "胡.mp3,碰.mp3,4万.mp3,5万.mp3,6万.mp3,7万.mp3", "丢弃只发生在报牌上，喊话顺序不变");
+
+    /* ⑤ 队满且全是喊话 → 新来的报牌丢自己（绝不挤掉已排队的喊话） */
+    for (let g = 0; g < 60; g++) {
+      const s = VS();
+      if (!s.playing && !s.queue.length) break;
+      if (s.playing) FakeAudio.last.end();
+      await sleep(210);
+    }
+    eq(VS().playing, "", "排空后没有正在播的条目");
+    eq(VS().queue.length, 0, "排空后队列为空");
+    for (const w of ["胡", "碰", "杠", "自摸", "抢杠", "杠开", "流局"]) MJ.debug.say(w);
+    eq(VS().playing, "胡.mp3", "占播放位的是第一条喊话");
+    eq(VS().queue.length, T.VOICE_Q_MAX, "其余喊话把队列占满（" + T.VOICE_Q_MAX + " 条）");
+    const drop2 = VS().dropped;
+    MJ.debug.say("9万");
+    eq(VS().dropped, drop2 + 1, "队满且自己优先级最低时，丢的是**新来的报牌**");
+    eq(VS().queue.indexOf("9万.mp3"), -1, "9万.mp3 没有挤进队列");
+    eq(VS().queue.join(","), "碰.mp3,杠.mp3,自摸.mp3,抢杠.mp3,杠开.mp3,流局.mp3", "已排队的喊话一条没被挤掉");
+
+    /* ⑥ 两条之间留最小间隔，不连成一片 */
+    for (let g = 0; g < 60; g++) {
+      const s = VS();
+      if (!s.playing && !s.queue.length) break;
+      if (s.playing) FakeAudio.last.end();
+      await sleep(210);
+    }
+    MJ.debug.say("1条");
+    await sleep(20);
+    FakeAudio.last.end();                       // 结束这一条，让下一条进入间隔
+    const n0 = plays.length;
+    MJ.debug.say("2条");
+    await sleep(50);                            // < VOICE_GAP
+    eq(plays.length, n0, "间隔未到不开播（VOICE_GAP=" + T.VOICE_GAP + "ms）");
+    await sleep(320);
+    eq(plays.length, n0 + 1, "间隔过后才播下一条");
+
+    /* ⑦ 关掉语音：正在播的 + 排队的 一起清 */
+    MJ.debug.say("1筒"); MJ.debug.say("2筒");
+    MJ.debug.voiceToggle(false);
+    eq(VS().queue.length, 0, "关掉语音 → 待播队列清空");
+    eq(VS().playing, "", "关掉语音 → 播放位也清空（不会把排队的念完）");
+    eq(VS().on, false, "voiceStats().on = false");
+    eq(MJ.debug.voiceToggle(true), true, "队列段收尾：重新打开语音");
+
+    /* ⑧ 队列计数进 voiceStats（可观测，便于线上排查「喊话怎么没响」） */
+    const st8 = VS();
+    ok(typeof st8.queued === "number" && st8.queued > 0, "voiceStats 暴露 queued 计数 = " + st8.queued);
+    ok(typeof st8.started === "number" && st8.started > 0, "voiceStats 暴露 started 计数 = " + st8.started);
+    ok(st8.maxQueue > 0 && st8.maxQueue <= T.VOICE_Q_MAX, "最大队列长度 " + st8.maxQueue + " ≤ 上限 " + T.VOICE_Q_MAX);
+    delete windowStub.Audio;
   }
 
   MJ.dispose();

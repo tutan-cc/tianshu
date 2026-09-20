@@ -3376,11 +3376,27 @@
   var VOICE_AI_DELAY = 170;                          // AI 出牌略慢一点，避免抢话
   var VOICE_AI_VOL = 0.82;                           // AI 出牌音量略低
   var VOICE_VOL = 1;
-  var VOICE_HONOR_CODES = [0x4E1C, 0x5357, 0x897F, 0x5317, 0x4E2D, 0x767C, 0x767D];
+  /* 字牌：**牌面字符 → 素材词**（用户要求：打「中」必须念「红中」、打「白」念「白板」、
+     打「东」念「东风」，南/西/北同理）。单念一个「中/白/东」在牌桌上太含糊 ——
+     听不出是风牌还是箭牌。万/条/筒 保持「一万…九筒」的读法。
+     ⚠ 这里分成两张表：VOICE_HONOR_WORDS 是「牌面字符 → 念出来的词」，
+       VOICE_NAMES 是「念出来的词 → 有素材」。合起来就等于「牌面 → 文件」。
+       别把它压成一张表 —— 牌面是「發」(U+767C)，念法是「发财」，两者都不等于文件名以外的任何东西。 */
+  var VOICE_HONOR_WORDS = (function () {
+    var m = {};
+    m[String.fromCharCode(0x4E1C)] = "东风";
+    m[String.fromCharCode(0x5357)] = "南风";
+    m[String.fromCharCode(0x897F)] = "西风";
+    m[String.fromCharCode(0x5317)] = "北风";
+    m[String.fromCharCode(0x4E2D)] = "红中";
+    m[String.fromCharCode(0x767C)] = "发财";
+    m[String.fromCharCode(0x767D)] = "白板";
+    return m;
+  })();
   var VOICE_NAMES = (function () {
-    var m = {}, i;
+    var m = {}, i, k;
     for (i = 1; i <= 9; i++) { m[i + "万"] = 1; m[i + "条"] = 1; m[i + "筒"] = 1; }
-    for (i = 0; i < VOICE_HONOR_CODES.length; i++) m[String.fromCharCode(VOICE_HONOR_CODES[i])] = 1;
+    for (k in VOICE_HONOR_WORDS) if (VOICE_HONOR_WORDS.hasOwnProperty(k)) m[VOICE_HONOR_WORDS[k]] = 1;
     /* ⚠ 这里**不要**加「暗杠」「补杠」：它们不喊牌、出牌碰实音（见 gangClack）。
        曾把它们登记进来，导致每个座位都去请求不存在的 seatN/暗杠.mp3，
        四次 404 且完全无声（AudioSys 不会因为一次失败请求报错，测试也测不出来）。 */
@@ -3395,15 +3411,45 @@
      不必等 404 再回落（省一次失败请求，预加载路径也可预测）。 */
   var VOICE_SEATS = { 1: "seat1", 2: "seat2", 3: "seat3" };
   var VOICE_CACHE = Object.create(null);             // 缓存键 → Audio（预加载 / 复用）
-  var VOICE_STAT = { plays: 0, misses: 0, last: "", lastUrl: "", lastSeat: -1, lastAt: 0, errors: 0, list: [], uniq: Object.create(null) };
-  var VOICE_CUR = null, VOICE_TIMER = 0;
+  var VOICE_STAT = { plays: 0, misses: 0, last: "", lastUrl: "", lastSeat: -1, lastAt: 0, errors: 0,
+                     queued: 0, started: 0, dropped: 0, maxQueue: 0, list: [], uniq: Object.create(null) };
+  /* ═══════ 播报队列（用户要求：一条播完再播下一条；出牌不得打断喊话） ═══════
+     改之前是「同一时刻只播一条，后一条 pause + currentTime=0 打断前一条」——
+     下家出牌的报牌会把正在播的「碰/杠/胡/自摸」拦腰砍断，牌桌上就是在抢话。
 
-  /** 牌面 / 动作 -> 语音文件名（"1筒" -> "1筒.mp3"；字牌 發 U+767C 的素材名是 发 U+53D1.mp3）；无效名返回 "" */
+     现在的三条规则（缺一不可）：
+       ① 串行：同一时刻只播一条，只有它 ended（或出错/超时兜底）才轮到下一条；
+       ② 优先级只决定**排队顺序**：喊话（碰/杠/杠开/抢杠/胡/自摸/流局）插到报牌前面，
+          同优先级一律 FIFO（先来先播）；
+       ③ **绝不抢占正在播的那条** —— 这就是「出牌不要打断喊话」的硬保证。
+          想「插队抢占」就得在 voiceStart 里 pause 掉 VOICE_PLAYING，那等于把这条要求作废。
+
+     为什么还要上限和间隔：疯狂出牌时（四家连着打）队列会越排越长，
+     喊话要等五六秒才响，听起来像对不上牌局 —— 所以队列封顶 6 条，
+     满了丢**最旧的低优先级**项；两条之间留 120ms，避免连成一片听不清。 */
+  var VOICE_Q = [];                       // 待播队列（正在播的那条已从队列摘出）
+  var VOICE_Q_MAX = 6;                    // 队列上限
+  var VOICE_GAP = 120;                    // 两条之间的最小间隔（ms）
+  var VOICE_PRI_TILE = 1, VOICE_PRI_CALL = 2;
+  /* 喊话白名单：用户点名的「碰/杠/暗杠/补杠/杠开/抢杠/胡/自摸」。
+     暗杠/补杠**不在词表里**（它们不喊牌、出牌碰实音，见 VOICE_NAMES 的说明），
+     登记它们只是表明「这类动作属于高优先级」；流局是整局收尾，也算喊话。 */
+  var VOICE_CALLS = "碰 杠 暗杠 补杠 杠开 抢杠 胡 自摸 流局".split(" ");
+  var VOICE_CALL_SET = (function () { var m = {}, i; for (i = 0; i < VOICE_CALLS.length; i++) m[VOICE_CALLS[i]] = 1; return m; })();
+  var VOICE_PLAYING = null;                // 正在播的那条（队列里已摘掉）
+  var VOICE_CUR = null, VOICE_GAP_TIMER = 0, VOICE_WATCH = 0;
+
+  /** 牌面 / 动作 -> 语音文件名（"1筒" -> "1筒.mp3"；"中" -> "红中.mp3"；"發" -> "发财.mp3"）；无效名返回 "" */
   function voiceFile(name) {
     var s = (name === undefined || name === null) ? "" : String(name).replace(/\.mp3$/i, "").trim();
     if (!s) return "";
-    /* 字牌「發」(U+767C) 在素材文件名里写作「发」(U+53D1)：按码点判等后直接给素材名，不再回表查 */
-    if (s.charCodeAt(0) === 0x767C) return String.fromCharCode(0x53D1) + ".mp3";
+    /* 字牌先换成**念出来的词**：东→东风 / 南→南风 / 西→西风 / 北→北风 / 中→红中 / 發→发财 / 白→白板。
+       词表 VOICE_NAMES 的键就是素材文件基名（"红中.mp3" 的键是 "红中"），
+       所以这里换成词之后直接拼 .mp3 即可，不存在「词与文件名两套写法」。
+       ⚠ 别再写成 `if (s.charCodeAt(0) === 0x767C) return "发.mp3";` 那种**直接返回**：
+         它会把「發财」也截成「发.mp3」，而旧文件已经删掉了 —— 这类"看到首字就返回"的
+         写法还有个更隐蔽的毛病：绕过 VOICE_NAMES，词表里有没有这条都不再被检查。 */
+    if (VOICE_HONOR_WORDS[s]) s = VOICE_HONOR_WORDS[s];
     return VOICE_NAMES[s] ? (s + ".mp3") : "";
   }
   /** 语音目录：index.html 里取 "audio/mj/"；HTA(mshta) 里取 mahjong.js 同级的绝对 file:// 目录 */
@@ -3472,14 +3518,97 @@
     } catch (e) { a = null; VOICE_STAT.errors++; }
     return a;
   }
-  /** 预加载 45 条（只创建 Audio 对象，不播放；素材缺失时静默跳过） */
+  /** 预加载 43 条（只创建 Audio 对象，不播放；素材缺失时静默跳过）
+   *  ⚠ 必须走 voiceFile()：字牌的词是「东风/红中/发财…」，直接拼 k + ".mp3"
+   *    会去请求根本不存在的 东.mp3 / 中.mp3（改名后就是 404 死链，
+   *    而且 AudioSys 不会因为一次失败请求报错，测试也测不出来）。 */
   function voicePreload() {
-    for (var k in VOICE_NAMES) if (VOICE_NAMES.hasOwnProperty(k)) voiceAudio(k + ".mp3");
+    for (var k in VOICE_NAMES) if (VOICE_NAMES.hasOwnProperty(k)) { var f = voiceFile(k); if (f) voiceAudio(f); }
     return { cached: Object.keys(VOICE_CACHE).length, total: Object.keys(VOICE_NAMES).length };
   }
+  /** 队列里排一条。返回是否真的入队（队满且自己优先级最低时会被丢）。 */
+  function voicePush(it) {
+    if (VOICE_Q.length >= VOICE_Q_MAX) {
+      /* 队满：丢**最旧的低优先级**项。
+         若新来的这条比队列里所有项都低（典型场景：轮到喊话了，下家还在疯狂出牌），
+         就直接丢它自己 —— 绝不能为了报一张牌把已排队的「碰/杠/胡」挤掉。 */
+      var lo = 99, i;
+      for (i = 0; i < VOICE_Q.length; i++) if (VOICE_Q[i].pri < lo) lo = VOICE_Q[i].pri;
+      if (it.pri < lo) { VOICE_STAT.dropped++; return false; }
+      for (i = 0; i < VOICE_Q.length; i++) {
+        if (VOICE_Q[i].pri === lo) { VOICE_Q.splice(i, 1); VOICE_STAT.dropped++; break; }
+      }
+    }
+    /* 插队：插到第一个**优先级更低**的项之前；同级一律排在同级之后（FIFO） */
+    var at = VOICE_Q.length, j;
+    for (j = 0; j < VOICE_Q.length; j++) if (VOICE_Q[j].pri < it.pri) { at = j; break; }
+    VOICE_Q.splice(at, 0, it);
+    VOICE_STAT.queued++;
+    if (VOICE_Q.length > VOICE_STAT.maxQueue) VOICE_STAT.maxQueue = VOICE_Q.length;
+    voicePump();
+    return true;
+  }
+  /** 空闲就取下一条开播。间隔取「VOICE_GAP」与「该条自带 delay」的较大者。 */
+  function voicePump() {
+    if (VOICE_PLAYING || !VOICE_Q.length) return;
+    var it = VOICE_Q.shift();
+    /* ⚠ 必须**立刻**占住播放位，不能等到 voiceStart 里再占。
+       因为中间要等 VOICE_GAP（或该条的 delay），这段窗口里 VOICE_PLAYING 若还是 null，
+       下一次 say() 就会再走一遍 voicePump()，它 clearTimeout 掉上一个定时器 ——
+       上一条**凭空消失**（实测：连说三条只有最后一条能响，前两条谁都没播过，
+       而且 plays 计数、队列长度看起来都正常，不写时序断言根本抓不到）。 */
+    VOICE_PLAYING = it;
+    var wait = Math.max(VOICE_GAP, it.delay || 0);
+    if (VOICE_GAP_TIMER) { root.clearTimeout(VOICE_GAP_TIMER); VOICE_GAP_TIMER = 0; }
+    if (wait > 0) {
+      VOICE_GAP_TIMER = root.setTimeout(function () {
+        VOICE_GAP_TIMER = 0;
+        if (VOICE_PLAYING === it) voiceStart(it);    // 间隔里被 voiceStopAll 取消 → 不再播
+      }, wait);
+    } else voiceStart(it);
+  }
+  /** 真正开播一条；ended / error / 超时三个出口都要把队列往前推，少一个就会卡死。 */
+  function voiceStart(it) {
+    if (VOICE_PLAYING !== it) return;                // 已被取消（关语音开关 / 重开一局）
+    VOICE_CUR = it.audio;
+    VOICE_STAT.started++;
+    var done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      try { it.audio.removeEventListener("ended", finish); } catch (e) {}
+      try { it.audio.removeEventListener("error", finish); } catch (e2) {}
+      if (VOICE_WATCH) { root.clearTimeout(VOICE_WATCH); VOICE_WATCH = 0; }
+      if (VOICE_PLAYING === it) { VOICE_PLAYING = null; VOICE_CUR = null; }
+      voicePump();
+    }
+    try {
+      it.audio.addEventListener("ended", finish);
+      it.audio.addEventListener("error", finish);
+      it.audio.currentTime = 0;
+      var p = it.audio.play();
+      if (p && typeof p["catch"] === "function") p["catch"](function () { VOICE_STAT.errors++; finish(); });
+      /* 兜底：ended 不来时（解码失败 / 宿主挂起播放）也必须让队列继续走。
+         队列一旦卡死，后面排的「胡」永远轮不到 —— 比少播一条严重得多。
+         duration 取不到时按 3 秒算（远大于任何一个报牌词，不会误杀正常播放）。 */
+      var d = 0;
+      try { d = it.audio.duration; } catch (e3) { d = 0; }
+      if (!(d > 0) || !isFinite(d)) d = 3;
+      VOICE_WATCH = root.setTimeout(finish, Math.round(d * 1000) + 1500);
+    } catch (e4) { VOICE_STAT.errors++; finish(); }
+  }
+  /** 清空队列 + 停掉正在播的那条（关语音开关 / 收尾 / 重开一局时用） */
+  function voiceStopAll() {
+    if (VOICE_GAP_TIMER) { root.clearTimeout(VOICE_GAP_TIMER); VOICE_GAP_TIMER = 0; }
+    if (VOICE_WATCH) { root.clearTimeout(VOICE_WATCH); VOICE_WATCH = 0; }
+    if (VOICE_Q.length) VOICE_Q.length = 0;
+    VOICE_PLAYING = null;
+    if (VOICE_CUR) { try { VOICE_CUR.pause(); } catch (e) {} VOICE_CUR = null; }
+  }
   /**
-   * 播一条喊话：同一时刻只播一条（后一条打断前一条）；关掉开关 / 素材缺失 / 无 Audio 时静默跳过。
-   * 不抛异常、不阻塞牌局（Audio.play() 为异步）。
+   * 播一条喊话：**入队**，一条播完再播下一条；绝不打断正在播的那条。
+   * 关掉开关 / 素材缺失 / 无 Audio 时静默跳过，不抛异常、不阻塞牌局（Audio.play() 为异步）。
+   * 返回解析出的 URL（素材缺失时也返回 URL，另有 misses 计数）。
    */
   function say(name, o) {
     o = o || {};
@@ -3494,21 +3623,12 @@
     VOICE_STAT.list.push(f); if (VOICE_STAT.list.length > 24) VOICE_STAT.list.shift();
     VOICE_STAT.uniq[f] = 1;
     try {
-      if (VOICE_TIMER) { root.clearTimeout(VOICE_TIMER); VOICE_TIMER = 0; }
-      if (VOICE_CUR) { try { VOICE_CUR.pause(); VOICE_CUR.currentTime = 0; } catch (e) {} }
       var a = voiceAudio(f, seat);
       if (!a) { VOICE_STAT.misses++; return url; }   // 素材/Audio 缺失：静默跳过，不报错
       a.volume = o.vol === undefined ? VOICE_VOL : o.vol;
-      var go = function () {
-        VOICE_TIMER = 0;
-        try {
-          VOICE_CUR = a;
-          a.currentTime = 0;
-          var p = a.play();
-          if (p && typeof p["catch"] === "function") p["catch"](function () { VOICE_STAT.errors++; });
-        } catch (e) { VOICE_STAT.errors++; }
-      };
-      if (o.delay) VOICE_TIMER = root.setTimeout(go, o.delay); else go();
+      var word = f.replace(/\.mp3$/i, "");
+      voicePush({ file: f, url: url, audio: a, delay: o.delay || 0,
+                  pri: VOICE_CALL_SET[word] ? VOICE_PRI_CALL : VOICE_PRI_TILE });
     } catch (e) { VOICE_STAT.errors++; }
     return url;
   }
@@ -3526,7 +3646,8 @@
   function voiceToggle(on) {
     G.voiceOn = (on === undefined) ? !G.voiceOn : !!on;
     saveVoicePref(G.voiceOn);
-    if (!G.voiceOn && VOICE_CUR) { try { VOICE_CUR.pause(); } catch (e) {} VOICE_CUR = null; }
+    /* 关掉语音：正在播的那条 + 整个队列一起清 —— 否则关掉之后还会把排队的念完 */
+    if (!G.voiceOn) voiceStopAll();
     renderVoiceToggle();
     return G.voiceOn;
   }
@@ -4218,6 +4339,8 @@
     G.voiceOn = loadVoicePref(); G.voiceN = 0; G.ting = [false, false, false, false];
     VOICE_BASE = null; VOICE_STAT.plays = 0; VOICE_STAT.misses = 0; VOICE_STAT.last = ""; VOICE_STAT.lastUrl = "";
     VOICE_STAT.list = []; VOICE_STAT.uniq = Object.create(null);
+    VOICE_STAT.queued = 0; VOICE_STAT.started = 0; VOICE_STAT.dropped = 0; VOICE_STAT.maxQueue = 0;
+    voiceStopAll();                                  // 上一局没念完的喊话不许漏进新一局
     if (hostEl.classList) hostEl.classList.add("on");     // 保留宿主的 on class（index.html 靠它显示）
     try { G.cv.getContext("2d").setTransform(G.dpr, 0, 0, G.dpr, 0, 0); } catch (e) {}
 
@@ -4266,8 +4389,8 @@
     G.raf = 0;
     closeWin();
     if (G.host) { try { G.host.innerHTML = ""; } catch (e) {} }   // 不动宿主的 on class
-    if (VOICE_TIMER) { root.clearTimeout(VOICE_TIMER); VOICE_TIMER = 0; }
-    if (VOICE_CUR) { try { VOICE_CUR.pause(); } catch (e) {} VOICE_CUR = null; }
+    /* 收掉正在播的喊话 + 清空播报队列。（VOICE_TIMER 已被队列的 gap/watch 两个定时器取代） */
+    voiceStopAll();
     G.host = null; G.cv = null; G.ctx = null; G.handRects = []; G.E = null;
     G.win = null; G.resultShown = false; G.hint = null; G.hintIdx = -1; G.hintKey = ""; G.view = null;
     return true;
@@ -4740,6 +4863,9 @@
                  last: VOICE_STAT.last, lastUrl: VOICE_STAT.lastUrl, lastSeat: VOICE_STAT.lastSeat, lastAt: VOICE_STAT.lastAt,
                  list: VOICE_STAT.list.slice(), uniq: Object.keys(VOICE_STAT.uniq),
                  cached: Object.keys(VOICE_CACHE).length, total: Object.keys(VOICE_NAMES).length,
+                 queued: VOICE_STAT.queued, started: VOICE_STAT.started, dropped: VOICE_STAT.dropped,
+                 maxQueue: VOICE_STAT.maxQueue, gapMs: VOICE_GAP, qMax: VOICE_Q_MAX,
+                 playing: VOICE_PLAYING ? VOICE_PLAYING.file : "", queue: VOICE_Q.map(function (x) { return x.file; }),
                  base: voiceBase(), names: Object.keys(VOICE_NAMES).slice(), ting: G.ting.slice(),                 els: { toggle: !!byId("mjmVoiceToggle"), ting: !!byId("mjmTing") } };
       },
       hintStats: dbgHintStats,
@@ -4804,8 +4930,12 @@
       consequenceRoleOf: consequenceRoleOf, impactInfo: impactInfo, impactText: impactText,
       achvOf: achvOf, applyOutcome: applyOutcome, previewOutcome: previewOutcome,
       gentleCalc: gentleCalc, gentleDiscard: gentleDiscard, tierList: tierList,
-      /* 语音映射（纯函数，单测用） */
-      voiceFile: voiceFile, VOICE_NAMES: VOICE_NAMES, VOICE_KEY: VOICE_KEY
+      /* 语音映射 + 播报队列（纯函数/内部状态，单测用） */
+      voiceFile: voiceFile, VOICE_NAMES: VOICE_NAMES, VOICE_KEY: VOICE_KEY,
+      VOICE_HONOR_WORDS: VOICE_HONOR_WORDS, VOICE_CALLS: VOICE_CALLS, VOICE_CALL_SET: VOICE_CALL_SET,
+      VOICE_Q_MAX: VOICE_Q_MAX, VOICE_GAP: VOICE_GAP, VOICE_PRI_TILE: VOICE_PRI_TILE, VOICE_PRI_CALL: VOICE_PRI_CALL,
+      voiceQueue: function () { return VOICE_Q.map(function (x) { return x.file; }); },
+      voiceCurrent: function () { return VOICE_PLAYING ? VOICE_PLAYING.file : ""; }
     }
   };
   root.Mahjong.version = "ganma-2.0";

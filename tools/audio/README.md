@@ -11,7 +11,8 @@
 | 想做 | 用什么 | 产物落到 |
 |---|---|---|
 | 音效 / 环境音 | `gen_sfx.py` | `audio/sfx/`、`audio/amb/` |
-| 麻将牌名（按座位分音色） | `gen_mj_by_seat_tts.py` | `audio/mj/`、`audio/mj/seat1-3/` |
+| 麻将牌名（按座位分音色） | `gen_mj_by_seat_tts.py`（StepAudio） | `audio/mj/`、`audio/mj/seat1-3/` |
+| 麻将报牌语音（统一音色，**百炼 TTS**） | `gen_mj_bailian_tts.py` + `process_sfx.py --preset word` | `audio/mj/`、`audio/mj/seat1-3/` |
 | BGM（5 种情绪） | `gen_bgm.py` | `audio/bgm/` |
 | 台词配音 | `step_gen_audio.py --jobs vo_jobs.json` | `audio/vo_real/` |
 
@@ -86,6 +87,8 @@ python tools\audio\process_sfx.py --src RAW --out FINAL --preset word --only 西
 | `check_audio.py` | 声学体检（时长/峰值/RMS/有声占比/前导静音/削波） |
 | `check_bgm.py` | BGM 专项：时长/响度/**循环接缝差**/周期性 |
 | `verify_audio_content.py` | 长台词内容核对（ASR 全文比对） |
+| `gen_mj_bailian_tts.py` | **百炼 Qwen-TTS** 生成麻将报牌语音（字牌念全名：红中/白板/东风/发财） |
+| `verify_mj_omni.py` | **盲听**验收报牌语音念得对不对（qwen3.8-omni-flash + 拼音同音匹配，不依赖本地 ASR 模型） |
 | `verify_mj_asr.py` | 牌名内容核对（拼音同音匹配 + **跨座位共识**） |
 | `verify_pairwise.py` | 同词跨座位交叉验证：`--len` 有声段时长 / `--content` ASR+提示泄漏 / `--acoustic` MFCC-DTW |
 | `audio_eval.py` | **四层综合评估器**（推荐日常用）：声学 + 音色 + 内容 + 感知。`--audit-sfx` 全量音色审计 |
