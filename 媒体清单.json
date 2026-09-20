@@ -1,8 +1,8 @@
 {
     "package":  "天枢原型-媒体素材",
     "version":  "v2.0",
-    "note":  "素材不入 git 仓库；本清单入库作为契约。协作者拿到 media-v2.0.zip 解压到仓库同级目录后，运行 link-media.ps1 即可接通。",
-    "sourceNote":  "source 字段：original=原创可自由分发 · self=项目自产 · thirdparty=授权未核实，仅供本地试验、不得公开分发。当前已移除从实拍视频截取的演员原声（vo_actor），改置于仓库外的第三方素材区。",
+    "note":  "audio/ 为自产素材，已随仓库入库，无需额外获取；video/ 因授权未核实不入库，需拿到 media-v2.0.zip 解压到仓库同级目录后运行 link-media.ps1 接通。",
+    "sourceNote":  "source 字段：original=原创可自由分发 · self=项目自产（全部 audio/）· thirdparty=授权未核实，仅供本地试验、不得公开分发（全部实拍 video/）。",
     "counts":  {
                    "mp4":  35,
                    "poster":  35,

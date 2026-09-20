@@ -7,33 +7,47 @@
 
 | 素材 | 来源 | 授权状态 |
 |---|---|---|
-| `video/*.mp4`（33 段实拍） | 第三方素材库，按人物/场景分类（原路径含项目旧名，改名后未追溯） | ⚠ **未核实**。发布前必须替换为自有素材或取得授权 |
-| `video/poster/*.jpg`（35 张剧照） | 由上表视频用 ffmpeg 抽帧生成 | ⚠ 随源视频，同上 |
-| `video/fx_market.mp4`、`video/fx_flood.mp4` | 本项目 `_genanim2.ps1` 生成（PowerShell + System.Drawing 逐帧绘图 → ffmpeg 合成） | ✅ 原创，**已入库**（其余实拍素材不入库） |
+| `video/*.mp4`（35 段实拍） | 第三方素材库，按人物/场景分类（原路径含项目旧名，改名后未追溯） | ⚠ **未核实，不入库**。发布前必须替换为自有素材或取得授权 |
+| `video/poster/*.jpg`（35 张剧照） | 由上表视频用 ffmpeg 抽帧生成 | ⚠ 随源视频，同上，不入库 |
+| `video/fx_market.mp4`、`video/fx_flood.mp4`（+ 对应 2 张剧照） | 本项目程序化生成（PowerShell + System.Drawing 逐帧绘图 → ffmpeg 合成） | ✅ 原创，**已入库**（其余 68 个实拍素材不入库） |
+| `art/**`（94 个 png） | Lovart AI 生成，见第五节 | ✅ 原创，**已入库** |
 
-## 二、音频
+> **为什么这几类入库与否不同**：授权清晰、体积小、不会反复重做的自产素材直接入库；
+> 授权未核实的实拍素材（208 MB）走带外分发。
+> 详见 `dist/素材分发/README.md` 与 `协作者上手指南.md`。
 
-**当前状态：项目不含任何配音文件**（2026-09-19 清理）。游戏音频分两层：
+## 二、音频（305 个文件，**全部自产，已入库**）
 
-| 素材 | 来源 | 授权状态 |
-|---|---|---|
-| BGM / 音效 | 运行时由 WebAudio 实时合成（`AudioSys`），**无音频文件** | ✅ 原创 |
-| 配音（台词 / 麻将牌名播报） | **已全部移除**，见下表 | — |
+全部由本项目用 StepFun **StepAudio 3**（Gen / TTS 两个端点）生成，可自由使用，随仓库分发。
+制作流程与工具链见 `docs/音频素材制作.md` 与 `tools/audio/README.md`。
 
-已移除的配音文件及其原因与去向：
+| 目录 | 数量 | 内容 | 生成方式 |
+|---|---|---|---|
+| `audio/vo_real/` | 54 | 主线台词配音（13 个角色 + 旁白） | TTS，固定 `voice` 保证同角色音色一致 |
+| `audio/mj/` | 43 | 麻将牌名播报 · 座位0（主角，共用目录） | TTS `cixingnansheng` |
+| `audio/mj/seat1|2|3/` | 43×3 | 麻将牌名播报 · 金老板 / 红姐 / 顾曼 | TTS，各座位固定音色 |
+| `audio/sfx/` | 65 | 玩法与 UI 音效（麻将 / 早餐店 / 谈判 / 格斗 / 躲避 / 股市 / 答题 / 刮刮乐） | Gen，`[音效描述]` |
+| `audio/amb/` | 9 | 场景环境音（对应 9 个 `loc`） | Gen |
+| `audio/bgm/` | 5 | 5 种情绪 BGM（calm / city / tense / night / dark） | Gen |
+
+**授权：AI 生成，无第三方版权。** 已随仓库入库（`git clone` 即可获得，无需额外素材包）。
+
+### 已移除的音频及其原因（历史记录，保留供追溯）
 
 | 原路径 | 内容 | 处置 | 依据 |
 |---|---|---|---|
-| `audio/vo_real/*.mp3`（24 条） | 从实拍视频用 `silencedetect` 自动截取的**演员原声**（工具：`tools/archive/vo-real.ps1`） | **移出仓库外** → `H:\GAMEDEV\Tianshu-第三方素材\audio\vo_actor\` | 内容是他人的声音与原台词，与实拍视频同性质（授权未核实） |
-| `audio/vo/*.mp3`（45 条） | Windows SAPI 合成 TTS（`_vo_gen.ps1` / `_vo_gen_narr.ps1`） | **已删除** | 念稿感重、质量不达标 |
-| `audio/mj/*.mp3`（45 条） | 同上，麻将牌名 / 动作播报 | **已删除** | 同上 |
+| `audio/vo_real/*.mp3`（24 条，旧） | 从实拍视频用 `silencedetect` 自动截取的**演员原声** | **移出仓库** → `H:\GAMEDEV\Tianshu-第三方素材\audio\vo_actor\` | 内容是他人的声音与原台词，与实拍视频同性质（授权未核实） |
+| `audio/vo/*.mp3`（45 条，旧） | Windows SAPI 合成 TTS | **已删除** | 念稿感重、质量不达标 |
+| `audio/mj/*.mp3`（45 条，旧） | 同上，麻将牌名播报 | **已删除**，后被 StepAudio TTS 版本取代 | 同上 |
 
-**对游戏的影响**：`index.html` 启动时探测配音目录，都没有就把 🎙 按钮置灰并跳过语音，
-不会留下失效按钮；麻将只是少了牌名播报，牌桌音效由 `AudioSys` 合成，不受影响。
+> ⚠ 若日后改用其它外部 TTS / 音效服务生成，请在下表追加来源与授权记录。
 
-**恢复方式**：把配音文件放回 `audio/vo/`（自产）或 `audio/vo_actor/`（真人原声）即可自动启用，
-代码无需改动。若改用外部 TTS / 音效服务生成，请在下方追加来源与授权记录。详见
-`dist/素材分发/README.md` 与素材库的 `README.md`。
+### 音频的验收链路（为什么可以放心入库）
+
+四层自动验收，1572 项断言全绿：声学（时长/响度/静音/削波）· 音色（mel 平坦度，判「物理音 vs 纯音」）·
+内容（本地 SenseVoice ASR 比对，抓念错与提示词泄漏）· 感知（Qwen-Omni 全模态，覆盖 ASR 看不到的
+音效/音乐/环境音）。接线由 `tools/e2e/audio-wiring.js` 逐个 URL 验可达性。
+详见 `docs/全模态模型做音频验收.md`。
 
 ## 三、代码与第三方库
 
@@ -45,15 +59,36 @@
 
 ## 四、生成工具链（可复现）
 
+### 4.1 音频（已入库，`tools/audio/`）
+
 | 脚本 | 作用 |
 |---|---|
-| `_genanim2.ps1` | 生成交易屏 K 线动画（.NET 逐帧 → ffmpeg）。**一次性脚本，未随包保留**；管线细节见《架构文档》4.11，如需重生成按该节复现 |
-| `_vo_extract.js` | 从 `index.html` 抽取全部台词 → `_vo_lines.json` |
-| `_vo_gen.ps1` | 批量 TTS 配音（按角色变调）→ `audio/vo/*.mp3` |
-| `_vo_gen_narr.ps1` | 旁白分句合成（逐句合成 + 停顿 + 语速起伏 + 响度归一） |
-| `_vo_real.ps1` | **真人原声抽取**：按角色分类扫描素材 → `silencedetect` 定位语音区间 → 裁剪/淡化/响度归一 → `audio/vo_real/*.mp3` |
-| `_e2e.js` / `_e2e_solo.js` / `_e2e_vo.js` | CDP 全流程验收 / 缺素材降级 / 配音诊断 |
-| `tests/core.test.cjs` | 单元测试（vm 注入内核，7 项） |
+| `paths.py` | 路径解析（环境变量可覆盖，跨机器可跑） |
+| `step_gen_audio.py` | 核心：调 StepAudio（Gen 音效 / TTS 配音两种任务） |
+| `gen_sfx.py` | 65 个音效 + 9 个环境音 |
+| `gen_mj_by_seat_tts.py` | 麻将牌名，四个座位分音色（含 speed 校正、`--only` 单条重做） |
+| `gen_bgm.py` | 5 种情绪 BGM（生成后自动验收循环接缝） |
+| `process_sfx.py` | 切静音 / 响度归一 / 防硬切 / 循环交叉淡化（五个 `--preset`） |
+| `check_audio.py` · `check_bgm.py` · `audio_eval.py` | 声学 · 循环 · 四层综合评估 |
+| `verify_audio_content.py` · `verify_mj_asr.py` · `verify_pairwise.py` | 内容核对（ASR / 拼音同音 / 跨座位交叉） |
+| `omni_judge.py` · `regen_sfx_noise.py` | 全模态感知层验收 · 纯音音效重做 |
+
+### 4.2 图片（Lovart AI，见第五节）
+
+| 脚本 | 作用 |
+|---|---|
+| `tools/bf/assets/gen.js` · `gen2.js` | 九宫格切片（自动求切分参数，不写死） |
+| `tools/bf/assets/faces-happy-gen.js` | 满意表情切片 |
+
+### 4.3 早期一次性脚本（未随包保留，仅记录）
+
+| 脚本 | 作用 |
+|---|---|
+| `_genanim2.ps1` | 生成交易屏 K 线动画（.NET 逐帧 → ffmpeg）。管线细节见《架构文档》4.11 |
+| `_vo_extract.js` | 从 `index.html` 抽取全部台词 → `_vo_lines.json`（后继：`tools/voice/lines.json`） |
+| `_vo_gen.ps1` · `_vo_gen_narr.ps1` | 旧 Windows SAPI TTS 配音（已被 `tools/audio/` 的 StepAudio 取代） |
+| `_vo_real.ps1` | 旧「真人原声抽取」（已废弃：那份素材授权未核实，已移出仓库） |
+| `_e2e.js` / `_e2e_solo.js` / `_e2e_vo.js` | 旧 CDP 验收脚本（已归位到 `tools/e2e/`） |
 
 ---
 

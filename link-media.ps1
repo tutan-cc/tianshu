@@ -88,8 +88,19 @@ if ($manifest -and $manifest.counts) {
   Write-Host ("  无清单 · 视频 {0} · 剧照 {1}" -f (Count-In $mLibVideo "*.mp4"), (Count-In (Join-Path $mLibVideo "poster") "*.jpg")) -ForegroundColor Yellow
 }
 
-# ── 3. 挂载 video\ 与 audio\（各自独立，允许只挂其中一个）─────────────
-foreach ($name in @("video","audio")) {
+# ── 3. 挂载 video\（audio\ 不挂！见下）────────────────────────────────
+#
+# ⚠ 为什么不再挂 audio\：
+#   原先 video\ 与 audio\ 都从素材库联接过来。但两者的**授权性质相反**：
+#     video\  = 实拍素材（授权未核实）→ 不能入库 → 必须走带外分发 → 需要联接
+#     audio\  = 全部自产（StepAudio TTS/音效/BGM）→ **应该入库** → 不该走联接
+#   git 会透过 junction 提交里面的文件，所以同一个 junction 上做不到
+#   「自产入库、第三方不入库」。实测后果：同事 clone 下来**一条音频都没有**
+#   （308 个自产音频全在带外包里），这是真实的协作阻塞。
+#   现改为：audio\ 是仓库里的**真目录**（308 个文件约 12MB，直接入库）；
+#   video\ 仍为联接（210MB 第三方，不入库）。
+#   pack-media.ps1 也相应改为：视频取素材库、音频取仓库。
+foreach ($name in @("video")) {
   $link = Join-Path $repo $name
   $target = Join-Path $MediaDir $name
 
@@ -125,6 +136,24 @@ foreach ($name in @("video","audio")) {
   cmd /c "mklink /J `"$link`" `"$target`"" | Out-Null
   if (Test-Path $link) { Write-Host "  $name\  <-  $target" -ForegroundColor Green }
   else { throw "创建联接失败：$link" }
+}
+
+# ── 3b. audio\ 自检：它是仓库自带素材，不该被联接覆盖 ────────────────
+$audioLink = Join-Path $repo "audio"
+if (Test-Path $audioLink) {
+  $ai = Get-Item $audioLink -Force
+  if ($ai.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    # 老版本 link-media.ps1 建的联接还在 → 说明是从旧布局升上来的，提示但不自动删
+    # （自动删有风险：万一是别人特意挂的。让人自己决定。）
+    Write-Host "  ⚠ audio\ 仍是指向素材库的联接 —— 自产音频应当直接入库，不该走联接。" -ForegroundColor Yellow
+    Write-Host "     若要把音频改为仓库自带的真目录：先删联接（cmd /c rmdir audio），" -ForegroundColor Yellow
+    Write-Host "     再 git checkout -- audio 取回库里那份。" -ForegroundColor Yellow
+  } else {
+    $an = @(Get-ChildItem $audioLink -File -Recurse -ErrorAction SilentlyContinue).Count
+    Write-Host "  audio\ 为仓库自带真目录（$an 个文件），不联接" -ForegroundColor Green
+  }
+} else {
+  Write-Host "  audio\ 不存在（若已 clone 完整仓库，请 git checkout -- audio 取回自产音频）" -ForegroundColor Yellow
 }
 
 # ── 4. 自检（只查必有项；配音等可选素材按清单校验，不在此硬性要求）────
