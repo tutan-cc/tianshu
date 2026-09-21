@@ -6,8 +6,8 @@
     "counts":  {
                    "mp4":  35,
                    "poster":  35,
-                   "audio":  305,
-                   "total":  375
+                   "audio":  320,
+                   "total":  390
                },
     "files":  [
                   {
@@ -74,6 +74,111 @@
                       "license":  "自产-可自由使用"
                   },
                   {
+                      "path":  "audio/bf/cook_bacon.mp3",
+                      "bytes":  11565,
+                      "sha256":  "8cd6111fbe9eb0b956d652097caf3c26f6c4ca867d8a594eea531e8ab31a1bb7",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_bun.mp3",
+                      "bytes":  10413,
+                      "sha256":  "905bd434e550baf3dd7379834532780a381fce54e849230b3ff815d78476380e",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_congee.mp3",
+                      "bytes":  9261,
+                      "sha256":  "2b48c224731b15dcbe3862c95a52052fed9652f4b14eb03cf4bebfdb34e76a0b",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_egg.mp3",
+                      "bytes":  9645,
+                      "sha256":  "72e1f0d2ec4a72dd8d5ff10d5c104d474602340918c17292dc3725fcb5ad60ce",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_juice.mp3",
+                      "bytes":  10797,
+                      "sha256":  "1774dbaea9feef1ace80476de2181be73e96f0ca4fcdb4792edaab2814454437",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_milk.mp3",
+                      "bytes":  10413,
+                      "sha256":  "fa6c451dc448ebf50ad71be024b6a3b587ae58652cbe3aa3bff19849910a6bba",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_salad.mp3",
+                      "bytes":  7725,
+                      "sha256":  "ceb3f575658439f8cbb1560950f69c81cc1f810aa49364ec29b0c173fb5c911f",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_sandwich.mp3",
+                      "bytes":  8877,
+                      "sha256":  "ad8238062577ba0bef45edcfa855c27589938779c72d97c4653e914b44a69c27",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/cook_soup.mp3",
+                      "bytes":  8493,
+                      "sha256":  "5fb7468eabe326f7c7a018162c900685c5f22ccb3ce5dc879b01945c15355a55",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/happy_finally2.mp3",
+                      "bytes":  33069,
+                      "sha256":  "49f85a9dd60952d82601e104203d98d6ab138cbc0f838e9f5ce12477a9f2501e",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/happy_i45.mp3",
+                      "bytes":  11181,
+                      "sha256":  "346dcf1a7f87c7a3b06d3d0aaec32ba424ff6745857147ab13d7d4408c479a63",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/happy_v1.mp3",
+                      "bytes":  23085,
+                      "sha256":  "1d5cab35c43e9b20e9e1a1e93e7966a5ff587f444539493fd4e0af9d65a4d133",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/happy_v3.mp3",
+                      "bytes":  25389,
+                      "sha256":  "fceb2f564f64097e51d3dd8b8203d97b5d6fd8b3f3d50beecfe84328c292c87a",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/slow.mp3",
+                      "bytes":  29613,
+                      "sha256":  "002e77235a0620e8827c83c7f32add818d2228f3c559e63b749117757c8be985",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/bf/tick.mp3",
+                      "bytes":  1581,
+                      "sha256":  "4a628e77556042b9e4e0d9f84e25e506342cb61d2446a0264783ca65d0a2f176",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
                       "path":  "audio/bgm/calm.mp3",
                       "bytes":  1706157,
                       "sha256":  "3718167ab6a17cbd7360a78bc1017f6cd7e8ccc7843467d4d73a002e06b41f21",
@@ -110,190 +215,190 @@
                   },
                   {
                       "path":  "audio/mj/1条.mp3",
-                      "bytes":  14253,
-                      "sha256":  "351ca1b04f2514f91d14c32802a7323dce462ce86c79f05b12d510f53d4e1737",
+                      "bytes":  7725,
+                      "sha256":  "b76287939a10fee0fbcdf1410602140f02d29cc4a2d839f02c4d48b4398057f2",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/1筒.mp3",
-                      "bytes":  10413,
-                      "sha256":  "02ebd5d247deb090f7777f7a875cb69d27d4c7c504d3ef01fbb9cb44abe46a12",
+                      "bytes":  11565,
+                      "sha256":  "3922861d15476a1aa2c19b66a0206e64ccef72063b998e2745cd732fb3eb367f",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/1万.mp3",
-                      "bytes":  10413,
-                      "sha256":  "2060589a8c8ba836e27e3a5667d8715b03716812ce1fca245f10e27f5f4fb5c3",
+                      "bytes":  8877,
+                      "sha256":  "05247a705e1fb4f03f0e5b5f206c12ebe7f5c90f8fa6d3a807032fbc6b46efe6",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/2条.mp3",
-                      "bytes":  12717,
-                      "sha256":  "5ce3cdcfb7ae2b5fc95ea71f8d495a80a388943a7f03d9cbb164253f834d0cb2",
+                      "bytes":  10413,
+                      "sha256":  "e1077e12b63185b33a8139e4725eca33c7ad9ee212d41639efcc78004389f565",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/2筒.mp3",
-                      "bytes":  13485,
-                      "sha256":  "a5e4caecbfa45ba63a38c71b0c668f23f9062f00fb4f75482d0dd1cf2391c43e",
+                      "bytes":  9261,
+                      "sha256":  "06e20e53b1a17023367726c9568d72b1cd30613e93f389c9dadd9ceb5cdafe33",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/2万.mp3",
-                      "bytes":  13485,
-                      "sha256":  "07a982d9ac14349ce30cfdcb56bca92ba4b348045b5ce17ae355d694e5fed8af",
+                      "bytes":  11565,
+                      "sha256":  "5711726c1d67c12af49a471502ba983962548bd29c64eaae7c3f2bfe8dc4d97a",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/3条.mp3",
-                      "bytes":  15789,
-                      "sha256":  "a09049c8be6bbd0c0115cbeefe84081cf74a106b76fab05bad25d3ad396055e7",
+                      "bytes":  10029,
+                      "sha256":  "e3b7cf200bd37ae517d06cb7b7f411077936e1763aed09bc8c2a434d12800fe7",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/3筒.mp3",
-                      "bytes":  15789,
-                      "sha256":  "dc38d7f00f84d4485bf3501efcb522413bb011ffe6cb9d7675d672d69cd15517",
+                      "bytes":  13869,
+                      "sha256":  "345c7fc6e7a41665670c00ef39dbeefab22ff87fb286922a51b2877564d93faa",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/3万.mp3",
-                      "bytes":  10413,
-                      "sha256":  "de9b84e679e5d172c39ecb274ccc445a2cd0c2a35f1cba6d19c59fcf94bcacde",
+                      "bytes":  9261,
+                      "sha256":  "c076e6924cd7dde9e0c1be7797f2f717744cc5a162b756db7329d5eb29c0a693",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/4条.mp3",
-                      "bytes":  10797,
-                      "sha256":  "f11e80aa80e0f96f834a109e3807a2c399a38eddb573e38131c7e97bda15bba9",
+                      "bytes":  9261,
+                      "sha256":  "104f5c0e5fe176e1bda5f216ca46f528c18cfd3eee2b274697002fe6c8bd88ed",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/4筒.mp3",
-                      "bytes":  11949,
-                      "sha256":  "850b27e11c69d50e1123090ea434266b7a0dd5dfec76c0c55c9ea7ccc06e7cd5",
+                      "bytes":  10413,
+                      "sha256":  "4445c4d736d1791b498e98189684ebb548190cfc95131e18037090a32b857096",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/4万.mp3",
-                      "bytes":  9645,
-                      "sha256":  "84c6d6bfe73a80beccbedbf5b852cc7e62e9efaf497c32774b2688dbb87ec6cd",
+                      "bytes":  9261,
+                      "sha256":  "61c1eb517f4410b6a32351e808828dc276e651a2bdc247575788336b9d642ad7",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/5条.mp3",
-                      "bytes":  11949,
-                      "sha256":  "14687cf1f66dd636a00e2c94e1218cc4b5719b2a9c721fbef5aa61ec1fb07589",
+                      "bytes":  8877,
+                      "sha256":  "e74712655f88cc9f0856d6ff3458bf253c3836deae44a72be82fa5aa8fb5b5ae",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/5筒.mp3",
-                      "bytes":  9645,
-                      "sha256":  "792040c1652c0bdbb841e4ea7de1fdfa6ca95b11263ce88824f2b9c091dd8c15",
+                      "bytes":  7725,
+                      "sha256":  "e33381937c0e05f5cbe1b0e293e1130d03a0d13822ae0105e7a9b1fcfffd1ccd",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/5万.mp3",
-                      "bytes":  11949,
-                      "sha256":  "9b10211c99873b9874d75706c3d990c30cecbfcb8c104ee02c99ce854cfc25d6",
+                      "bytes":  11565,
+                      "sha256":  "83691ee28141a40f0911a3dd6f047cdea84708ab2d57f9273a7d109c8d89cfe1",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/6条.mp3",
-                      "bytes":  13869,
-                      "sha256":  "7c437b1975aace2d15b820ef751478b0d2a91c25d1c7f75d9dac748127f70a0f",
+                      "bytes":  8877,
+                      "sha256":  "cfe7e80b963017bc3cfbfeb2dafefac54f79fc4651073cc068c19b6427ffd9c3",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/6筒.mp3",
-                      "bytes":  10797,
-                      "sha256":  "4479787f6702de393ad87643633699f205e3976716c3637ab808a473d81c5b00",
+                      "bytes":  13101,
+                      "sha256":  "4b6d303bec85d5fdf792b8e1762ec955c4152d6d20bc0088b91ce96e2c6c8802",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/6万.mp3",
                       "bytes":  9645,
-                      "sha256":  "74a94617c298109cc4ea293280e390be104e61a8a6fcbc0fb6256d796c5d2655",
+                      "sha256":  "d92b4039f01ab9c502ff0644300d9bf5287c8fcffc4c3011085214da66f9664a",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/7条.mp3",
-                      "bytes":  12333,
-                      "sha256":  "0a351725032eabb7c3df7d789e62ecd37cb15092188d2483d61bee52c9fb0caf",
+                      "bytes":  10413,
+                      "sha256":  "e0eee4d056b972bff23baee57879ec58368a437454bd5e1216c153920edd5782",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/7筒.mp3",
-                      "bytes":  10029,
-                      "sha256":  "0fefc3a1214c332b575e33eee1f440987b6cb63076e1125a38b73f10081d76ae",
+                      "bytes":  15405,
+                      "sha256":  "769ba99f7063ebdd0498c1a81b2156bdca408368c1787f1f445a70c2b5e2da77",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/7万.mp3",
-                      "bytes":  17709,
-                      "sha256":  "7ee7a96bf8c8a29c30cb646f3ac002b79229b3dd8185c04fc2ab4ae22c324ed7",
+                      "bytes":  8877,
+                      "sha256":  "d2743d753a3c4eec5e13a8cb3d18336de53818ab565a2302a5a452d740a7119d",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/8条.mp3",
-                      "bytes":  10797,
-                      "sha256":  "fbc172b4179e19bc962946e5eeae486040ba27c7a452caa947318130f166ed7b",
+                      "bytes":  11565,
+                      "sha256":  "93aa2dadf743387e89b8ca14e8343ab6ac034cb4a911b6978059c10508386b42",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/8筒.mp3",
-                      "bytes":  11181,
-                      "sha256":  "7c50b500bb823d5854708a477b10cc7327d009938406cc448a5787f8f2c1f373",
+                      "bytes":  9261,
+                      "sha256":  "c315095e95bf5fe0e9b2d1c333df97355415c10fc0899a3b500d5c10638a20fc",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/8万.mp3",
-                      "bytes":  13485,
-                      "sha256":  "2e73cb7a9b8cd4a1e886f4bbbb5afb0b4b41b8452d7acd5a2c805e2cf4464185",
+                      "bytes":  7341,
+                      "sha256":  "33e70f94340b6c66fe7b60b8bfa6748b9b394fd36740d6413ff9c67637e90963",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/9条.mp3",
-                      "bytes":  12333,
-                      "sha256":  "e73a5a981e9a83adc357ab96c05e78d9b4667806569868a3a4a9466543fd1bf7",
+                      "bytes":  11565,
+                      "sha256":  "d72781d2593c0520581b318f8f0ee38ed0cf1eb4f850fa0bee7440b98df2f7da",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/9筒.mp3",
-                      "bytes":  11949,
-                      "sha256":  "2c0327c7a67af7b9a92c897f4c4f94db0817eb9bb071b3265f4983ae762a87f8",
+                      "bytes":  7725,
+                      "sha256":  "896c93506d4e6f4d3da5ef34bf21aa4e743a6549044f7d341cf9818b71f1a309",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/9万.mp3",
-                      "bytes":  11181,
-                      "sha256":  "ae2192b436117be1491927d1a0bb27b1f0ae253070f3d84ceca2fd227fe8479e",
+                      "bytes":  11565,
+                      "sha256":  "f375e9cb0a1361cb15eba52274fc07ca982fbb7a8829450c9be1c6e3a5b098e4",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -487,37 +592,37 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat1/白.mp3",
-                      "bytes":  9645,
-                      "sha256":  "866ba1aa2cb08501922ff2fd2d5bbd663b7a6045a05851b8ce82491e5af75ea0",
+                      "path":  "audio/mj/seat1/白板.mp3",
+                      "bytes":  11565,
+                      "sha256":  "7c98a336eac08b314f73bdaa9a11d170f6a67e6e84134050a66dfd44e36f2907",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat1/北.mp3",
-                      "bytes":  5421,
-                      "sha256":  "d0ddf7feeff8b6de554c551302b8c8fae990b48fcb5f0ea4a2c3f0d7c6a8ba89",
+                      "path":  "audio/mj/seat1/北风.mp3",
+                      "bytes":  10413,
+                      "sha256":  "fd89cf8df33fb371c4c7eb612cada37883c56a1c13fe74387e38fe38d7c44ac4",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat1/东.mp3",
-                      "bytes":  6573,
-                      "sha256":  "306c4236385fcb44d1becdbbe91df54de9739127e28735839378062ed87935e2",
+                      "path":  "audio/mj/seat1/东风.mp3",
+                      "bytes":  14253,
+                      "sha256":  "22e2983aaa7aa8ba17d3aff47addb0c92595b0bb97e2175b9f097bc187ce67af",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat1/发.mp3",
-                      "bytes":  8109,
-                      "sha256":  "c3394c8a4f17fc2100889fe48d8939bd69ff81f29eabdb14340fc4241857d00b",
+                      "path":  "audio/mj/seat1/发财.mp3",
+                      "bytes":  11565,
+                      "sha256":  "eda5dbf9e54f55afe1d8c7ee854b3c0e74090cf9499345ee3b858ebdfc5e25d5",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/seat1/杠.mp3",
-                      "bytes":  4269,
-                      "sha256":  "ddc0b1a38758e5de9be1da4876dd3ea9a40a85eb65ac37f3e59abbfc79d283d3",
+                      "bytes":  13869,
+                      "sha256":  "30900b79280576c3580ddfcf7c1f0dfacacd3437ee4510980fe1765f44cb74de",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -536,6 +641,13 @@
                       "license":  "自产-可自由使用"
                   },
                   {
+                      "path":  "audio/mj/seat1/红中.mp3",
+                      "bytes":  15405,
+                      "sha256":  "c4a7b9c2fb4713347245754221222d3969006454d8dfe0ae5278eb00d04dc8f3",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
                       "path":  "audio/mj/seat1/胡.mp3",
                       "bytes":  4269,
                       "sha256":  "50dafdb3e1632e47f5d6ca2444ffd6a2f2bc7ea6238c4340cbb832392667c70f",
@@ -550,16 +662,16 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat1/南.mp3",
-                      "bytes":  6573,
-                      "sha256":  "60b00fada7341bdfb601fb4fca608a3103d9014dbd156fae2a6877f02fcf1c32",
+                      "path":  "audio/mj/seat1/南风.mp3",
+                      "bytes":  13101,
+                      "sha256":  "9d9740b76ff0bcbaa2d539870bdec30a9cba5100d9f379ada27e40b580fce5c4",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/seat1/碰.mp3",
-                      "bytes":  5421,
-                      "sha256":  "8d96c70a7d9e65f101ddd3c730c5f987b8a485975ab2052c41f139d804143dad",
+                      "bytes":  15021,
+                      "sha256":  "acd860eb72283f2744e409411fd597ab5deb43d6601f8764ab9f156bd16f8032",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -578,16 +690,9 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat1/西.mp3",
-                      "bytes":  10413,
-                      "sha256":  "b91a602930ce99a833129d338046c5fab2a691a801b979506de648a39c92323d",
-                      "source":  "self",
-                      "license":  "自产-可自由使用"
-                  },
-                  {
-                      "path":  "audio/mj/seat1/中.mp3",
-                      "bytes":  11565,
-                      "sha256":  "4edd6dacee52cbe47bf5498839dd0c71b8dfd1334e702836b5018c64cf92a905",
+                      "path":  "audio/mj/seat1/西风.mp3",
+                      "bytes":  9261,
+                      "sha256":  "b39ceed323b396bfdf95205e0985af197ed674955bf58572e655ea3951578c2b",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -788,37 +893,37 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat2/白.mp3",
-                      "bytes":  9645,
-                      "sha256":  "de88fdfe758555b8f8de86b59c367d121e27426f7a927939b255e4894c0f9652",
+                      "path":  "audio/mj/seat2/白板.mp3",
+                      "bytes":  11565,
+                      "sha256":  "e84c41a3d4c894afd6746b4629ae82266e75806f5e5e27cf2882a0e5c7176118",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat2/北.mp3",
-                      "bytes":  8493,
-                      "sha256":  "53f949d20030e81dc9ef35fc63af496fa14384bd2ff0936fc4c679333bbf553b",
+                      "path":  "audio/mj/seat2/北风.mp3",
+                      "bytes":  15789,
+                      "sha256":  "af54829395e7860ae28f4e961c8c4541500c747fed6da5a437217e50cac972c5",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat2/东.mp3",
-                      "bytes":  7725,
-                      "sha256":  "ff36113e5142c450d6ba990ff34aa16037f0a88f3d8e65d8d465e2092af30f1c",
+                      "path":  "audio/mj/seat2/东风.mp3",
+                      "bytes":  13485,
+                      "sha256":  "eb37aa62a4ed3c85e52bb51b9b02d6a71a51ca00869a5c8324be3ba2b2c9dab1",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat2/发.mp3",
-                      "bytes":  9261,
-                      "sha256":  "3f064d7f17119f01d5e00ecb6edb98e31592535f2eb75ea01574eebad5a3d304",
+                      "path":  "audio/mj/seat2/发财.mp3",
+                      "bytes":  13101,
+                      "sha256":  "9f2dc739f538cca01c3cb3e388d983ace59acc49296ee7b58dda45977b298405",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/seat2/杠.mp3",
-                      "bytes":  6189,
-                      "sha256":  "0d5191889c80d02ece08ab4c78265ff053dc7191f9e20196fe3c1664877c9eea",
+                      "bytes":  11565,
+                      "sha256":  "d8d64f0f6b3ebdd637d955b5d061508525fbbfd738ab38e3864589e30ed10714",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -837,6 +942,13 @@
                       "license":  "自产-可自由使用"
                   },
                   {
+                      "path":  "audio/mj/seat2/红中.mp3",
+                      "bytes":  10029,
+                      "sha256":  "d947d03490ef77b3ff93387c199d95d6000b1e8178b7bd24d138a08e1f2c6583",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
                       "path":  "audio/mj/seat2/胡.mp3",
                       "bytes":  14637,
                       "sha256":  "29ec86542b9e68e755767432bad73e4ca9da2d72d197ea6bde22b041ee81042f",
@@ -851,16 +963,16 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat2/南.mp3",
-                      "bytes":  9261,
-                      "sha256":  "a2034cf1413ee7ab0413ce86188ba2dddcb53344472f7a1f9efd4cd7e3775013",
+                      "path":  "audio/mj/seat2/南风.mp3",
+                      "bytes":  10413,
+                      "sha256":  "b5207e3d69bc6533ffa6414237295b7ec875f89cacbf618c6f5295f0b5f8a06d",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/seat2/碰.mp3",
-                      "bytes":  5805,
-                      "sha256":  "deafb6474ca842e974cabd641b050a2955dd45871f0a78753d9013255246d5d1",
+                      "bytes":  10029,
+                      "sha256":  "0733ed35f91a693341a735ff65294c250e206758715e428627c4f54ee84178c6",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -879,16 +991,9 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat2/西.mp3",
-                      "bytes":  12333,
-                      "sha256":  "f7973b86bb619a446171ab8dd2fec0757efd8cbe6c6d7322db061b0a29fbb9e4",
-                      "source":  "self",
-                      "license":  "自产-可自由使用"
-                  },
-                  {
-                      "path":  "audio/mj/seat2/中.mp3",
-                      "bytes":  6189,
-                      "sha256":  "ddb5ca027f9007cbefeebd51580ce6bda5d9d4916a8bb784f6ee06399a57e6d0",
+                      "path":  "audio/mj/seat2/西风.mp3",
+                      "bytes":  9261,
+                      "sha256":  "3353a41353e591cf29da068ba9ea93116618bf651a9641d7861414289592fca2",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -1089,37 +1194,37 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat3/白.mp3",
-                      "bytes":  9645,
-                      "sha256":  "9c30953ed69426416d05c43139dcbbdd006fbf3a24302ba39a28f7e60d907e4b",
+                      "path":  "audio/mj/seat3/白板.mp3",
+                      "bytes":  11565,
+                      "sha256":  "5012beeaed1341e00bdff68c333ad2d5c089fbda14834081b23269d98fc9166a",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat3/北.mp3",
-                      "bytes":  5421,
-                      "sha256":  "21d0b318fcf885ce16d99fb7a1676169af3943012060d6d95d5433f6bcfb7272",
+                      "path":  "audio/mj/seat3/北风.mp3",
+                      "bytes":  14253,
+                      "sha256":  "a0743c05e0a2b53cc4184e8d2ce945c9e9fad8f90612c4cead09e66cfb16a952",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat3/东.mp3",
-                      "bytes":  5805,
-                      "sha256":  "2ade8b97104c15d61d3bded930d8e8b254845a860bf42710bfd57f84fbdb8802",
+                      "path":  "audio/mj/seat3/东风.mp3",
+                      "bytes":  9261,
+                      "sha256":  "0c19e603b5e7b4b8559ea7c9930230e857db469ab9ce1450f0033a023dffba16",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat3/发.mp3",
-                      "bytes":  7341,
-                      "sha256":  "132580daac922374c6001895b3d2f0377c381ed38c10e2d958300e3d2e6c3335",
+                      "path":  "audio/mj/seat3/发财.mp3",
+                      "bytes":  11565,
+                      "sha256":  "bfb07850d8d11588d5064399936b44c873f69b801bc7115caa1b29201fbd825c",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/seat3/杠.mp3",
-                      "bytes":  6573,
-                      "sha256":  "8be05dbd2d7dfcf2b1ccd038ced7f90d199b903a709a43a67f6b0a3b086cb235",
+                      "bytes":  10029,
+                      "sha256":  "6617f1d1cabec6b2078fba533370cc0a8e5ad41bc2f790f0b1e1fb4501ffd227",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -1138,6 +1243,13 @@
                       "license":  "自产-可自由使用"
                   },
                   {
+                      "path":  "audio/mj/seat3/红中.mp3",
+                      "bytes":  10029,
+                      "sha256":  "05268124e688b61aaf82d86c88d12705b9d858e9693cf3dd6fb1654754796130",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
                       "path":  "audio/mj/seat3/胡.mp3",
                       "bytes":  8109,
                       "sha256":  "ac2878bf4f3be2948c90c5b1b4f0f7a24cbabb52f655c708612a3cb8259029a7",
@@ -1152,16 +1264,16 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat3/南.mp3",
-                      "bytes":  6573,
-                      "sha256":  "d23a089faadd6109d43e6a7b20d83bab6ea34ac79d2a14da9ecc99f4af5f92fe",
+                      "path":  "audio/mj/seat3/南风.mp3",
+                      "bytes":  10029,
+                      "sha256":  "2ecfbfdcd547a0bd6dedeb189803079ac44d56394620e5362a58268ad2845929",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/seat3/碰.mp3",
-                      "bytes":  5805,
-                      "sha256":  "02f31d5965780c1dbbac3cff4d081c0286c2cbdb935a754e3455b88957ea257d",
+                      "bytes":  15405,
+                      "sha256":  "f88345e97a1435f05c522ac5a4f52c3c2123d02d8fdffb89aa7d20cfc4bd990e",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -1180,16 +1292,9 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/seat3/西.mp3",
-                      "bytes":  9645,
-                      "sha256":  "77d88dc70f41596fdb55aff568960f8e6f15295fc31918d5e5d5af5093c52c24",
-                      "source":  "self",
-                      "license":  "自产-可自由使用"
-                  },
-                  {
-                      "path":  "audio/mj/seat3/中.mp3",
-                      "bytes":  5805,
-                      "sha256":  "3b7f1099603da7a99d7276a0708464428e4daf944267fed7cd5e092ee913516c",
+                      "path":  "audio/mj/seat3/西风.mp3",
+                      "bytes":  12717,
+                      "sha256":  "ed9e8acb469b70e2f21df41ec15b061cf75062bcc2014c55b87a8fa0e8899293",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
@@ -1201,114 +1306,114 @@
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/白.mp3",
-                      "bytes":  9645,
-                      "sha256":  "fb56c4d54cf84c5053f9706f4319a3b307e9cc51497ac379877e53bf43208f01",
+                      "path":  "audio/mj/白板.mp3",
+                      "bytes":  9261,
+                      "sha256":  "adb8342650b3fa7a087738f3db8dc9498c37a65bcae0540ab4d760b1ef6dcaa0",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/北.mp3",
-                      "bytes":  8109,
-                      "sha256":  "b2b435b6952f2671ffd868fb1e28a8dfb48ed6c08f2eea6fc6e564bc0c658418",
+                      "path":  "audio/mj/北风.mp3",
+                      "bytes":  15405,
+                      "sha256":  "56706c9ba2b6418c612d9865241bfbebee346be63d86a327738c2108a2e850d7",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/东.mp3",
-                      "bytes":  11181,
-                      "sha256":  "525fdac076111e3a07f9cf2242614a5a9198344f44bfbdd8d04fcba2e8116b46",
+                      "path":  "audio/mj/东风.mp3",
+                      "bytes":  10413,
+                      "sha256":  "049836428f270a5d4a0b2d81a08fb65dc0c1bfd56d29a161b1afc7eb1d23e838",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/发.mp3",
-                      "bytes":  8877,
-                      "sha256":  "f5feb36d84027ef09910b20824037d03b1736b82835a087661f8a599e2880f4f",
+                      "path":  "audio/mj/发财.mp3",
+                      "bytes":  10413,
+                      "sha256":  "fb13b9f99667978f260b8c7182ce6f0df01259a945adeb599b0cab974176bada",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/杠.mp3",
-                      "bytes":  5037,
-                      "sha256":  "590ce1ef2faa0076fa911b13ff0724eb930fc2ce7c4e97948485764009bbafc4",
+                      "bytes":  10413,
+                      "sha256":  "b71493870b7be6ff02638823b69e2bc64d3f88a64bf7c5338ac43ab578d9a009",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/杠开.mp3",
-                      "bytes":  11181,
-                      "sha256":  "0ec86c4c537d28eb08cc2d7a02395010e74452933fa1f93e9bfe063cdca1b672",
+                      "bytes":  18093,
+                      "sha256":  "2c3dbd273ec8940789066c17d5def7353e4b7940bafcb5d9bd238c8a786038af",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/过.mp3",
-                      "bytes":  11565,
-                      "sha256":  "b2058bcb2c88c359dfe13510407320663d4cd453e879254316fe63dc2f6e1724",
+                      "bytes":  9261,
+                      "sha256":  "37bfa87dc130b8de44cc9124dc9eb60003f5afcdfaf2b02418ebba36997f8605",
+                      "source":  "self",
+                      "license":  "自产-可自由使用"
+                  },
+                  {
+                      "path":  "audio/mj/红中.mp3",
+                      "bytes":  13101,
+                      "sha256":  "07b6574035e740063e2ff5dd6ac9ba0455865e963ae9bc34353fedbb8718b68d",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/胡.mp3",
-                      "bytes":  8877,
-                      "sha256":  "0ee9f13d65d9a9d83cfd33f94231dc388c2a93dccee2cf9da79a6ef7d8fcc377",
+                      "bytes":  7725,
+                      "sha256":  "2153e80fe1c866ef3728287814bc2c73433aee94acc236f62f12412913022e8e",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/流局.mp3",
-                      "bytes":  13485,
-                      "sha256":  "b710d9f918323cf1c86a93c69efec02401c3ede6690b94a49f06c276d2344250",
+                      "bytes":  16941,
+                      "sha256":  "f7001cfa661e1ad48a60ca77ea49a042b3c96246201a3483c3dbf8b1229f8adf",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/南.mp3",
-                      "bytes":  9261,
-                      "sha256":  "5a449cae1af9d80007627367ac1c2f262d1864c513b110e76872456473fd7b69",
+                      "path":  "audio/mj/南风.mp3",
+                      "bytes":  10029,
+                      "sha256":  "58315afa3c97190d58cf72bed0e3caa2cf1c9f64e8c7809905377dbf4a0ba3ba",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/碰.mp3",
-                      "bytes":  8493,
-                      "sha256":  "048ac97b4e78bb0553dbd8624e869d59d128a0e1a398215e61ba79a11784952c",
+                      "bytes":  9261,
+                      "sha256":  "47949c39e2ecda96e996050a0b217108c88d00f18cf01be598339a10cbc25f51",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/抢杠.mp3",
-                      "bytes":  10413,
-                      "sha256":  "3639c8d7e16f98c6f9362ead9b761d83ef14300800c82341c25a8fbe9b5db1cc",
+                      "bytes":  16941,
+                      "sha256":  "470d8478a7a9504a03be19021389a8ff72044ca4ea6b3b6b3af34240d62dd729",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/听.mp3",
-                      "bytes":  12717,
-                      "sha256":  "6ab00a3ddbe917e5e65defc4519abeff72d63a3b342a7f6fcbabd5d0e2fd2993",
+                      "bytes":  15405,
+                      "sha256":  "9005294bda47aca8313c8377aee18ea205470844c4829f46dd6d5689ef94e2ea",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
-                      "path":  "audio/mj/西.mp3",
-                      "bytes":  19245,
-                      "sha256":  "4f4b19dc2c136710995b8865b52ebf814274af197a20138c0cbde1ec568e7ca5",
-                      "source":  "self",
-                      "license":  "自产-可自由使用"
-                  },
-                  {
-                      "path":  "audio/mj/中.mp3",
-                      "bytes":  8493,
-                      "sha256":  "0ce2f785a382de29970fce3139832d66743a03ebc1c3926ecc2377920ff8ab7f",
+                      "path":  "audio/mj/西风.mp3",
+                      "bytes":  9645,
+                      "sha256":  "782db7a79a4bd18b6b2064966f331962cf2bd0e0fd223e5fa9b80d1ece065bea",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
                   {
                       "path":  "audio/mj/自摸.mp3",
-                      "bytes":  13485,
-                      "sha256":  "fe54e28871256f1cd15f0ccbf556b2a2f6b579c1c18cbfd843828b29782ed6d1",
+                      "bytes":  11181,
+                      "sha256":  "b25057b9abac7d312035a3d6084f63d4e40c9e96d8e8cb8301114dc818f0c60d",
                       "source":  "self",
                       "license":  "自产-可自由使用"
                   },
