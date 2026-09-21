@@ -1,0 +1,10 @@
+  A(a0.files.happy.length === 6, "欢呼池 6 条（bf-10 拍板池：v1/alt2/v3/alt3/v5/v6）",
+    a0.files.happy.join(","));
+  /* 池子里每一条都按规格量一遍（时长 / 采样率 / 声道）——池子换人不换规格 */
+  const poolInfos = a0.files.happy.map(f => mp3.mp3Info(path.join(bfDir, f)));
+  A(poolInfos.every(i => i.sampleRate === 48000 && i.channels === 1),
+    "6 条欢呼都是 48kHz / 单声道，且都有实际内容（>0.4s）",
+    poolInfos.map(i => i.duration.toFixed(2) + "s").join(" / "));
+  A(poolInfos.every(i => i.decoded > 0.4 && i.decoded <= 3.0),
+    "6 条欢呼每条 0.4~3s（边做边喊不至于叠成一片）",
+    poolInfos.map(i => i.decoded.toFixed(2)).join(" / "));

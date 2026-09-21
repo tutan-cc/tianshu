@@ -1,0 +1,29 @@
+{
+  "jobs": [
+    {
+      "file": "tools/bf/headless.js",
+      "from": "  /* bf-9：欢呼换成 6 条新录音（都是实测上扬的），另加 9 条「下锅那一刻」的烹饪音效 */\r\n  const FILES = [\"tick.mp3\", \"slow.mp3\",\r\n                 \"happy_v1.mp3\", \"happy_v2.mp3\", \"happy_v3.mp3\",\r\n                 \"happy_v4.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\",\r\n                 \"cook_congee.mp3\", \"cook_milk.mp3\", \"cook_soup.mp3\", \"cook_egg.mp3\",\r\n                 \"cook_bacon.mp3\", \"cook_sandwich.mp3\", \"cook_bun.mp3\",\r\n                 \"cook_salad.mp3\", \"cook_juice.mp3\"];",
+      "textFile": "tools/bf/_patch/bf10_h_files.txt"
+    },
+    {
+      "file": "tools/bf/headless.js",
+      "from": "  const voices = [\"happy_v1.mp3\", \"happy_v2.mp3\", \"happy_v3.mp3\", \"happy_v4.mp3\",\r\n                  \"happy_v5.mp3\", \"happy_v6.mp3\", \"slow.mp3\"].map(f => mp3.mp3Info(path.join(bfDir, f)));\r\n  A(voices.every(i => i.sampleRate === 48000 && i.channels === 1), \"七条语音都是 48kHz / 单声道\",\r\n    voices.map(i => i.duration.toFixed(2)).join(\"s / \") + \"s\");\r\n  A(voices.every(i => i.decoded > 0.4), \"七条语音都有实际内容（>0.4s，不是空文件）\",\r\n    voices.map(i => (i.decoded * 1000).toFixed(0) + \"ms\").join(\" · \"));\r\n  A(voices.every(i => i.decoded <= 3.0), \"六条欢呼每条 ≤ 3s（边做边喊不至于叠成一片）\",\r\n    voices.map(i => i.decoded.toFixed(2)).join(\" / \"));",
+      "text": "  /* bf-10：这七条的规格改到 ② 段按**开局后的真池子**量（见 a0.files.happy 那几句）——\n     原来这里写死了 v1..v6，用户换池之后就会量到错的文件上。 */"
+    },
+    {
+      "file": "tools/bf/headless.js",
+      "from": "    \"tick=\" + a0.files.tick.join(\",\") + \" happy=\" + a0.files.happy.join(\",\"));\n  const cookKeys = Object.keys(a0.cookFiles || {});",
+      "textFile": "tools/bf/_patch/bf10_h_pool.txt"
+    },
+    {
+      "file": "tools/bf/headless.js",
+      "from": "  const happyCalls = () => rec.audio.filter(c => /audio\\/bf\\/happy_v[1-6]\\.mp3$/.test(c.src));",
+      "text": "  const happyCalls = () => rec.audio.filter(c => /audio\\/bf\\/happy_(?:v[1-6]|alt[23])\\.mp3$/.test(c.src));"
+    },
+    {
+      "file": "tools/bf/headless.js",
+      "from": "  A(!!happyCalls()[0] && /^audio\\/bf\\/happy_v[1-6]\\.mp3$/.test(happyCalls()[0].src),\r\n    \"播的是六个变体之一：\" + ((happyCalls()[0] || {}).src || \"无\"));",
+      "text": "  A(!!happyCalls()[0] && /^audio\\/bf\\/happy_(?:v[1-6]|alt[23])\\.mp3$/.test(happyCalls()[0].src),\r\n    \"播的是拍板池里的一条：\" + ((happyCalls()[0] || {}).src || \"无\"));"
+    }
+  ]
+}

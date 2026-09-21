@@ -1,0 +1,17 @@
+  /* 对照件（B 组）留在盘上、但**不在**任何通道里（不参与轮换）。
+     bf-10：alt2 / alt3 被用户挑中、**已进轮换池** → 从「不参与」这张清单里移出，
+     改成单独断言它们真的在池子里（见下面那段），清单里只留仍未启用的 4 条。 */
+  ["happy_alt1.mp3", "happy_alt4.mp3", "happy_alt5.mp3", "happy_alt6.mp3"].forEach(f => {
+    assert.ok(fs.existsSync(path.join(dir, f)), "对照件 audio/bf/" + f + " 还在（试听页要用）");
+    assert.equal(R.audio.NAMES.some(n => R.audio.FILES[n].indexOf(f) >= 0), false,
+      f + " 不参与轮换（只在试听页里出现）");
+  });
+  /* 用户挑中的两条对照件现在**启用**了：在轮换池里、在盘上、规格与其余欢呼一致 */
+  ["happy_alt2.mp3", "happy_alt3.mp3"].forEach(f => {
+    assert.equal(R.audio.FILES.happy.indexOf(f) >= 0, true, f + " 已进轮换池（用户拍板启用）");
+    const info = mp3info.mp3Info(path.join(dir, f));
+    assert.equal(info.sampleRate, 48000, f + " 是 48kHz");
+    assert.equal(info.channels, 1, f + " 是单声道");
+    assert.ok(info.decoded > 0.4 && info.decoded <= 3.0,
+      f + " 时长 " + info.decoded.toFixed(2) + "s（0.4~3s）");
+  });

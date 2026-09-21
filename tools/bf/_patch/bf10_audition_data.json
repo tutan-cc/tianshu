@@ -1,0 +1,286 @@
+{
+ "A": [
+  {
+   "id": "happy_v1",
+   "file": "happy_v1.mp3",
+   "text": "好耶！开动啦！",
+   "voice": "Ethan",
+   "dur": 1.37,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 1.37,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 67,
+    "frames": 84,
+    "voiced_sec": 1.072,
+    "f0_first": 140.4,
+    "f0_last": 216.2,
+    "f0_min": 106.0,
+    "f0_max": 484.8,
+    "delta_hz": 75.9,
+    "delta_pct": 54.1,
+    "slope_hz_per_sec": 94.1,
+    "rising": true
+   },
+   "pct": 54.1,
+   "rising": true
+  },
+  {
+   "id": "happy_alt2",
+   "file": "happy_alt2.mp3",
+   "text": "呜呼～太好啦！",
+   "voice": "Serena",
+   "dur": 1.688,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 1.68775,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 81,
+    "frames": 104,
+    "voiced_sec": 1.296,
+    "f0_first": 313.7,
+    "f0_last": 238.8,
+    "f0_min": 70.2,
+    "f0_max": 457.1,
+    "delta_hz": -74.9,
+    "delta_pct": -23.9,
+    "slope_hz_per_sec": -75.0,
+    "rising": false
+   },
+   "pct": -23.9,
+   "rising": false
+  },
+  {
+   "id": "happy_v3",
+   "file": "happy_v3.mp3",
+   "text": "哇哦！好香啊！",
+   "voice": "Chelsie",
+   "dur": 1.531,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 1.53125,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 73,
+    "frames": 94,
+    "voiced_sec": 1.168,
+    "f0_first": 242.4,
+    "f0_last": 290.9,
+    "f0_min": 70.2,
+    "f0_max": 500.0,
+    "delta_hz": 48.5,
+    "delta_pct": 20.0,
+    "slope_hz_per_sec": 53.7,
+    "rising": true
+   },
+   "pct": 20.0,
+   "rising": true
+  },
+  {
+   "id": "happy_alt3",
+   "file": "happy_alt3.mp3",
+   "text": "哇！谢谢！",
+   "voice": "Ethan",
+   "dur": 0.735,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 0.735375,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 40,
+    "frames": 44,
+    "voiced_sec": 0.64,
+    "f0_first": 122.6,
+    "f0_last": 130.1,
+    "f0_min": 100.6,
+    "f0_max": 166.7,
+    "delta_hz": 7.5,
+    "delta_pct": 6.1,
+    "slope_hz_per_sec": 17.7,
+    "rising": true
+   },
+   "pct": 6.1,
+   "rising": true
+  },
+  {
+   "id": "happy_v5",
+   "file": "happy_v5.mp3",
+   "text": "耶！开动！",
+   "voice": "Serena",
+   "dur": 1.709,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 1.708771,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 66,
+    "frames": 105,
+    "voiced_sec": 1.056,
+    "f0_first": 326.7,
+    "f0_last": 347.8,
+    "f0_min": 72.4,
+    "f0_max": 390.2,
+    "delta_hz": 21.2,
+    "delta_pct": 6.5,
+    "slope_hz_per_sec": 21.0,
+    "rising": true
+   },
+   "pct": 6.5,
+   "rising": true
+  },
+  {
+   "id": "happy_v6",
+   "file": "happy_v6.mp3",
+   "text": "好耶！早餐！",
+   "voice": "Chelsie",
+   "dur": 1.492,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 1.49225,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 78,
+    "frames": 92,
+    "voiced_sec": 1.248,
+    "f0_first": 250.0,
+    "f0_last": 262.3,
+    "f0_min": 74.4,
+    "f0_max": 500.0,
+    "delta_hz": 12.3,
+    "delta_pct": 4.9,
+    "slope_hz_per_sec": 13.9,
+    "rising": true
+   },
+   "pct": 4.9,
+   "rising": true
+  }
+ ],
+ "B": [
+  {
+   "id": "happy_alt1",
+   "file": "happy_alt1.mp3",
+   "text": "呜呼！",
+   "voice": "Cherry",
+   "dur": 0.693,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 0.692771,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 41,
+    "frames": 42,
+    "voiced_sec": 0.656,
+    "f0_first": 301.9,
+    "f0_last": 280.7,
+    "f0_min": 73.1,
+    "f0_max": 444.4,
+    "delta_hz": -21.2,
+    "delta_pct": -7.0,
+    "slope_hz_per_sec": -52.5,
+    "rising": false
+   },
+   "pct": -7.0,
+   "rising": false
+  },
+  {
+   "id": "happy_alt4",
+   "file": "happy_alt4.mp3",
+   "text": "呜呼——！",
+   "voice": "Chelsie",
+   "dur": 0.669,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 0.668792,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 39,
+    "frames": 40,
+    "voiced_sec": 0.624,
+    "f0_first": 258.1,
+    "f0_last": 250.0,
+    "f0_min": 84.7,
+    "f0_max": 421.1,
+    "delta_hz": -8.1,
+    "delta_pct": -3.1,
+    "slope_hz_per_sec": -21.0,
+    "rising": false
+   },
+   "pct": -3.1,
+   "rising": false
+  },
+  {
+   "id": "happy_alt5",
+   "file": "happy_alt5.mp3",
+   "text": "耶！",
+   "voice": "Serena",
+   "dur": 0.27,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 0.269896,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 15,
+    "frames": 15,
+    "voiced_sec": 0.24,
+    "f0_first": 329.9,
+    "f0_last": 267.0,
+    "f0_min": 175.8,
+    "f0_max": 347.8,
+    "delta_hz": -63.0,
+    "delta_pct": -19.1,
+    "slope_hz_per_sec": -437.3,
+    "rising": false
+   },
+   "pct": -19.1,
+   "rising": false
+  },
+  {
+   "id": "happy_alt6",
+   "file": "happy_alt6.mp3",
+   "text": "太棒啦！",
+   "voice": "Cherry",
+   "dur": 0.839,
+   "info": {
+    "sample_rate": "48000",
+    "channels": 1,
+    "duration": 0.839396,
+    "bit_rate": "128000"
+   },
+   "pitch": {
+    "voiced_frames": 48,
+    "frames": 51,
+    "voiced_sec": 0.768,
+    "f0_first": 313.7,
+    "f0_last": 219.2,
+    "f0_min": 155.3,
+    "f0_max": 340.4,
+    "delta_hz": -94.5,
+    "delta_pct": -30.1,
+    "slope_hz_per_sec": -193.1,
+    "rising": false
+   },
+   "pct": -30.1,
+   "rising": false
+  }
+ ]
+}

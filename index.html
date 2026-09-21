@@ -808,7 +808,11 @@ brawl2:{loc:"alley", name:"老城区 · 一打二（2.0 验证）", day:6, per:2
     {v:"video/chase_run.mp4", who:"花衬衫", t:"「小子，纸箱套得挺好啊。」两个人一左一右逼上来，脚下是砖头和碎玻璃。", bg:"radial-gradient(ellipse at 50% 50%,#141420,#050508 80%)"},
     {v:"video/chase_run.mp4#t=60", t:"上一世你在这里挨过一顿。这一世，雷姐教你的东西还在肌肉里。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"},
   ],
-  inter:{type:"fight2", title:"一打二", hp:74,
+  /* hp 是调平出来的（见 docs 打斗2.0 §13.4）：
+     玩家每回合 4 点行动力 ⇒ 约 2 次有效攻击 ⇒ 完美打法 DPR ≈ 46，
+     配 320 血正好落在"6–9 回合"的设计目标上。
+     改这个值会同时影响"体干机制来不来得及展开"，动之前先跑 tests/fight2.test.cjs 的调平断言。 */
+  inter:{type:"fight2", title:"一打二", hp:320,
     perfect:{phy:14, cha:6, flags:["后巷立威"]}, ok:{phy:8, cha:3}, miss:{phy:4, cha:2}},
   after:[{v:"video/chase_end.mp4", t:"街对面餐馆里，一个年轻人放下筷子，死死盯着这边——他好像……认出你了。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"}],
   endTeaser:"<b>第二章预告</b> · 妹妹来了 / 深夜的投资大厦 / 公园里的大师<br>还有一个戴墨镜的人，在暗处数着你的每一步。",
@@ -2674,24 +2678,35 @@ function startFight(it){
    体干用 **0~1 的比例**而不是绝对值：伤害/格挡等数字都是"点数"级的，
    比例制下这些系数直接就是"几次打空/几次命中"的语义，调起来不用换算。 */
 const FIGHT2_TUNE = {
-  STAM_REGEN:    0.08,   // 每回合自然恢复
-  STAM_ON_HIT:   0.22,   // 攻击命中 → 对手掉（自己只掉一点）
-  STAM_SELF:     0.04,   // 出招自己的消耗
+  /* 每回合行动力。
+     ⚠ 这个值直接决定"一回合能出几次招"，而一局有多长几乎完全由它决定 ——
+       调平期间它是 3（3 次 1AP 直拳 ≈ 69 血/回合），对手 74 血 ⇒ 2 回合就打完，
+       体干/硬直/反击窗口一次都来不及触发。
+       现在 4 点、招式统一 2 AP ⇒ 每回合约 2 次有效攻击 ⇒ DPR ≈ 34，配 200 血的对手
+       正好落在设计目标 6–9 回合。改这个数请重跑 tools/dev/fight2-balance.js。 */
+  AP:            4,
+  /* 体干：玩家侧 */
+  STAM_REGEN:    0.12,   // 每回合自然恢复
+  STAM_ON_HIT:   0.22,   // 攻击命中 → 对手掉
+  STAM_SELF:     0.04,   // 出招自己的消耗（保留字段，当前由每招的 stam 决定）
   STAM_ON_BLOCK: 0.18,   // 被格挡 → 对手掉
-  STAM_ON_DODGE: 0.10,   // 闪避成功 → 自己掉
+  STAM_ON_DODGE: 0.08,   // 闪避成功 → 自己掉
   STAM_ON_TAKE:  0.30,   // 硬吃 → 自己掉（与伤害数值无关）
+  /* 体干：对手侧（对手回得慢一半，所以"连打压穿它"是可达的目标） */
+  FOE_REGEN:     0.06,   // 对手每回合恢复
+  FOE_REST_STAM: 0.06,   // 低于此值 → 这一手打不出来，只能喘气（亮反击窗口）
+  REST_REGEN:    0.28,   // 喘口气恢复多少
+  /* 倍率与节奏 */
   STUN_TAKEN_MULT: 2.5,  // 硬直期受伤倍率
   COUNTER_MULT:  2.2,    // 反击窗口伤害倍率
   TELL_MS:       450,    // 红闪预警时长（给玩家的反应窗口）
-  FOE_REST_STAM: 0.06,   // 对手体干低于此值 → 这一手只能喘口气（打空 + 亮红圈）
-  REST_REGEN:    0.28,   // 喘口气恢复多少体干
 };
 /* 玩家招式：stam 是自己掉的体干（低消耗招式能"养体干"） */
 const FIGHT2_MOVES = {
-  jab:   { n:"直 拳", ap:1, dmg:12, precise:true,  stam:0.05, desc:"1 行动力 · 12 · 精准" },
-  combo: { n:"组合拳", ap:2, dmg:8,  precise:true,  stam:0.12, mash:true, desc:"2 行动力 · 8 + 连打" },
-  low:   { n:"低 扫", ap:2, dmg:16, precise:false, stam:0.14, desc:"2 行动力 · 16" },
-  guard: { n:"抱 架", ap:1, guard:16, stam:-0.12,           desc:"1 行动力 · 格挡 +16 · 体干 +12" },
+  jab:   { n:"直 拳", ap:2, dmg:12, precise:true,  stam:0.20, desc:"2 行动力 · 12 · 精准（吃三档与反击加成）" },
+  combo: { n:"组合拳", ap:2, dmg:8,  precise:true,  stam:0.26, mash:true, desc:"2 行动力 · 8 + 连打" },
+  low:   { n:"低 扫", ap:2, dmg:17, precise:false, stam:0.24, desc:"2 行动力 · 17 · 不吃判定但稳定" },
+  guard: { n:"抱 架", ap:1, guard:20, stam:-0.12,           desc:"1 行动力 · 格挡 +20 · 体干 +12" },
   read:  { n:"读 招", ap:1, read:true, stam:-0.06,          desc:"1 行动力 · 公示意图 · 体干 +6" },
 };
 /* 对手招式库（P2 版）：
@@ -2700,11 +2715,11 @@ const FIGHT2_MOVES = {
      · stam —— 对手出这招要花的体干，不够就只能喘口气（打空 + 给玩家红圈）
    刻意**不带 band 字段**：距离轴是 P3 的事，现在加一个没人读的字段只会误导。 */
 const FIGHT2_FOE_MOVES = [
-  { id:"jab",   n:"直 拳", dmg:9,  say:"他压低重心，一记直拳。",       tell:"他重心前压", stam:0.14, def:"left"  },
-  { id:"combo", n:"连 击", dmg:6, x2:1, say:"他左右开弓，两下连击。",  tell:"他左右晃动", stam:0.22, def:"down"  },
-  { id:"guard", n:"抱 架", block:12, say:"他抱架缩身，护住面门。",     tell:"他抱架缩身", stam:0,    def:null    },
-  { id:"heavy", n:"重 拳", dmg:15, say:"他后撤半步——这是重拳的起手！", tell:"他后撤半步", stam:0.38, def:"left"  },
-  { id:"low",   n:"低 扫", dmg:11, say:"他抬腿扫向你小腿。",           tell:"他抬腿",     stam:0.28, def:"up"    },
+  { id:"jab",   n:"直 拳", dmg:16, say:"他压低重心，一记直拳。",       tell:"他重心前压", stam:0.16, def:"left"  },
+  { id:"combo", n:"连 击", dmg:10, x2:1, say:"他左右开弓，两下连击。",  tell:"他左右晃动", stam:0.24, def:"down"  },
+  { id:"guard", n:"抱 架", block:20, say:"他抱架缩身，护住面门。",     tell:"他抱架缩身", stam:0,    def:null    },
+  { id:"heavy", n:"重 拳", dmg:26, say:"他后撤半步——这是重拳的起手！", tell:"他后撤半步", stam:0.40, def:"left"  },
+  { id:"low",   n:"低 扫", dmg:19, say:"他抬腿扫向你小腿。",           tell:"他抬腿",     stam:0.30, def:"up"    },
   { id:"feint", n:"虚 招", dmg:0,  say:"他肩膀一动——是假动作。",       tell:"他肩膀一动", stam:0.06, def:null, feint:true },
 ];
 function startFight2(it){
@@ -2715,7 +2730,7 @@ function startFight2(it){
   const QTE_W = 0.10 + (b.window||0) + (bf.window||0);
   const zonesW = Math.max(14, Math.min(46, QTE_W * 100));
   let hp = maxHp, foeHp = it.hp || 74, foeMax = foeHp;
-  let turn = 1, ap = 3, alive = true, guard = 0, read = 0;
+  let turn = 1, ap = FIGHT2_TUNE.AP, alive = true, guard = 0, read = 0;
   /* ── P2 新增状态 ──
      stamMine / stamFoe：体干，0~1 比例（见 FIGHT2_TUNE 的说明）
      stunMine：自己体干归零 → 本回合动不了，被打时受伤 ×STUN_TAKEN_MULT
@@ -2724,7 +2739,7 @@ function startFight2(it){
   let stamMine = 1, stamFoe = 1, stunMine = false, foeStun = false, counter = false;
   let phase = "act";                    // act（你出招）| defend（对手出招，你闪）
   const log = [];
-  $("fight2Sub").innerHTML = `生命 <b>${maxHp}</b>（体魄加成）· 每回合 3 行动力 · 带【精准】的招式触发时机判定` +
+  $("fight2Sub").innerHTML = `生命 <b>${maxHp}</b>（体魄加成）· 每回合 ${FIGHT2_TUNE.AP} 行动力 · 带【精准】的招式触发时机判定` +
     `（完美 ×<b>${FIGHT_GRADE_MULT.perfect}</b>）· 对手出招会先<b style="color:#ff4d6d">红闪</b>提示方向，` +
     `按 <b>← / ↓ / ↑</b> 闪开 —— 闪对了不掉血、还会给你<b style="color:#ffd76e">反击窗口</b>`;
 
@@ -2742,7 +2757,7 @@ function startFight2(it){
     if(stunMine)    badges.push(`<span style="color:#ff4d6d">体干崩了 · 本回合动不了</span>`);
     if(foeStun)     badges.push(`<span style="color:#5dffa0">对手硬直</span>`);
     $("fight2Num").innerHTML = `你 <b>${Math.max(0,hp)}</b> / 对手 <b>${Math.max(0,foeHp)}</b> · 第 <b>${turn}</b> 回合 · 行动力 ` +
-      "●".repeat(Math.max(0,ap)) + "○".repeat(Math.max(0,3-ap)) + (badges.length ? " · " + badges.join(" · ") : "");
+      "●".repeat(Math.max(0,ap)) + "○".repeat(Math.max(0,FIGHT2_TUNE.AP-ap)) + (badges.length ? " · " + badges.join(" · ") : "");
     if(phase === "defend"){
       $("fight2Foe").innerHTML = `<span style="color:#ff4d6d">他出手了！</span> 按 <b>← / ↓ / ↑</b> 闪开` +
         `<span style="color:#8a87a3">（不按就是硬吃）</span>`;
@@ -2886,9 +2901,9 @@ function startFight2(it){
   function startTurn(){
     if(!alive) return;
     phase = "act";
-    turn++; ap = 3; read = Math.max(0, read - 1);
+    turn++; ap = FIGHT2_TUNE.AP; read = Math.max(0, read - 1);
     stamMine = Math.min(1, stamMine + FIGHT2_TUNE.STAM_REGEN);
-    stamFoe = Math.min(1, stamFoe + FIGHT2_TUNE.STAM_REGEN);
+    stamFoe  = Math.min(1, stamFoe  + FIGHT2_TUNE.FOE_REGEN);   // 对手回得慢一半：连打能压穿它
     /* 12 回合兜底：改成比"双方剩余血量比例"（原来只比对手是否掉到半血 ——
        那是 P1 遗留的不对称判据，自己残血而对手满血也会被判赢）。 */
     if(turn > 12) return finish(hp/maxHp >= foeHp/foeMax);
@@ -3033,6 +3048,9 @@ function startFight2(it){
                   guard:guard, read:read, phase:phase, counter:counter,
                   stamMine:stamMine, stamFoe:stamFoe, stunMine:stunMine, foeStun:foeStun,
                   alive:alive, log:log.slice(-6) }),
+    /* 判定条是"玩家点/按"才落判的，自动化跑整局时需要一个落判入口。
+       给的是真元素，调用方 click() 走的就是玩家那条路径（onclick → judgeBar.click）。 */
+    bars: ()=>({ bar:$("fight2Bar"), zone:$("fight2Zone"), cursor:$("fight2Cur"), perfect:$("fight2ZonePerfect") }),
     /* 防守窗口只在按键里推进，测试要能手动喂一个方向。
        这里走**真实路径**：取出 InputBus 挂在 window 上的那个 keydown 处理器，
        喂一个合成事件进去 —— 与玩家按方向键走的是同一条代码路径，
@@ -3577,11 +3595,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260920-1851" data-fp="94101e"
-     title="构建版本戳 · build 20260920-1851 · 内容指纹 94101e（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260920-1931" data-fp="3f7728"
+     title="构建版本戳 · build 20260920-1931 · 内容指纹 3f7728（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260920-1851 · ch 94101e · bf 205K · mj 288K · idx 225K · map 68K</div>
-<script>window.__BUILD={"build":"20260920-1851","fingerprint":"94101e","sizes":{"idx":225,"mj":288,"bf":205,"map":68},"files":{"index.html":229892,"mahjong.js":295035,"breakfast.js":209968,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789901463200,"map3d.js":1789789317181},"idxContentHash":"79c5f208a8e385cb9d93361acf62bd392fefb745","idxContentBytes":228602,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260920-1931 · ch 3f7728 · bf 206K · mj 288K · idx 226K · map 68K</div>
+<script>window.__BUILD={"build":"20260920-1931","fingerprint":"3f7728","sizes":{"idx":226,"mj":288,"bf":206,"map":68},"files":{"index.html":231515,"mahjong.js":295035,"breakfast.js":210585,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789903882036,"map3d.js":1789789317181},"idxContentHash":"e7e858decbec791ce3804082b4f0dfc11bfed75f","idxContentBytes":230218,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>

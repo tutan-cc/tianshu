@@ -478,11 +478,18 @@
   };
   var BF_SFX_FILES = {
     tick:  ["tick.mp3"],
-    /* 「拿到早餐」的欢呼（bf-9 重做）：6 条**实测上扬**的变体，随机取、且不连着重复同一条。
-       用户挑定之后只留一条即可（单条时 pick() 恒返回 0，不再随机）：
-         happy: ["happy_v3.mp3"]                                        */
-    happy: ["happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3",
-            "happy_v4.mp3", "happy_v5.mp3", "happy_v6.mp3"],
+    /* 「拿到早餐」的欢呼（bf-9 重做 · bf-10 用户拍板）：**6 条**变体，随机取、且不连着重复同一条
+       （audio.pick() 里的 lastPick 保证不连重）。
+       用户第二轮试听后拍板：「使用 A 组，但把 A 组里的 v2 换成 alt2；v4 换成 alt3」——
+         · 保留 v1 / v3 / v5 / v6
+         · happy_v2 → happy_alt2.mp3（「呜呼～太好啦！」，实测 1.69s，F0 -23.9%）
+         · happy_v4 → happy_alt3.mp3（「哇！谢谢！」，实测 0.74s，F0 +6.1%）
+       ⚠ alt2 的文本里也带「呜呼」，但这是用户**听着音频挑的**（他嫌的是 v2 那条念出来的效果），
+         不要再替他替换。
+       用户之后若要「只留一条」：把下面数组改成只留那一项即可
+       （单条时 pick() 恒返回 0，不再随机、不再轮换）。                            */
+    happy: ["happy_v1.mp3", "happy_alt2.mp3", "happy_v3.mp3",
+            "happy_alt3.mp3", "happy_v5.mp3", "happy_v6.mp3"],
     slow:  ["slow.mp3"]
   };
   /* 下锅通道：名字统一是 cook_<食材id>，一个通道一个文件（挂进同一张表 → 开关 / 回落 / 台账全复用）*/

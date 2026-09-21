@@ -1,0 +1,8 @@
+  /* bf-9：欢呼换成 6 条新录音（都是实测上扬的），另加 9 条「下锅那一刻」的烹饪音效。
+     bf-10：用户试听后拍板把池子改成 v1 / alt2 / v3 / alt3 / v5 / v6 ——
+     这里**不再写死文件名**，改成开局后从 debug.audio().files.happy 现取（见 ② 段），
+     免得以后每次换池都要同步一份常量（上一版就是写死了 v1..v6）。 */
+  const FILES = ["tick.mp3", "slow.mp3",
+                 "cook_congee.mp3", "cook_milk.mp3", "cook_soup.mp3", "cook_egg.mp3",
+                 "cook_bacon.mp3", "cook_sandwich.mp3", "cook_bun.mp3",
+                 "cook_salad.mp3", "cook_juice.mp3"];

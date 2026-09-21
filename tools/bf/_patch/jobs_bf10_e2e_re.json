@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "                            n: plays.filter(function(p){ return /happy_v[1-6]\\\\.mp3$/.test(p.url); }).length,",
+      "text": "                            n: plays.filter(function(p){ return /happy_(?:v[1-6]|alt[23])\\\\.mp3$/.test(p.url); }).length,"
+    },
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "  A((jh.plays || []).some(p => /happy_v[1-6]\\.mp3$/.test(p.url) && p.volume >= 0.3 && p.volume <= 0.8),",
+      "text": "  A((jh.plays || []).some(p => /happy_(?:v[1-6]|alt[23])\\.mp3$/.test(p.url) && p.volume >= 0.3 && p.volume <= 0.8),"
+    },
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "                            happy: d.audio().plays.filter(function(p){ return /happy_v[1-6]\\.mp3$/.test(p.url); }).length,",
+      "text": "                            happy: d.audio().plays.filter(function(p){ return /happy_(?:v[1-6]|alt[23])\\.mp3$/.test(p.url); }).length,"
+    }
+  ]
+}

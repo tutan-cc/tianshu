@@ -1,0 +1,16 @@
+  const h = played("happy");
+  assert.equal(h.length, 1, "只播一次欢呼（不是每个分支都播一遍）");
+  /* bf-10：用户试听后拍板 —— A 组里 v2 → alt2、v4 → alt3（其余保留）。
+     原断言：/^audio\/bf\/happy_v[1-6]\.mp3$/        （只认 v1..v6）
+     新断言：/^audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/  （alt2/alt3 已进池）*/
+  assert.ok(/^audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/.test(h[0].url), "取的是最终 6 条池里的一条：" + h[0].url);
+  assert.ok(h[0].volume >= 0.3 && h[0].volume <= 0.8, "音量适中：" + h[0].volume);
+  assert.equal(played("tick").length, 0, "不误放滴答");
+  assert.equal(played("slow").length, 0, "不误放「哼，太慢了」");
+  /* 最终池就是用户拍板的 6 条（顺序也照拍板结果写死，改池必须同步这里） */
+  jsonEq(R.audio.FILES.happy, ["happy_v1.mp3", "happy_alt2.mp3", "happy_v3.mp3",
+                               "happy_alt3.mp3", "happy_v5.mp3", "happy_v6.mp3"]);
+  assert.equal(R.audio.FILES.happy.length, 6, "6 条都在轮换池（随机取、不连重）");
+  R.audio.FILES.happy.forEach((f, i) => {
+    assert.ok(fs.existsSync(path.join(ROOT, "audio", "bf", f)), "audio/bf/" + f + " 在盘上");
+  });

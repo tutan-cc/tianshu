@@ -1423,13 +1423,15 @@ function runGlueChain(A) {
      也查运行时真的 new 了 Audio 并调了 play()（而不是只写了个函数没接上）。 */
 function runAudio() {
   const bfDir = path.join(OUT, "audio", "bf");
-  /* bf-9：欢呼换成 6 条新录音（都是实测上扬的），另加 9 条「下锅那一刻」的烹饪音效 */
+  /* bf-9：欢呼换成 6 条新录音（都是实测上扬的），另加 9 条「下锅那一刻」的烹饪音效。
+     bf-10：用户试听后拍板把池子改成 v1 / alt2 / v3 / alt3 / v5 / v6 ——
+     这里**不再写死文件名**，改成开局后从 debug.audio().files.happy 现取（见 ② 段），
+     免得以后每次换池都要同步一份常量（上一版就是写死了 v1..v6）。 */
   const FILES = ["tick.mp3", "slow.mp3",
-                 "happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3",
-                 "happy_v4.mp3", "happy_v5.mp3", "happy_v6.mp3",
                  "cook_congee.mp3", "cook_milk.mp3", "cook_soup.mp3", "cook_egg.mp3",
                  "cook_bacon.mp3", "cook_sandwich.mp3", "cook_bun.mp3",
                  "cook_salad.mp3", "cook_juice.mp3"];
+
 
   /* ── ① 素材：都在磁盘上、规格统一 ── */
   const missing = FILES.filter(f => !fs.existsSync(path.join(bfDir, f)) || fs.statSync(path.join(bfDir, f)).size < 600);
@@ -1440,14 +1442,8 @@ function runAudio() {
     (tk.decoded * 1000).toFixed(0) + "ms（" + tk.frames + " 帧）");
   A(tk.sampleRate === 48000 && tk.channels === 1, "tick.mp3 规格 48kHz / 单声道",
     tk.sampleRate + "Hz / " + tk.channels + "ch");
-  const voices = ["happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3", "happy_v4.mp3",
-                  "happy_v5.mp3", "happy_v6.mp3", "slow.mp3"].map(f => mp3.mp3Info(path.join(bfDir, f)));
-  A(voices.every(i => i.sampleRate === 48000 && i.channels === 1), "七条语音都是 48kHz / 单声道",
-    voices.map(i => i.duration.toFixed(2)).join("s / ") + "s");
-  A(voices.every(i => i.decoded > 0.4), "七条语音都有实际内容（>0.4s，不是空文件）",
-    voices.map(i => (i.decoded * 1000).toFixed(0) + "ms").join(" · "));
-  A(voices.every(i => i.decoded <= 3.0), "六条欢呼每条 ≤ 3s（边做边喊不至于叠成一片）",
-    voices.map(i => i.decoded.toFixed(2)).join(" / "));
+  /* bf-10：这七条的规格改到 ② 段按**开局后的真池子**量（见 a0.files.happy 那几句）——
+     原来这里写死了 v1..v6，用户换池之后就会量到错的文件上。 */
   /* 9 条下锅音效都是「短促的一声」：0.2s < 时长 ≤ 0.8s */
   const cookInfos = FILES.filter(f => /^cook_/.test(f)).map(f => mp3.mp3Info(path.join(bfDir, f)));
   A(cookInfos.length === 9 && cookInfos.every(i => i.decoded > 0.2 && i.decoded <= 0.8),
@@ -1459,7 +1455,7 @@ function runAudio() {
   const g = boot();
   const B = g.B, d = B.debug, rec = g.record;
   const tickCalls = () => rec.audio.filter(c => /audio\/bf\/tick\.mp3$/.test(c.src));
-  const happyCalls = () => rec.audio.filter(c => /audio\/bf\/happy_v[1-6]\.mp3$/.test(c.src));
+  const happyCalls = () => rec.audio.filter(c => /audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/.test(c.src));
   const slowCalls = () => rec.audio.filter(c => /audio\/bf\/slow\.mp3$/.test(c.src));
 
   A(B.start(g.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 300, goal: 99, onFinish() {} }) === true,
@@ -1475,7 +1471,21 @@ function runAudio() {
   A(a0.files.happy.length === 6 && a0.files.tick.length === 1 && a0.files.slow.length === 1,
     "词表：滴答 1 条 · 欢呼 6 个变体（bf-9 重做）· 哼 1 条",
     "tick=" + a0.files.tick.join(",") + " happy=" + a0.files.happy.join(","));
+  /* bf-10：欢呼池在**开局之后**现取（池子写死过一次、用户又换了人，
+     所以这里不再抄一份常量；池子里每条都按规格量一遍 —— 换人不换规格）*/
+  const poolNames = a0.files.happy.slice();
+  const poolInfos = poolNames.map(f => mp3.mp3Info(path.join(bfDir, f)));
+  A(poolInfos.every(i => i.sampleRate === 48000 && i.channels === 1),
+    "欢呼池 6 条都是 48kHz / 单声道（bf-10 拍板池：v1/alt2/v3/alt3/v5/v6）",
+    poolNames.map((f, i) => f + "=" + poolInfos[i].duration.toFixed(2) + "s").join(" "));
+  A(poolInfos.every(i => i.decoded > 0.4 && i.decoded <= 3.0),
+    "6 条欢呼每条 0.4~3s（边做边喊不至于叠成一片）",
+    poolInfos.map(i => i.decoded.toFixed(2)).join(" / "));
+  A(poolNames.indexOf("happy_alt2.mp3") >= 0 && poolNames.indexOf("happy_alt3.mp3") >= 0
+    && poolNames.indexOf("happy_v2.mp3") < 0 && poolNames.indexOf("happy_v4.mp3") < 0,
+    "用户拍板生效：alt2 / alt3 进池，v2 / v4 出池", poolNames.join(","));
   const cookKeys = Object.keys(a0.cookFiles || {});
+
   A(cookKeys.length === 9 && cookKeys.every(f => (a0.files["cook_" + f] || []).length === 1),
     "词表：9 样食材各有一条下锅音效，且都挂进同一张素材表（开关 / 回落 / 台账复用）",
     cookKeys.map(f => f + "→" + ((a0.files["cook_" + f] || [])[0] || "无")).join(" "));
@@ -1548,8 +1558,8 @@ function runAudio() {
   }
   A(served, "无头里真的完成了一次上餐（happy 断言的前提）");
   A(happyCalls().length === 1, "上餐成功 → 恰好播一条「呜呼」", happyCalls().length + " 条");
-  A(!!happyCalls()[0] && /^audio\/bf\/happy_v[1-6]\.mp3$/.test(happyCalls()[0].src),
-    "播的是六个变体之一：" + ((happyCalls()[0] || {}).src || "无"));
+  A(!!happyCalls()[0] && /^audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/.test(happyCalls()[0].src),
+    "播的是拍板池里的一条：" + ((happyCalls()[0] || {}).src || "无"));
   A(tickCalls().length === 0, "这一段没有误播滴答（耐心被压住 ≥95%）");
 
   /* ── ⑦ 跑单 → 「哼，太慢了」，同一帧多人也只播一条 ── */

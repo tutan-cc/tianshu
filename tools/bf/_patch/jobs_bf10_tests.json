@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  const h = played(\"happy\");\r\n  assert.equal(h.length, 1, \"只播一次欢呼（不是每个分支都播一遍）\");\r\n  assert.ok(/^audio\\/bf\\/happy_v[1-6]\\.mp3$/.test(h[0].url), \"取的是 happy 六条变体之一：\" + h[0].url);\r\n  assert.ok(h[0].volume >= 0.3 && h[0].volume <= 0.8, \"音量适中：\" + h[0].volume);\r\n  assert.equal(played(\"tick\").length, 0, \"不误放滴答\");\r\n  assert.equal(played(\"slow\").length, 0, \"不误放「哼，太慢了」\");\r\n  /* 三个变体确实都在词表里（随机取，避免听腻） */\r\n  /* bf-9：老的 happy/happy2/happy3 换成了 6 条**实测上扬**的新录音（用户嫌旧的不上扬） */\n  jsonEq(R.audio.FILES.happy, [\"happy_v1.mp3\", \"happy_v2.mp3\", \"happy_v3.mp3\",\n                               \"happy_v4.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\"]);\n  assert.equal(R.audio.FILES.happy.length, 6, \"6 条候选都进轮换池（用户挑定后再删）\");\n  R.audio.FILES.happy.forEach((f, i) => {\n    assert.ok(fs.existsSync(path.join(ROOT, \"audio\", \"bf\", f)), \"audio/bf/\" + f + \" 在盘上\");\n  });",
+      "textFile": "tools/bf/_patch/bf10_t_happy_block.txt"
+    },
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  /* 对照件（B 组）留在盘上、但**不在**任何通道里（不参与轮换） */\r\n  [\"happy_alt1.mp3\", \"happy_alt2.mp3\", \"happy_alt3.mp3\",\r\n   \"happy_alt4.mp3\", \"happy_alt5.mp3\", \"happy_alt6.mp3\"].forEach(f => {\r\n    assert.ok(fs.existsSync(path.join(dir, f)), \"对照件 audio/bf/\" + f + \" 还在（试听页要用）\");\r\n    assert.equal(R.audio.NAMES.some(n => R.audio.FILES[n].indexOf(f) >= 0), false,\r\n      f + \" 不参与轮换（只在试听页里出现）\");\r\n  });",
+      "textFile": "tools/bf/_patch/bf10_t_alt_block.txt"
+    },
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  assert.equal(R.audio.url(\"tick\", 0), \"audio/bf/tick.mp3\", \"url() 拼出来的路径对得上\");\r\n});\r\n",
+      "textFile": "tools/bf/_patch/bf10_t_new_test.txt"
+    }
+  ]
+}

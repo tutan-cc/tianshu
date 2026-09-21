@@ -1,0 +1,14 @@
+{
+    "jobs":  [
+                 {
+                     "file":  "tools/bf/e2e-audio.js",
+                     "from":  "/* bf-9：欢呼换成 6 条新录音（实测上扬），另加 9 条「下锅那一刻」的烹饪音效 */\nconst FILES = [\"tick.mp3\", \"slow.mp3\",\n               \"happy_v1.mp3\", \"happy_v2.mp3\", \"happy_v3.mp3\",\n               \"happy_v4.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\",\n               \"cook_congee.mp3\", \"cook_milk.mp3\", \"cook_soup.mp3\", \"cook_egg.mp3\",\n               \"cook_bacon.mp3\", \"cook_sandwich.mp3\", \"cook_bun.mp3\",\n               \"cook_salad.mp3\", \"cook_juice.mp3\"];",
+                     "text":  "/* bf-9：欢呼换成 6 条新录音（实测上扬），另加 9 条「下锅那一刻」的烹饪音效。\n   bf-10：欢呼池按用户拍板改成 v1 / alt2 / v3 / alt3 / v5 / v6 ——\n   这里保持写死（这一层的意义就是「不依赖页面里的常量也能证明文件真的能播」），\n   池子一旦再改，这个清单与下面那条池子断言要一起改。 */\nconst FILES = [\"tick.mp3\", \"slow.mp3\",\n               \"happy_v1.mp3\", \"happy_alt2.mp3\", \"happy_v3.mp3\",\n               \"happy_alt3.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\",\n               \"cook_congee.mp3\", \"cook_milk.mp3\", \"cook_soup.mp3\", \"cook_egg.mp3\",\n               \"cook_bacon.mp3\", \"cook_sandwich.mp3\", \"cook_bun.mp3\",\n               \"cook_salad.mp3\", \"cook_juice.mp3\"];"
+                 },
+                 {
+                     "file":  "tools/bf/e2e-audio.js",
+                     "from":  "    \"on=\" + j0.on + \" TICK_AT=\" + j0.tickAt + \" far=\" + j0.gapFar + \" near=\" + j0.gapNear);\n",
+                     "text":  "    \"on=\" + j0.on + \" TICK_AT=\" + j0.tickAt + \" far=\" + j0.gapFar + \" near=\" + j0.gapNear);\n  /* bf-10：页面里读到的欢呼池 = 用户拍板的 6 条（顺序即拍板顺序）*/\n  A(JSON.stringify(j0.files \u0026\u0026 j0.files.happy) ===\n    JSON.stringify([\"happy_v1.mp3\", \"happy_alt2.mp3\", \"happy_v3.mp3\",\n                    \"happy_alt3.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\"]),\n    \"真浏览器里读到的欢呼池 = 拍板池（v1/alt2/v3/alt3/v5/v6）\",\n    JSON.stringify((j0.files || {}).happy));\n"
+                 }
+             ]
+}

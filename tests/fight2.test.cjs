@@ -122,7 +122,8 @@ const newFight = (it) => {
   ["fight2Bar", "fight2Zone", "fight2ZonePerfect", "fight2Cur", "fight2Tell"].forEach((id) => {
     const el = EL[id]; if (el) el.style = {};
   });
-  api.startFight2(Object.assign({ type: "fight2", title: "一打二", hp: 74,
+  /* 兜底血量与 brawl2 节点保持一致（调平后是 320）；单个用例要特例时传 it 覆盖 */
+  api.startFight2(Object.assign({ type: "fight2", title: "一打二", hp: 320,
     perfect: { phy: 14 }, ok: { phy: 8 }, miss: { phy: 4 } }, it || {}));
 };
 const cursorPos = () => { const v = parseFloat(EL.fight2Cur.style.left); return isNaN(v) ? 0 : v; };
@@ -154,15 +155,20 @@ function strike(kind, pick) {
   return { landed, zoneL: L, zoneW: W, target: target, need: need, sfx: fightSfx(), log: plain(lastRow()) };
 }
 
-/** 把回合推到"下一次轮到玩家"，沿途把防守窗口按对手的 tell 闪掉。
-    P2 之后回合结束不再直接摸到玩家 —— 中间夹着对手的出招与红闪窗口。 */
+/** 把回合推进到"下一次轮到玩家"，沿途把防守窗口按对手的 tell 闪掉。
+    P2 之后回合结束不再直接摸到玩家 —— 中间夹着对手的出招与红闪窗口。
+    ⚠ 退出条件是"**见过防守阶段之后又回到 act**"，不能写成 `turn > turnAtStart`：
+      turnAtStart 不随循环更新，一旦成立就永远成立 → 循环直接空转到次数上限
+      （实测：卡在"第 2 回合"、循环 401 次）。 */
 function advanceTurn() {
-  let g = 0;
+  let g = 0, sawDefend = false;
   while (F().alive && g++ < 200) {
     const st = F().state();
-    if (st.phase === "act" && st.turn > turnAtStart) break;
     if (st.phase === "defend") {
+      sawDefend = true;
       if (!F().defend(dirForTell())) api.step();
+    } else if (sawDefend) {
+      break;                                   // 防守结束、又轮到玩家 → 收工
     } else {
       api.step();
     }
@@ -229,31 +235,34 @@ A(typeof F().state === "function", "测试接口 __cs2.fight2.state() 可用");
   A(/造成 8 伤害/.test(M.log), "偏出 ×0.7：直拳 12 → 8");
 }
 
-/* ── 3. 行动力与回合 ── */
+/* ── 3. 行动力与回合 ──
+   ⚠ 这里全部走 FIGHT2_MOVES 的数据，不写死数字：调平期改过行动力上限与招式消耗
+     （1AP 直拳 ×3 → 2AP 直拳 ×2），写死的断言会在调平后集体失效。 */
 {
   newFight();
-  A(F().ap === 3, "开局 3 行动力", String(F().ap));
+  const AP = 4;                       // 与 FIGHT2_TUNE.AP 一致
+  A(F().ap === AP, "开局满行动力（FIGHT2_TUNE.AP）", String(F().ap));
   actAndSettle("jab", wantPerfect);
-  A(F().ap === 2, "直拳消耗 1 行动力", String(F().ap));
+  A(F().ap === AP - 2, "直拳消耗 2 行动力（读 FIGHT2_MOVES 的定义）", String(F().ap));
   const hpAfterJab = F().hp;
-  actAndSettle("low", wantPerfect);               // 低扫 2 行动力 → 归零 → 自动结束回合
-  A(F().turn === 2, "行动力归零 → 自动进入第 2 回合", String(F().turn));
-  A(F().ap === 3, "新回合行动力恢复为 3", String(F().ap));
+  actAndSettle("low", wantPerfect);               // 再 2 点 → 归零 → 自动结束回合
+  A(F().turn === 2, "行动力用完 → 自动进入第 2 回合", String(F().turn));
+  A(F().ap === AP, "新回合行动力恢复满", String(F().ap));
   A(F().hp <= hpAfterJab, "对手在这一回合打中了你（或被你闪掉了）", hpAfterJab + " → " + F().hp);
-  A(F().foeHp < 74, "你的低扫也打中了对手", "foeHp=" + F().foeHp);
+  A(F().foeHp < (F().state().foeMax), "你的低扫也打中了对手", "foeHp=" + F().foeHp);
 }
 {
   newFight();
   actAndSettle("guard", wantPerfect);
-  A(F().guard >= 16, "抱架累计格挡", "guard=" + F().guard);
-  A(F().ap === 2, "抱架消耗 1 行动力", String(F().ap));
+  A(F().guard >= 20, "抱架累计格挡（+20）", "guard=" + F().guard);
+  A(F().ap === 3, "抱架只花 1 行动力（比出招便宜，所以抱得住）", String(F().ap));
 }
 {
   newFight();
   F().act("combo");
-  A(F().ap === 1, "组合拳消耗 2 行动力", String(F().ap));
-  actAndSettle("jab", wantPerfect);               // 还剩 1 点，能打
-  A(F().ap === 3 && F().turn === 2, "再打一记直拳把行动力用完 → 进入第 2 回合",
+  A(F().ap === 2, "组合拳消耗 2 行动力", String(F().ap));
+  actAndSettle("jab", wantPerfect);
+  A(F().ap === 4 && F().turn === 2, "2+2 把 4 点行动力用完 → 进入第 2 回合",
     "ap=" + F().ap + " turn=" + F().turn);
 }
 {
@@ -566,6 +575,67 @@ function settle() {
   A(AFTER.length >= 1, "结算照常走 afterInter", JSON.stringify(AFTER).slice(0, 70));
   A(api.WIN.count("keydown") === 0, "打完之后没有残留键盘监听（防守窗口也接了 InputBus）",
     "剩 " + api.WIN.count("keydown") + " 个");
+}
+
+/* ══════════════ P3 前置：调平回归（一局该有多长） ══════════════
+   这一组是"防漂移"用的。P2 第一版就是手算的数值：以为 6–9 回合，实测 2 回合，
+   体干/硬直/反击窗口一次都没来得及触发 —— 机制做了等于白做。
+   所以把"实测回合数"直接钉在测试里：改数值后如果跑出 2 回合，测试立刻红。 */
+{
+  /* 从 brawl2 节点读对手血量。⚠ 别用宽松的正则：`/brawl2:...hp:(\d+)/` 会一路
+     匹配到**下一个**节点的 inter.hp（旧 brawl 的 74），实测就踩了这个坑 —— 断言
+     拿着 74 去跑，还以为是调平没生效。这里只取 brawl2 那一段。 */
+  const foeHpOf = (() => {
+    const i = html.indexOf("brawl2:{");
+    if (i < 0) return null;
+    const seg = html.slice(i, i + 1500);
+    const m = /type:"fight2"[\s\S]{0,120}?hp:(\d+)/.exec(seg);
+    return m ? Number(m[1]) : null;
+  })();
+  A(foeHpOf !== null, "能从 brawl2 节点读到对手血量（调平断言的输入）", String(foeHpOf));
+
+  /** 完美打法打完一整局，返回统计 */
+  function playFull(grade, dodge) {
+    newFight({ hp: foeHpOf });
+    const maxHp = F().state().maxHp;
+    let g = 0, stunSeen = false, counterSeen = false, restSeen = false;
+    while (F().alive && g++ < 400) {
+      const st = F().state();
+      if (st.counter) counterSeen = true;
+      if (/喘|没能还手|没打出来/.test(plain(String(st.log.join(" "))))) restSeen = true;
+      if (st.phase === "defend") {
+        const dir = dodge ? dirForTell() : "right";
+        if (!F().defend(dir)) api.step();
+      } else if (st.stunMine) {
+        stunSeen = true;
+        F().act("jab");
+      } else if (st.ap >= 2) {
+        actAndSettle("jab", grade === "perfect" ? wantPerfect : wantGood);
+      } else {
+        api.step();
+      }
+    }
+    const st = F().state();
+    return { turns: st.turn, lost: maxHp - st.hp, maxHp, stunSeen, counterSeen, restSeen, loops: g };
+  }
+
+  const ideal = playFull("perfect", true);
+  A(ideal.turns >= 6 && ideal.turns <= 9,
+    "理想打法一局落在 6–9 回合（设计目标 §7.1）", ideal.turns + " 回合 · 承伤 " + ideal.lost + "/" + ideal.maxHp);
+  A(ideal.lost < ideal.maxHp * 0.5,
+    "全程闪对的话不该被打残（防守是有回报的）", "承伤 " + ideal.lost + "/" + ideal.maxHp);
+  A(ideal.counterSeen || ideal.restSeen,
+    "一局内至少能看到一次「对手喘气/反击窗口」（体干机制真的走起来了）",
+    "反击窗口 " + ideal.counterSeen + " · 对手喘气 " + ideal.restSeen);
+
+  const sloppy = playFull("good", true);
+  A(sloppy.turns >= ideal.turns,
+    "只打良好档 → 一局不会比完美打法更短", "良好 " + sloppy.turns + " 回合 vs 完美 " + ideal.turns);
+
+  const noDodge = playFull("perfect", false);
+  A(noDodge.lost > ideal.lost * 2,
+    "从不防守的代价足够大（承伤至少是闪对的两倍）",
+    "不防守 " + noDodge.lost + " vs 闪对 " + ideal.lost);
 }
 
 console.log("");

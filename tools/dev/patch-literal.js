@@ -34,6 +34,35 @@ function countOcc(hay, needle) {
   let n = 0, i = 0;
   for (;;) { const k = hay.indexOf(needle, i); if (k < 0) return n; n++; i = k + needle.length; }
 }
+
+/* 换行归一（bf-10 踩过的坑）：
+   本仓的文件是**换行混排**的 —— 同一个文件里既有 CRLF 也有历史裸 LF 行
+   （实测 headless.js 整段 1426–1432 是裸 LF、其余是 CRLF；breakfast.test.cjs 也是混的）。
+   jobs.json 里手写锚根本猜不准某一行是哪种，猜错就报「起始锚出现 0 次」，
+   而错的是一个看不见的字符，非常难查（本轮为此翻车两次）。
+   所以这里不再让写 job 的人去猜：把锚渲染成**两种风格各试一次**，
+   哪种在该文件里恰好命中 1 次就用哪种；替换文本跟着用同一种风格。
+   这样纯 CRLF / 纯 LF / 混排三种文件都能直接写锚。 */
+function majorEol(text) {
+  const crlf = countOcc(text, "\r\n");
+  const lf = countOcc(text, "\n") - crlf;
+  return crlf >= lf ? "\r\n" : "\n";
+}
+function normEol(text, eol) {
+  return String(text).replace(/\r\n|\r|\n/g, "\n").split("\n").join(eol);
+}
+/** 在 cur 里找锚：CRLF 版 / LF 版各试一次 → {at, len, eol, hits} */
+function findAnchor(cur, raw) {
+  const cands = [];
+  for (const eol of ["\r\n", "\n"]) {
+    const s = normEol(raw, eol);
+    if (!cands.some(c => c.s === s)) cands.push({ s: s, eol: eol });
+  }
+  const out = cands.map(c => ({ s: c.s, eol: c.eol, hits: countOcc(cur, c.s) }));
+  const one = out.filter(o => o.hits === 1);
+  if (one.length) return one[0];
+  return out[0];        // 都不唯一 → 交回调用方报错（消息里带命中数）
+}
 /* 语法闸：用 vm.Script 在**本进程内**编译（等价 node --check，但不需要再起子进程 ——
    本沙箱里 node 子进程用管道捕获输出会 EPERM，所以不做 spawn）。 */
 function checkJs(file) {
@@ -71,25 +100,28 @@ for (const job of spec.jobs) {
   if (!plan.has(file)) plan.set(file, { orig: fs.readFileSync(file, "utf8"), next: null, file: file });
   const e = plan.get(file);
   const cur = e.next === null ? e.orig : e.next;
-  const text = job.textFile ? fs.readFileSync(path.resolve(OUT, job.textFile), "utf8") : (job.text || "");
-  const fromN = countOcc(cur, job.from);
-  if (fromN !== 1) {
-    console.error("✗ job#" + step + "（" + job.file + "）：起始锚出现 " + fromN + " 次（必须恰好 1 次）");
-    console.error("  锚首 60 字：" + JSON.stringify(String(job.from).slice(0, 60)));
+  const rawText = job.textFile ? fs.readFileSync(path.resolve(OUT, job.textFile), "utf8") : (job.text || "");
+  /* 锚：先定换行风格（两种都试，命中 1 次的那个为准）*/
+  const fa = findAnchor(cur, job.from);
+  if (fa.hits !== 1) {
+    console.error("✗ job#" + step + "（" + job.file + "）：起始锚出现 " + fa.hits + " 次（必须恰好 1 次）");
+    console.error("  锚首 60 字：" + JSON.stringify(String(fa.s).slice(0, 60)));
     process.exit(1);
   }
-  const a = cur.indexOf(job.from);
-  let end = a + job.from.length;
+  const text = normEol(rawText, fa.eol);
+  const from = fa.s;
+  const a = cur.indexOf(from);
+  let end = a + from.length;
   if (job.to) {
-    const toN = countOcc(cur, job.to);
-    if (toN !== 1) {
-      console.error("✗ job#" + step + "（" + job.file + "）：结束锚出现 " + toN + " 次（必须恰好 1 次）");
-      console.error("  锚首 60 字：" + JSON.stringify(String(job.to).slice(0, 60)));
+    const ft = findAnchor(cur, job.to);
+    if (ft.hits !== 1) {
+      console.error("✗ job#" + step + "（" + job.file + "）：结束锚出现 " + ft.hits + " 次（必须恰好 1 次）");
+      console.error("  锚首 60 字：" + JSON.stringify(String(ft.s).slice(0, 60)));
       process.exit(1);
     }
-    const b = cur.indexOf(job.to);
+    const b = cur.indexOf(ft.s);
     if (b < a) { console.error("✗ job#" + step + "（" + job.file + "）：结束锚在起始锚之前"); process.exit(1); }
-    end = b + job.to.length;
+    end = b + ft.s.length;
   }
   if (countOcc(cur, text) > 0 && text.length > 40) {
     console.error("✗ job#" + step + "（" + job.file + "）：替换文本已经在文件里了（幂等保护，拒绝重复插入）");

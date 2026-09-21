@@ -2058,18 +2058,21 @@ test("音效②：拿到早餐 → 播欢呼（一次成功上餐只播一次，
   assert.equal(r.customer, c, "送给了点煎蛋的那位");
   const h = played("happy");
   assert.equal(h.length, 1, "只播一次欢呼（不是每个分支都播一遍）");
-  assert.ok(/^audio\/bf\/happy_v[1-6]\.mp3$/.test(h[0].url), "取的是 happy 六条变体之一：" + h[0].url);
+  /* bf-10：用户试听后拍板 —— A 组里 v2 → alt2、v4 → alt3（其余保留）。
+     原断言：/^audio\/bf\/happy_v[1-6]\.mp3$/        （只认 v1..v6）
+     新断言：/^audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/  （alt2/alt3 已进池）*/
+  assert.ok(/^audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/.test(h[0].url), "取的是最终 6 条池里的一条：" + h[0].url);
   assert.ok(h[0].volume >= 0.3 && h[0].volume <= 0.8, "音量适中：" + h[0].volume);
   assert.equal(played("tick").length, 0, "不误放滴答");
   assert.equal(played("slow").length, 0, "不误放「哼，太慢了」");
-  /* 三个变体确实都在词表里（随机取，避免听腻） */
-  /* bf-9：老的 happy/happy2/happy3 换成了 6 条**实测上扬**的新录音（用户嫌旧的不上扬） */
-  jsonEq(R.audio.FILES.happy, ["happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3",
-                               "happy_v4.mp3", "happy_v5.mp3", "happy_v6.mp3"]);
-  assert.equal(R.audio.FILES.happy.length, 6, "6 条候选都进轮换池（用户挑定后再删）");
+  /* 最终池就是用户拍板的 6 条（顺序也照拍板结果写死，改池必须同步这里） */
+  jsonEq(R.audio.FILES.happy, ["happy_v1.mp3", "happy_alt2.mp3", "happy_v3.mp3",
+                               "happy_alt3.mp3", "happy_v5.mp3", "happy_v6.mp3"]);
+  assert.equal(R.audio.FILES.happy.length, 6, "6 条都在轮换池（随机取、不连重）");
   R.audio.FILES.happy.forEach((f, i) => {
     assert.ok(fs.existsSync(path.join(ROOT, "audio", "bf", f)), "audio/bf/" + f + " 在盘上");
   });
+
   /* 同一次服务只播一次：再调一次同一份出餐（盘已空）不会重复播 */
   const again = R.serveFromColumn(st, col);
   assert.equal(again.ok, false, "盘空了 → 出餐被拒");
@@ -2646,13 +2649,24 @@ test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120
       assert.ok(fs.existsSync(path.join(dir, f)), "通道 " + n + " 点名的 audio/bf/" + f + " 在盘上");
     });
   });
-  /* 对照件（B 组）留在盘上、但**不在**任何通道里（不参与轮换） */
-  ["happy_alt1.mp3", "happy_alt2.mp3", "happy_alt3.mp3",
-   "happy_alt4.mp3", "happy_alt5.mp3", "happy_alt6.mp3"].forEach(f => {
+  /* 对照件（B 组）留在盘上、但**不在**任何通道里（不参与轮换）。
+     bf-10：alt2 / alt3 被用户挑中、**已进轮换池** → 从「不参与」这张清单里移出，
+     改成单独断言它们真的在池子里（见下面那段），清单里只留仍未启用的 4 条。 */
+  ["happy_alt1.mp3", "happy_alt4.mp3", "happy_alt5.mp3", "happy_alt6.mp3"].forEach(f => {
     assert.ok(fs.existsSync(path.join(dir, f)), "对照件 audio/bf/" + f + " 还在（试听页要用）");
     assert.equal(R.audio.NAMES.some(n => R.audio.FILES[n].indexOf(f) >= 0), false,
       f + " 不参与轮换（只在试听页里出现）");
   });
+  /* 用户挑中的两条对照件现在**启用**了：在轮换池里、在盘上、规格与其余欢呼一致 */
+  ["happy_alt2.mp3", "happy_alt3.mp3"].forEach(f => {
+    assert.equal(R.audio.FILES.happy.indexOf(f) >= 0, true, f + " 已进轮换池（用户拍板启用）");
+    const info = mp3info.mp3Info(path.join(dir, f));
+    assert.equal(info.sampleRate, 48000, f + " 是 48kHz");
+    assert.equal(info.channels, 1, f + " 是单声道");
+    assert.ok(info.decoded > 0.4 && info.decoded <= 3.0,
+      f + " 时长 " + info.decoded.toFixed(2) + "s（0.4~3s）");
+  });
+
   /* 下锅音效是「短促的一声」：0.2s < 时长 ≤ 0.8s（太长会盖住下一声） */
   Object.keys(R.audio.COOK_FILES).forEach(f => {
     const info = mp3info.mp3Info(path.join(dir, R.audio.COOK_FILES[f]));
@@ -2675,6 +2689,44 @@ test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120
     const info = mp3info.mp3Info(path.join(dir, f));
     assert.ok(info.decoded <= 3.0, f + " 时长 " + info.decoded.toFixed(2) + "s ≤ 3s");
   });
+  /* 素材目录与代码里写的目录一致（改目录时两边一起改） */
+  assert.equal(R.audio.DIR, "audio/bf/", "代码里的素材目录 = audio/bf/");
+test("音效：bf-10 最终轮换池 = 用户拍板的 6 条（v1/alt2/v3/alt3/v5/v6 · 随机不连重）", () => {
+  const dir = path.join(ROOT, "audio", "bf");
+  const POOL = ["happy_v1.mp3", "happy_alt2.mp3", "happy_v3.mp3",
+                "happy_alt3.mp3", "happy_v5.mp3", "happy_v6.mp3"];
+  /* ① 顺序与内容 = 用户拍板结果（v2→alt2、v4→alt3，其余保留）*/
+  jsonEq(R.audio.FILES.happy, POOL);
+  /* ② 每一条都在盘上 → 不存在「点名的文件不在盘上」的静默 404 */
+  POOL.forEach(f => assert.ok(fs.existsSync(path.join(dir, f)), "audio/bf/" + f + " 在盘上"));
+  /* ③ 用户挑中的两条对照件在池子里，没挑中的对照件仍不在 */
+  assert.equal(POOL.indexOf("happy_alt2.mp3") >= 0 && POOL.indexOf("happy_alt3.mp3") >= 0, true,
+    "alt2 / alt3 已启用（用户：把 v2 换成 alt2；v4 换成 alt3）");
+  assert.equal(POOL.indexOf("happy_v2.mp3"), -1, "v2 已换掉");
+  assert.equal(POOL.indexOf("happy_v4.mp3"), -1, "v4 已换掉");
+  /* ④ 它们仍然只是「文件」：没被任何**通道名**顶替（通道还是 happy 一个）*/
+  assert.equal(R.audio.NAMES.filter(n => n === "happy").length, 1, "通道名仍是 happy");
+  assert.equal(R.audio.url("happy", 1), "audio/bf/happy_alt2.mp3", "下标 1 = alt2（顺序即拍板顺序）");
+  assert.equal(R.audio.url("happy", 3), "audio/bf/happy_alt3.mp3", "下标 3 = alt3");
+  /* ⑤ 随机不连重：hook 住播放器，用真正的触发函数 playHappy 连抽 24 次
+     （每次隔 1s > HAPPY_MIN_GAP=0.9 → 节流不拦），邻两次不得是同一条，且 6 条都要出现过。
+     为什么不直接调 audio.play：rules.audio 是**挑过的公开面**（没有 play），验收要贴着真实触发链走。 */
+  const seen = [];
+  R.audio.hook(function (r) { if (r && r.name === "happy") seen.push(r.url); });
+  R.audio.setEnabled(true);
+  R.audio.clear();
+  for (let i = 0; i < 24; i++) R.audio.playHappy({ audio:{ lastHappyAt:-99, happies:0 }, elapsed: i * 1.0 });
+  R.audio.hook(null);
+  R.audio.clear();
+  assert.equal(seen.length, 24, "24 次都播了（节流没把它们拦掉）");
+  let adjacentSame = 0;
+  for (let i = 1; i < seen.length; i++) if (seen[i] === seen[i - 1]) adjacentSame++;
+  assert.equal(adjacentSame, 0, "从不连着重复同一条（lastPick 生效）");
+  assert.equal(new Set(seen).size, 6, "6 条都轮到过：" + Array.from(new Set(seen)).sort().join(","));
+  /* ⑥ 池子非空、每条 URL 都在池子里（pick 不会越界）*/
+  seen.forEach(u => assert.ok(POOL.indexOf(u.replace("audio/bf/", "")) >= 0, "播出的都在池子里：" + u));
+});
+
   /* 素材目录与代码里写的目录一致（改目录时两边一起改） */
   assert.equal(R.audio.DIR, "audio/bf/", "代码里的素材目录 = audio/bf/");
   assert.equal(R.audio.url("tick", 0), "audio/bf/tick.mp3", "url() 拼出来的路径对得上");
