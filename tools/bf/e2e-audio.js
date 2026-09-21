@@ -29,9 +29,14 @@ const PROFILE = path.join(OUT, "_prof_bfaudio");
    bf-10：欢呼池按用户拍板改成 v1 / alt2 / v3 / alt3 / v5 / v6 ——
    这里保持写死（这一层的意义就是「不依赖页面里的常量也能证明文件真的能播」），
    池子一旦再改，这个清单与下面那条池子断言要一起改。 */
+/* 原（bf-10）：happy_v1/alt2/v3/alt3/v5/v6（6 条池）
+   新（bf-11）：happy_v1/v3/finally2/i45（4 条池）
+   原因：用户 bf-11 重新点名 4 条，并要求把「终于好啦」那条换成**不含「呜呼」**的版本
+   （happy_v2 → happy_finally2）。happy_finally2.mp3 是**新文件**，必须在这里也证明
+   「真 Chrome 能解码播放」—— 新文件最容易出静默 404。 */
 const FILES = ["tick.mp3", "slow.mp3",
-               "happy_v1.mp3", "happy_alt2.mp3", "happy_v3.mp3",
-               "happy_alt3.mp3", "happy_v5.mp3", "happy_v6.mp3",
+               "happy_v1.mp3", "happy_v3.mp3",
+               "happy_finally2.mp3", "happy_i45.mp3",
                "cook_congee.mp3", "cook_milk.mp3", "cook_soup.mp3", "cook_egg.mp3",
                "cook_bacon.mp3", "cook_sandwich.mp3", "cook_bun.mp3",
                "cook_salad.mp3", "cook_juice.mp3"];
@@ -176,11 +181,14 @@ async function ev(e) {
   A(j0.on === true && j0.tickAt === 0.3 && j0.gapFar === 1 && j0.gapNear === 0.5,
     "真浏览器里读到的常量 / 开关与规格一致",
     "on=" + j0.on + " TICK_AT=" + j0.tickAt + " far=" + j0.gapFar + " near=" + j0.gapNear);
-  /* bf-10：页面里读到的欢呼池 = 用户拍板的 6 条（顺序即拍板顺序）*/
+  /* bf-11：页面里读到的欢呼池 = 用户拍板的 4 条（顺序即拍板顺序）
+     原（bf-10）：["happy_v1.mp3","happy_alt2.mp3","happy_v3.mp3","happy_alt3.mp3","happy_v5.mp3","happy_v6.mp3"]
+     新（bf-11）：["happy_v1.mp3","happy_v3.mp3","happy_finally2.mp3","happy_i45.mp3"]
+     原因：用户 bf-11 点名 4 条 + 要求「终于好啦」换成不含「呜呼」的版本。 */
   A(JSON.stringify(j0.files && j0.files.happy) ===
-    JSON.stringify(["happy_v1.mp3", "happy_alt2.mp3", "happy_v3.mp3",
-                    "happy_alt3.mp3", "happy_v5.mp3", "happy_v6.mp3"]),
-    "真浏览器里读到的欢呼池 = 拍板池（v1/alt2/v3/alt3/v5/v6）",
+    JSON.stringify(["happy_v1.mp3", "happy_v3.mp3",
+                    "happy_finally2.mp3", "happy_i45.mp3"]),
+    "真浏览器里读到的欢呼池 = bf-11 拍板池（v1/v3/finally2/i45）",
     JSON.stringify((j0.files || {}).happy));
 
   const btn = await ev(`(function(){
@@ -284,7 +292,7 @@ async function ev(e) {
     }
     var plays = d.audio().plays;
     return JSON.stringify({ served: served, restarts: restarts, steps: steps,
-                            n: plays.filter(function(p){ return /happy_(?:v[1-6]|alt[23])\\.mp3$/.test(p.url); }).length,
+                            n: plays.filter(function(p){ return /happy_(?:v1|v3|i45|finally2)\\.mp3$/.test(p.url); }).length,
                             running: !!(d.state() && d.state().running),
                             plays: plays });
   })()`);
@@ -294,7 +302,7 @@ async function ev(e) {
     "steps=" + jh.steps + " · restarts=" + jh.restarts + " · running=" + jh.running);
   A(jh.n === 1, "上餐成功 → 恰好播一条欢呼（六个变体之一）",
     JSON.stringify((jh.plays || []).map(p => p.url)));
-  A((jh.plays || []).some(p => /happy_(?:v[1-6]|alt[23])\.mp3$/.test(p.url) && p.volume >= 0.3 && p.volume <= 0.8),
+  A((jh.plays || []).some(p => /happy_(?:v1|v3|i45|finally2)\.mp3$/.test(p.url) && p.volume >= 0.3 && p.volume <= 0.8),
     "欢呼的音量与规格一致（0.55）",
     JSON.stringify((jh.plays || []).filter(p => /happy_v/.test(p.url)).map(p => p.url + "@" + p.volume)));
   const allBad = ["tick", "slow", "happy"].map(k => (k === "tick" ? jt : k === "slow" ? js : jh))
@@ -453,7 +461,7 @@ async function ev(e) {
                             partialServes: d.state().partialServes, partialBonus: d.state().partialBonus,
                             dServes: d.state().partialServes - ps0,
                             dBonus: Math.round((d.state().partialBonus - pb0) * 10) / 10,
-                            happy: d.audio().plays.filter(function(p){ return /happy_(?:v[1-6]|alt[23])\.mp3$/.test(p.url); }).length,
+                            happy: d.audio().plays.filter(function(p){ return /happy_(?:v1|v3|i45|finally2)\.mp3$/.test(p.url); }).length,
                             others: others });
   })()`);
   let jp2 = {};
@@ -470,7 +478,7 @@ async function ev(e) {
     "真浏览器：他还缺一样 → 部分上餐回 +3.5s 耐心（5 → " + jp2.patience + "，上限 " + jp2.max + "）",
     JSON.stringify({ patience: jp2.patience, max: jp2.max, 本次次数: jp2.dServes, 本次秒数: jp2.dBonus,
                      本局累计: jp2.partialServes + "/" + jp2.partialBonus + "s" }));
-  A(jp2.happy === 1, "真浏览器：这一次上餐照样播了一条欢呼（6 条变体之一）", String(jp2.happy));
+  A(jp2.happy === 1, "真浏览器：这一次上餐照样播了一条欢呼（bf-11 的 4 条变体之一）", String(jp2.happy));
 
   /* ── ⑧ 兼容性（bf-9 补）：Chrome 里 ellipse 仍是原生实现 → 外观与行为完全不变 ──
      IE11/Trident 没有 Canvas2D.ellipse（HTA 探针会弹「对象不支持 ellipse」），

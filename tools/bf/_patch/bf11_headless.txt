@@ -1,0 +1,20 @@
+  A(a0.files.happy.length === 4 && a0.files.tick.length === 1 && a0.files.slow.length === 1,
+    "词表：滴答 1 条 · 欢呼 4 个变体（bf-11 拍板）· 哼 1 条",
+    "tick=" + a0.files.tick.join(",") + " happy=" + a0.files.happy.join(","));
+  /* 欢呼池在**开局之后**现取（池子写死过一次、用户又换了人，
+     所以这里不再抄一份常量；池子里每条都按规格量一遍 —— 换人不换规格）
+     原（bf-10）：欢呼池 6 条、断言 alt2/alt3 进池且 v2/v4 出池
+     新（bf-11）：欢呼池 4 条 —— 用户重新点名「开动啦(v1) / v3 / 终于好啦 / i45」，
+     并要求把「终于好啦」那条换成**不含「呜呼」**的版本（happy_v2 → happy_finally2）。 */
+  const poolNames = a0.files.happy.slice();
+  const poolInfos = poolNames.map(f => mp3.mp3Info(path.join(bfDir, f)));
+  A(poolInfos.every(i => i.sampleRate === 48000 && i.channels === 1),
+    "欢呼池 4 条都是 48kHz / 单声道（bf-11 拍板池：v1/v3/finally2/i45）",
+    poolNames.map((f, i) => f + "=" + poolInfos[i].duration.toFixed(2) + "s").join(" "));
+  A(poolInfos.every(i => i.decoded > 0.4 && i.decoded <= 3.0),
+    "4 条欢呼每条 0.4~3s（边做边喊不至于叠成一片）",
+    poolInfos.map(i => i.decoded.toFixed(2)).join(" / "));
+  A(poolNames.indexOf("happy_v1.mp3") >= 0 && poolNames.indexOf("happy_v3.mp3") >= 0
+    && poolNames.indexOf("happy_finally2.mp3") >= 0 && poolNames.indexOf("happy_i45.mp3") >= 0
+    && poolNames.indexOf("happy_v2.mp3") < 0,
+    "用户 bf-11 拍板生效：点名 4 条进池，happy_v2（含「呜呼」）出池", poolNames.join(","));

@@ -2690,10 +2690,11 @@ const FIGHT2_TUNE = {
   STAM_ON_HIT:   0.22,   // 攻击命中 → 对手掉
   STAM_SELF:     0.04,   // 出招自己的消耗（保留字段，当前由每招的 stam 决定）
   STAM_ON_BLOCK: 0.18,   // 被格挡 → 对手掉
-  STAM_ON_DODGE: 0.08,   // 闪避成功 → 自己掉
+  STAM_ON_DODGE: 0.14,   // 闪避成功 → 自己掉（闪避不是免费的：一直闪也会把自己闪空）
   STAM_ON_TAKE:  0.30,   // 硬吃 → 自己掉（与伤害数值无关）
-  /* 体干：对手侧（对手回得慢一半，所以"连打压穿它"是可达的目标） */
-  FOE_REGEN:     0.06,   // 对手每回合恢复
+  /* 体干：对手侧（对手回得比玩家慢，但也不能慢到"根本出不了手"——
+     出不了手 = 玩家永远不会挨打 = 防守机制失去意义。实测 0.06 时对手几乎全程在喘气） */
+  FOE_REGEN:     0.22,   // 对手每回合恢复
   FOE_REST_STAM: 0.06,   // 低于此值 → 这一手打不出来，只能喘气（亮反击窗口）
   REST_REGEN:    0.28,   // 喘口气恢复多少
   /* 倍率与节奏 */
@@ -2713,13 +2714,17 @@ const FIGHT2_MOVES = {
      · tell —— 出招前的模糊意图；read 生效时改显示具体招式名
      · def  —— 玩家该按哪个方向闪（null = 这一手不用闪：抱架/虚招）
      · stam —— 对手出这招要花的体干，不够就只能喘口气（打空 + 给玩家红圈）
+   伤害量级的依据（实测标定，见 docs 打斗2.0 §13.4）：
+     对手一局大约只有 5 次出手机会（受体干限制），所以单次必须够疼 ——
+     硬吃三记重拳（45×3=135）就超过玩家满血 99，"从不防守"该是会输的打法。
+     实测：全程闪对 6 回合零伤；从不闪 8 回合只剩个位数血。
    刻意**不带 band 字段**：距离轴是 P3 的事，现在加一个没人读的字段只会误导。 */
 const FIGHT2_FOE_MOVES = [
-  { id:"jab",   n:"直 拳", dmg:16, say:"他压低重心，一记直拳。",       tell:"他重心前压", stam:0.16, def:"left"  },
-  { id:"combo", n:"连 击", dmg:10, x2:1, say:"他左右开弓，两下连击。",  tell:"他左右晃动", stam:0.24, def:"down"  },
+  { id:"jab",   n:"直 拳", dmg:30, say:"他压低重心，一记直拳。",       tell:"他重心前压", stam:0.12, def:"left"  },
+  { id:"combo", n:"连 击", dmg:18, x2:1, say:"他左右开弓，两下连击。",  tell:"他左右晃动", stam:0.18, def:"down"  },
   { id:"guard", n:"抱 架", block:20, say:"他抱架缩身，护住面门。",     tell:"他抱架缩身", stam:0,    def:null    },
-  { id:"heavy", n:"重 拳", dmg:26, say:"他后撤半步——这是重拳的起手！", tell:"他后撤半步", stam:0.40, def:"left"  },
-  { id:"low",   n:"低 扫", dmg:19, say:"他抬腿扫向你小腿。",           tell:"他抬腿",     stam:0.30, def:"up"    },
+  { id:"heavy", n:"重 拳", dmg:45, say:"他后撤半步——这是重拳的起手！", tell:"他后撤半步", stam:0.28, def:"left"  },
+  { id:"low",   n:"低 扫", dmg:34, say:"他抬腿扫向你小腿。",           tell:"他抬腿",     stam:0.22, def:"up"    },
   { id:"feint", n:"虚 招", dmg:0,  say:"他肩膀一动——是假动作。",       tell:"他肩膀一动", stam:0.06, def:null, feint:true },
 ];
 function startFight2(it){
@@ -2838,11 +2843,18 @@ function startFight2(it){
         onDone(grade, dir){ resolveFoeMove(fm, need, dir || null); },
       });
     } else {
-      /* 不用闪的招（抱架 / 虚招）也走一次预警，保持节奏一致，但不收输入 */
+      /* 不用闪的招（抱架 / 虚招）也走一次预警，保持节奏一致。
+         ⚠ 这里**同样要传 keys**。不传的话这条判定条没有任何输入途径：
+           方向键不响应、空格也不落判（judgeBar 在有 keys 时才收方向、没 keys 才收空格，
+           而这里当初两样都没给），只剩 duration 超时一条路 ——
+           一旦 rAF 不推进（自动化驱动就是这样），**整个回合会永远卡在防守阶段**。
+           实测：对手第一次出"抱架"就把一局打死在那里。
+           现在按任意方向都能过去（这一手本来就不需要看方向，按什么都不会受伤）。 */
       tell.style.display = "block"; tell.innerHTML = prompt;
       judgeBar({
         owner:"fight2-defend", speed:3.0, duration:FIGHT2_TUNE.TELL_MS/1000,
         width:100, left:0, show:"block",
+        keys:{ ArrowLeft:"left", ArrowRight:"right", ArrowDown:"down", ArrowUp:"up" },
         els:{ bar:$("fight2Bar"), zone:$("fight2Zone"), cursor:$("fight2Cur"), perfect:$("fight2ZonePerfect") },
         zones:[],
         onDone(){ resolveFoeMove(fm, null, null); },
@@ -3595,11 +3607,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260920-1931" data-fp="3f7728"
-     title="构建版本戳 · build 20260920-1931 · 内容指纹 3f7728（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260921-1205" data-fp="ddb0cf"
+     title="构建版本戳 · build 20260921-1205 · 内容指纹 ddb0cf（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260920-1931 · ch 3f7728 · bf 206K · mj 288K · idx 226K · map 68K</div>
-<script>window.__BUILD={"build":"20260920-1931","fingerprint":"3f7728","sizes":{"idx":226,"mj":288,"bf":206,"map":68},"files":{"index.html":231515,"mahjong.js":295035,"breakfast.js":210585,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789903882036,"map3d.js":1789789317181},"idxContentHash":"e7e858decbec791ce3804082b4f0dfc11bfed75f","idxContentBytes":230218,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260921-1205 · ch ddb0cf · bf 206K · mj 288K · idx 227K · map 68K</div>
+<script>window.__BUILD={"build":"20260921-1205","fingerprint":"ddb0cf","sizes":{"idx":227,"mj":288,"bf":206,"map":68},"files":{"index.html":232756,"mahjong.js":295035,"breakfast.js":211292,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789963552680,"map3d.js":1789789317181},"idxContentHash":"7c705b06141ba6609fd04c380b4bf653889e289e","idxContentBytes":231459,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>

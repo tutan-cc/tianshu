@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {
+      "file": "breakfast.js",
+      "from": "    happy: [\"happy_v1.mp3\", \"happy_v3.mp3\", \"happy_finally2.mp3\", \"happy_i45.mp3\"],",
+      "text": "    happy: [\"happy_v1.mp3\", \"happy_v3.mp3\", \"happy_finally2.mp3\", \"happy_i45.mp3\"],\n    slow:  [\"slow.mp3\"]"
+    }
+  ]
+}

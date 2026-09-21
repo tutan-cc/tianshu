@@ -1,0 +1,10 @@
+{
+  "jobs": [
+    {
+      "file": "tools/bf/headless.js",
+      "from": "  A(a0.files.happy.length === 6 && a0.files.tick.length === 1 && a0.files.slow.length === 1,\n    \"词表：滴答 1 条 · 欢呼 6 个变体（bf-9 重做）· 哼 1 条\",\n    \"tick=\" + a0.files.tick.join(\",\") + \" happy=\" + a0.files.happy.join(\",\"));\n  /* bf-10：欢呼池在**开局之后**现取（池子写死过一次、用户又换了人，\n     所以这里不再抄一份常量；池子里每条都按规格量一遍 —— 换人不换规格）*/\n  const poolNames = a0.files.happy.slice();\n  const poolInfos = poolNames.map(f => mp3.mp3Info(path.join(bfDir, f)));\n  A(poolInfos.every(i => i.sampleRate === 48000 && i.channels === 1),\n    \"欢呼池 6 条都是 48kHz / 单声道（bf-10 拍板池：v1/alt2/v3/alt3/v5/v6）\",\n    poolNames.map((f, i) => f + \"=\" + poolInfos[i].duration.toFixed(2) + \"s\").join(\" \"));\n  A(poolInfos.every(i => i.decoded > 0.4 && i.decoded <= 3.0),\n    \"6 条欢呼每条 0.4~3s（边做边喊不至于叠成一片）\",\n    poolInfos.map(i => i.decoded.toFixed(2)).join(\" / \"));\n  A(poolNames.indexOf(\"happy_alt2.mp3\") >= 0 && poolNames.indexOf(\"happy_alt3.mp3\") >= 0\n    && poolNames.indexOf(\"happy_v2.mp3\") < 0 && poolNames.indexOf(\"happy_v4.mp3\") < 0,\n    \"用户拍板生效：alt2 / alt3 进池，v2 / v4 出池\", poolNames.join(\",\"));",
+      "to": "  const cookKeys = Object.keys(a0.cookFiles || {});",
+      "textFile": "tools/bf/_patch/bf11_headless.txt"
+    }
+  ]
+}

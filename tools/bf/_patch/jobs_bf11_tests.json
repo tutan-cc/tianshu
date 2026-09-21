@@ -1,0 +1,16 @@
+{
+  "jobs": [
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  /* bf-10：用户试听后拍板 —— A 组里 v2 → alt2、v4 → alt3（其余保留）。",
+      "to": "  assert.equal(R.audio.FILES.happy.length, 6, \"6 条都在轮换池（随机取、不连重）\");",
+      "textFile": "tools/bf/_patch/bf11_tests_a.txt"
+    },
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  /* 用户挑中的两条对照件现在**启用**了：在轮换池里、在盘上、规格与其余欢呼一致 */",
+      "to": "  });\n\n  /* 下锅音效是「短促的一声」：0.2s < 时长 ≤ 0.8s（太长会盖住下一声） */",
+      "textFile": "tools/bf/_patch/bf11_tests_b.txt"
+    }
+  ]
+}

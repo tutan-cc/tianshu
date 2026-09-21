@@ -1,0 +1,30 @@
+  /* bf-11：**哪 4 条在轮换池里** + 它们都在盘上、规格与其余欢呼一致。
+     原断言（bf-10）：["happy_alt2.mp3","happy_alt3.mp3"] 已进轮换池
+     新断言（bf-11）：["happy_v1.mp3","happy_v3.mp3","happy_finally2.mp3","happy_i45.mp3"] 进池
+     原因：用户 bf-11 重新点名了 4 条，并要求把「终于好啦」那条换成**不含「呜呼」**的版本
+     （happy_v2 → happy_finally2）；alt2 / alt3 随之出池。
+     这一条同时守住「代码点名的每条都真的在盘上」——happy_finally2.mp3 是新文件，
+     万一没落盘，就是静默 404，只有这里能拦住。 */
+  ["happy_v1.mp3", "happy_v3.mp3", "happy_finally2.mp3", "happy_i45.mp3"].forEach(f => {
+    assert.equal(R.audio.FILES.happy.indexOf(f) >= 0, true, f + " 在轮换池里（用户 bf-11 拍板）");
+    const info = mp3info.mp3Info(path.join(dir, f));
+    assert.equal(info.sampleRate, 48000, f + " 是 48kHz");
+    assert.equal(info.channels, 1, f + " 是单声道");
+    assert.ok(info.decoded > 0.4 && info.decoded <= 3.0,
+      f + " 时长 " + info.decoded.toFixed(2) + "s（0.4~3s）");
+  });
+  /* happy_v2 已出池（用户否决「呜呼」），但**文件仍留在盘上**供对比 */
+  assert.equal(R.audio.FILES.happy.indexOf("happy_v2.mp3"), -1, "happy_v2.mp3 已不在任何播放通道里");
+  assert.ok(fs.existsSync(path.join(dir, "happy_v2.mp3")), "happy_v2.mp3 文件仍留在盘上（对比用）");
+  /* 池里的「终于好啦」那条**不许含「呜呼」** —— 这正是本轮替换的目的，写成断言防止回退 */
+  const finallyName = R.audio.FILES.happy.filter(f => f.indexOf("finally") >= 0);
+  assert.equal(finallyName.length, 1, "池里有且只有一条 happy_finally*.mp3（本轮新换的「终于好啦」）");
+  /* 池里唯一那条「终于好啦」必须就是 happy_finally2.mp3（内容 = 实测上扬的 happy_n56 的副本）*/
+  assert.equal(finallyName[0], "happy_finally2.mp3", "「终于好啦」那条 = happy_finally2.mp3");
+  /* 它的字节数必须与摇出来的源件 happy_n56.mp3 一致 —— 防止「复制时拷错文件」这类静默事故
+     （本轮它就是 happy_n56.mp3 的副本；尺寸对不上说明接错了源）*/
+  const srcN56 = path.join(dir, "happy_n56.mp3");
+  if (fs.existsSync(srcN56)) {
+    assert.equal(fs.statSync(path.join(dir, "happy_finally2.mp3")).size, fs.statSync(srcN56).size,
+      "happy_finally2.mp3 与源件 happy_n56.mp3 尺寸一致（接对了源）");
+  }

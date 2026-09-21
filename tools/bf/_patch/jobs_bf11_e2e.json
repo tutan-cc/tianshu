@@ -1,0 +1,14 @@
+{
+  "jobs": [
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "const FILES = [\"tick.mp3\", \"slow.mp3\",\n               \"happy_v1.mp3\", \"happy_alt2.mp3\", \"happy_v3.mp3\",\n               \"happy_alt3.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\",",
+      "text": "/* 原（bf-10）：happy_v1/alt2/v3/alt3/v5/v6（6 条池）\n   新（bf-11）：happy_v1/v3/finally2/i45（4 条池）\n   原因：用户 bf-11 重新点名 4 条，并要求把「终于好啦」那条换成**不含「呜呼」**的版本\n   （happy_v2 → happy_finally2）。happy_finally2.mp3 是**新文件**，必须在这里也证明\n   「真 Chrome 能解码播放」—— 新文件最容易出静默 404。 */\nconst FILES = [\"tick.mp3\", \"slow.mp3\",\n               \"happy_v1.mp3\", \"happy_v3.mp3\",\n               \"happy_finally2.mp3\", \"happy_i45.mp3\","
+    },
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "  /* bf-10：页面里读到的欢呼池 = 用户拍板的 6 条（顺序即拍板顺序）*/\n  A(JSON.stringify(j0.files && j0.files.happy) ===\n    JSON.stringify([\"happy_v1.mp3\", \"happy_alt2.mp3\", \"happy_v3.mp3\",\n                    \"happy_alt3.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\"]),\n    \"真浏览器里读到的欢呼池 = 拍板池（v1/alt2/v3/alt3/v5/v6）\",\n    JSON.stringify((j0.files || {}).happy));",
+      "text": "  /* bf-11：页面里读到的欢呼池 = 用户拍板的 4 条（顺序即拍板顺序）\n     原（bf-10）：[\"happy_v1.mp3\",\"happy_alt2.mp3\",\"happy_v3.mp3\",\"happy_alt3.mp3\",\"happy_v5.mp3\",\"happy_v6.mp3\"]\n     新（bf-11）：[\"happy_v1.mp3\",\"happy_v3.mp3\",\"happy_finally2.mp3\",\"happy_i45.mp3\"]\n     原因：用户 bf-11 点名 4 条 + 要求「终于好啦」换成不含「呜呼」的版本。 */\n  A(JSON.stringify(j0.files && j0.files.happy) ===\n    JSON.stringify([\"happy_v1.mp3\", \"happy_v3.mp3\",\n                    \"happy_finally2.mp3\", \"happy_i45.mp3\"]),\n    \"真浏览器里读到的欢呼池 = bf-11 拍板池（v1/v3/finally2/i45）\",\n    JSON.stringify((j0.files || {}).happy));"
+    }
+  ]
+}

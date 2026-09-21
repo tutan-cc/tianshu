@@ -1,0 +1,49 @@
+test("音效：bf-11 最终轮换池 = 用户拍板的 4 条（v1/v3/finally2/i45 · 随机不连重）", () => {
+  const dir = path.join(ROOT, "audio", "bf");
+  /* 原（bf-10）：["happy_v1.mp3","happy_alt2.mp3","happy_v3.mp3","happy_alt3.mp3","happy_v5.mp3","happy_v6.mp3"]（6 条）
+     新（bf-11）：["happy_v1.mp3","happy_v3.mp3","happy_finally2.mp3","happy_i45.mp3"]（4 条）
+     原因：用户 bf-11 原话「游戏里轮换『终于好啦』『开动啦』『哼，太慢了』这三个之前的语言。
+     还有 v3 和 i45 共 5 个」，随后又追加「换成不含『呜呼』的版本」——
+     于是「终于好啦」那条由 happy_v2（「呜呼！终于好啦！」）换成 happy_finally2（「太棒啦！终于好啦！」）。
+     顺序 = 用户点名顺序：开动啦(v1) → v3 → 终于好啦(finally2) → i45。
+     slow（「哼，太慢了」）是跑单语音，走单独通道，不在这个池子里。 */
+  const POOL = ["happy_v1.mp3", "happy_v3.mp3", "happy_finally2.mp3", "happy_i45.mp3"];
+  /* ① 顺序与内容 = 用户拍板结果 */
+  jsonEq(R.audio.FILES.happy, POOL);
+  /* ② 每一条都在盘上 → 不存在「点名的文件不在盘上」的静默 404 */
+  POOL.forEach(f => assert.ok(fs.existsSync(path.join(dir, f)), "audio/bf/" + f + " 在盘上"));
+  /* ③ 用户点名的 4 条都在池子里；被否掉的旧件不在池里 */
+  ["happy_v1.mp3", "happy_v3.mp3", "happy_finally2.mp3", "happy_i45.mp3"].forEach(f => {
+    assert.equal(POOL.indexOf(f) >= 0, true, f + " 已启用（用户 bf-11 点名）");
+  });
+  assert.equal(POOL.indexOf("happy_v2.mp3"), -1, "happy_v2 已换掉（含「呜呼」，用户否决）");
+  assert.equal(POOL.indexOf("happy_v4.mp3"), -1, "v4 不在本轮点名的 4 条里");
+  assert.equal(POOL.indexOf("happy_alt2.mp3"), -1, "alt2 不在本轮点名的 4 条里");
+  assert.equal(POOL.indexOf("happy_alt3.mp3"), -1, "alt3 不在本轮点名的 4 条里");
+  /* ④ 它们仍然只是「文件」：没被任何**通道名**顶替（通道还是 happy 一个）*/
+  assert.equal(R.audio.NAMES.filter(n => n === "happy").length, 1, "通道名仍是 happy");
+  assert.equal(R.audio.url("happy", 0), "audio/bf/happy_v1.mp3", "下标 0 = v1「开动啦」（顺序即拍板顺序）");
+  assert.equal(R.audio.url("happy", 1), "audio/bf/happy_v3.mp3", "下标 1 = v3");
+  assert.equal(R.audio.url("happy", 2), "audio/bf/happy_finally2.mp3", "下标 2 = finally2「终于好啦」");
+  assert.equal(R.audio.url("happy", 3), "audio/bf/happy_i45.mp3", "下标 3 = i45");
+  /* ⑤ 随机不连重：hook 住播放器，用真正的触发函数 playHappy 连抽 24 次
+     （每次隔 1s > HAPPY_MIN_GAP=0.9 → 节流不拦），邻两次不得是同一条，且 4 条都要出现过。
+     为什么不直接调 audio.play：rules.audio 是**挑过的公开面**（没有 play），验收要贴着真实触发链走。 */
+  const seen = [];
+  R.audio.hook(function (r) { if (r && r.name === "happy") seen.push(r.url); });
+  R.audio.setEnabled(true);
+  R.audio.clear();
+  for (let i = 0; i < 24; i++) R.audio.playHappy({ audio:{ lastHappyAt:-99, happies:0 }, elapsed: i * 1.0 });
+  R.audio.hook(null);
+  R.audio.clear();
+  assert.equal(seen.length, 24, "24 次都播了（节流没把它们拦掉）");
+  let adjacentSame = 0;
+  for (let i = 1; i < seen.length; i++) if (seen[i] === seen[i - 1]) adjacentSame++;
+  assert.equal(adjacentSame, 0, "从不连着重复同一条（lastPick 生效）");
+  /* 原（bf-10）：new Set(seen).size === 6（6 条都要轮到）
+     新（bf-11）：new Set(seen).size === 4（池子就是 4 条）—— 原因同上：池子从 6 条变 4 条 */
+  assert.equal(new Set(seen).size, 4, "4 条都轮到过：" + Array.from(new Set(seen)).sort().join(","));
+  /* ⑥ 池子非空、每条 URL 都在池子里（pick 不会越界）*/
+  seen.forEach(u => assert.ok(POOL.indexOf(u.replace("audio/bf/", "")) >= 0, "播出的都在池子里：" + u));
+});
+

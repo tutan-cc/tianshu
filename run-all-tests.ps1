@@ -57,10 +57,11 @@ $SUITES = @(
   # 守住两件最容易在重构里丢的事：① 拳击馆那场「等玩家按、不超时」与打斗「1.4 秒限时」
   # 两种语义都还在；② 三档判定靠「完美区 + 良好区」两条区间，只给完美区会退化成两档。
   [pscustomobject]@{ Layer = "logic";    Name = "公共判定条与输入总线";         Script = "tests/judge-bar.test.cjs";        Expect = 35 }
-  # 打斗 2.0（fight2）：P1 接线正确性 + P2 体干 / 预判防守 / 反击窗口。
-  # 三条最值钱的断言：① 三档真的接进伤害；② 防守的「方向对 / 方向错 / 不按」三种结果；
-  # ③ 硬直期受伤倍率的**方向**（普通态 vs 硬直态对比）—— 顺序写反过一次。
-  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（骨架 + 体干/防守/反击）"; Script = "tests/fight2.test.cjs";         Expect = 89 }
+  # 打斗 2.0（fight2）：P1 接线 + P2 体干/防守/反击 + 调平回归。
+  # 最值钱的四条：① 三档真的接进伤害；② 防守「方向对/错/不按」三种结果；
+  # ③ 硬直期受伤倍率的**方向**（普通态 vs 硬直态对比）；
+  # ④ 一局落在 6–9 回合 —— 防数值漂移：P2 第一版实测只有 2 回合，机制根本来不及展开。
+  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（机制 + 调平回归）";   Script = "tests/fight2.test.cjs";         Expect = 96 }
   [pscustomobject]@{ Layer = "headless"; Name = "早餐店无头证据链";             Script = "tools/bf/headless.js";            Expect = 351 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将浏览器实测（CDP→mshta）";  Script = "tools/e2e/mj-browser.js";         Expect = 168 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将系统 E2E（mshta）";         Script = "tools/e2e/mj-system.js";          Expect = 115 }

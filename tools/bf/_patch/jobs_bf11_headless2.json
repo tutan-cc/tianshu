@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {
+      "file": "tools/bf/headless.js",
+      "from": "    \"用户 bf-11 拍板生效：点名 4 条进池，happy_v2（含「呜呼」）出池\", poolNames.join(\",\"));\n\n\n  A(cookKeys.length === 9",
+      "text": "    \"用户 bf-11 拍板生效：点名 4 条进池，happy_v2（含「呜呼」）出池\", poolNames.join(\",\"));\n  const cookKeys = Object.keys(a0.cookFiles || {});\n\n  A(cookKeys.length === 9"
+    }
+  ]
+}

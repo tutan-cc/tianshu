@@ -1455,7 +1455,11 @@ function runAudio() {
   const g = boot();
   const B = g.B, d = B.debug, rec = g.record;
   const tickCalls = () => rec.audio.filter(c => /audio\/bf\/tick\.mp3$/.test(c.src));
-  const happyCalls = () => rec.audio.filter(c => /audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/.test(c.src));
+  /* 原（bf-10）：/audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/  —— 6 条池
+     新（bf-11）：/audio\/bf\/happy_(?:v[13]|i45|finally2)\.mp3$/ —— 4 条池
+     原因：用户 bf-11 重新点名 4 条并把「终于好啦」换成不含「呜呼」的版本；
+     alt2/alt3/v5/v6 已不在池里，正则必须同步收紧，否则「播了池外文件」也能通过。 */
+  const happyCalls = () => rec.audio.filter(c => /audio\/bf\/happy_(?:v[13]|i45|finally2)\.mp3$/.test(c.src));
   const slowCalls = () => rec.audio.filter(c => /audio\/bf\/slow\.mp3$/.test(c.src));
 
   A(B.start(g.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 300, goal: 99, onFinish() {} }) === true,
@@ -1468,22 +1472,26 @@ function runAudio() {
   A(a0.tickAt === 0.30 && a0.gapFar === 1.0 && a0.gapNear === 0.5,
     "常量与规格一致：TICK_AT=0.30 · 30% 档 1.0s · 10% 档 0.5s",
     a0.tickAt + " / " + a0.gapFar + "s / " + a0.gapNear + "s");
-  A(a0.files.happy.length === 6 && a0.files.tick.length === 1 && a0.files.slow.length === 1,
-    "词表：滴答 1 条 · 欢呼 6 个变体（bf-9 重做）· 哼 1 条",
+  A(a0.files.happy.length === 4 && a0.files.tick.length === 1 && a0.files.slow.length === 1,
+    "词表：滴答 1 条 · 欢呼 4 个变体（bf-11 拍板）· 哼 1 条",
     "tick=" + a0.files.tick.join(",") + " happy=" + a0.files.happy.join(","));
-  /* bf-10：欢呼池在**开局之后**现取（池子写死过一次、用户又换了人，
-     所以这里不再抄一份常量；池子里每条都按规格量一遍 —— 换人不换规格）*/
+  /* 欢呼池在**开局之后**现取（池子写死过一次、用户又换了人，
+     所以这里不再抄一份常量；池子里每条都按规格量一遍 —— 换人不换规格）
+     原（bf-10）：欢呼池 6 条、断言 alt2/alt3 进池且 v2/v4 出池
+     新（bf-11）：欢呼池 4 条 —— 用户重新点名「开动啦(v1) / v3 / 终于好啦 / i45」，
+     并要求把「终于好啦」那条换成**不含「呜呼」**的版本（happy_v2 → happy_finally2）。 */
   const poolNames = a0.files.happy.slice();
   const poolInfos = poolNames.map(f => mp3.mp3Info(path.join(bfDir, f)));
   A(poolInfos.every(i => i.sampleRate === 48000 && i.channels === 1),
-    "欢呼池 6 条都是 48kHz / 单声道（bf-10 拍板池：v1/alt2/v3/alt3/v5/v6）",
+    "欢呼池 4 条都是 48kHz / 单声道（bf-11 拍板池：v1/v3/finally2/i45）",
     poolNames.map((f, i) => f + "=" + poolInfos[i].duration.toFixed(2) + "s").join(" "));
   A(poolInfos.every(i => i.decoded > 0.4 && i.decoded <= 3.0),
-    "6 条欢呼每条 0.4~3s（边做边喊不至于叠成一片）",
+    "4 条欢呼每条 0.4~3s（边做边喊不至于叠成一片）",
     poolInfos.map(i => i.decoded.toFixed(2)).join(" / "));
-  A(poolNames.indexOf("happy_alt2.mp3") >= 0 && poolNames.indexOf("happy_alt3.mp3") >= 0
-    && poolNames.indexOf("happy_v2.mp3") < 0 && poolNames.indexOf("happy_v4.mp3") < 0,
-    "用户拍板生效：alt2 / alt3 进池，v2 / v4 出池", poolNames.join(","));
+  A(poolNames.indexOf("happy_v1.mp3") >= 0 && poolNames.indexOf("happy_v3.mp3") >= 0
+    && poolNames.indexOf("happy_finally2.mp3") >= 0 && poolNames.indexOf("happy_i45.mp3") >= 0
+    && poolNames.indexOf("happy_v2.mp3") < 0,
+    "用户 bf-11 拍板生效：点名 4 条进池，happy_v2（含「呜呼」）出池", poolNames.join(","));
   const cookKeys = Object.keys(a0.cookFiles || {});
 
   A(cookKeys.length === 9 && cookKeys.every(f => (a0.files["cook_" + f] || []).length === 1),
@@ -1557,9 +1565,9 @@ function runAudio() {
     if (s2.plate && s2.plateState !== "burnt") { const r = d.serveCol(col); if (r.ok) served = true; }
   }
   A(served, "无头里真的完成了一次上餐（happy 断言的前提）");
-  A(happyCalls().length === 1, "上餐成功 → 恰好播一条「呜呼」", happyCalls().length + " 条");
-  A(!!happyCalls()[0] && /^audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/.test(happyCalls()[0].src),
-    "播的是拍板池里的一条：" + ((happyCalls()[0] || {}).src || "无"));
+  A(happyCalls().length === 1, "上餐成功 → 恰好播一条欢呼", happyCalls().length + " 条");
+  A(!!happyCalls()[0] && /^audio\/bf\/happy_(?:v[13]|i45|finally2)\.mp3$/.test(happyCalls()[0].src),
+    "播的是 bf-11 拍板池里的一条：" + ((happyCalls()[0] || {}).src || "无"));
   A(tickCalls().length === 0, "这一段没有误播滴答（耐心被压住 ≥95%）");
 
   /* ── ⑦ 跑单 → 「哼，太慢了」，同一帧多人也只播一条 ── */

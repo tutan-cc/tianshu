@@ -1,0 +1,14 @@
+{
+  "jobs": [
+    {
+      "file": "tools/bf/headless.js",
+      "from": "  const happyCalls = () => rec.audio.filter(c => /audio\\/bf\\/happy_(?:v[1-6]|alt[23])\\.mp3$/.test(c.src));",
+      "text": "  /* 原（bf-10）：/audio\\/bf\\/happy_(?:v[1-6]|alt[23])\\.mp3$/  —— 6 条池\n     新（bf-11）：/audio\\/bf\\/happy_(?:v[13]|i45|finally2)\\.mp3$/ —— 4 条池\n     原因：用户 bf-11 重新点名 4 条并把「终于好啦」换成不含「呜呼」的版本；\n     alt2/alt3/v5/v6 已不在池里，正则必须同步收紧，否则「播了池外文件」也能通过。 */\n  const happyCalls = () => rec.audio.filter(c => /audio\\/bf\\/happy_(?:v[13]|i45|finally2)\\.mp3$/.test(c.src));"
+    },
+    {
+      "file": "tools/bf/headless.js",
+      "from": "  A(happyCalls().length === 1, \"上餐成功 → 恰好播一条「呜呼」\", happyCalls().length + \" 条\");\n  A(!!happyCalls()[0] && /^audio\\/bf\\/happy_(?:v[1-6]|alt[23])\\.mp3$/.test(happyCalls()[0].src),\n    \"播的是拍板池里的一条：\" + ((happyCalls()[0] || {}).src || \"无\"));",
+      "text": "  A(happyCalls().length === 1, \"上餐成功 → 恰好播一条欢呼\", happyCalls().length + \" 条\");\n  A(!!happyCalls()[0] && /^audio\\/bf\\/happy_(?:v[13]|i45|finally2)\\.mp3$/.test(happyCalls()[0].src),\n    \"播的是 bf-11 拍板池里的一条：\" + ((happyCalls()[0] || {}).src || \"无\"));"
+    }
+  ]
+}

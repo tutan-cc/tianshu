@@ -1,0 +1,18 @@
+  /* bf-11：用户重新拍板 —— 欢呼池换成 4 条（含「终于好啦」那条的**不含「呜呼」**版本）。
+     原断言：/^audio\/bf\/happy_(?:v[1-6]|alt[23])\.mp3$/  （bf-10 的 6 条池）
+     新断言：/^audio\/bf\/happy_(?:v[13]|i45|finally2)\.mp3$/ （bf-11 的 4 条池）
+     原因：用户原话「换成不含『呜呼』的版本」→ happy_v2（「呜呼！终于好啦！」）被换成
+     happy_finally2（「太棒啦！终于好啦！」）；同时 alt2 / alt3 / v5 / v6 已不在池里，
+     所以正则不能再放它们进来（否则「播了池外的文件」也能通过 = 断言失去意义）。*/
+  assert.ok(/^audio\/bf\/happy_(?:v[13]|i45|finally2)\.mp3$/.test(h[0].url),
+    "取的是最终 4 条池里的一条：" + h[0].url);
+  assert.ok(h[0].volume >= 0.3 && h[0].volume <= 0.8, "音量适中：" + h[0].volume);
+  assert.equal(played("tick").length, 0, "不误放滴答");
+  assert.equal(played("slow").length, 0, "不误放「哼，太慢了」");
+  /* 最终池就是用户拍板的 4 条（顺序也照拍板结果写死，改池必须同步这里）
+     原：["happy_v1.mp3","happy_alt2.mp3","happy_v3.mp3","happy_alt3.mp3","happy_v5.mp3","happy_v6.mp3"]（6 条）
+     新：["happy_v1.mp3","happy_v3.mp3","happy_finally2.mp3","happy_i45.mp3"]（4 条）
+     原因：用户 bf-11 点名「终于好啦 / 开动啦 / v3 / i45」，并追加「换成不含『呜呼』的版本」。 */
+  jsonEq(R.audio.FILES.happy, ["happy_v1.mp3", "happy_v3.mp3",
+                               "happy_finally2.mp3", "happy_i45.mp3"]);
+  assert.equal(R.audio.FILES.happy.length, 4, "4 条都在轮换池（随机取、不连重）");

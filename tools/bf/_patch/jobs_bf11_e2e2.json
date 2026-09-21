@@ -1,0 +1,24 @@
+{
+  "jobs": [
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "                            n: plays.filter(function(p){ return /happy_(?:v[1-6]|alt[23])\\\\.mp3$/.test(p.url); }).length,",
+      "text": "                            n: plays.filter(function(p){ return /happy_(?:v1|v3|i45|finally2)\\\\.mp3$/.test(p.url); }).length,"
+    },
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "  A((jh.plays || []).some(p => /happy_(?:v[1-6]|alt[23])\\.mp3$/.test(p.url) && p.volume >= 0.3 && p.volume <= 0.8),",
+      "text": "  A((jh.plays || []).some(p => /happy_(?:v1|v3|i45|finally2)\\.mp3$/.test(p.url) && p.volume >= 0.3 && p.volume <= 0.8),"
+    },
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "                            happy: d.audio().plays.filter(function(p){ return /happy_(?:v[1-6]|alt[23])\\.mp3$/.test(p.url); }).length,",
+      "text": "                            happy: d.audio().plays.filter(function(p){ return /happy_(?:v1|v3|i45|finally2)\\.mp3$/.test(p.url); }).length,"
+    },
+    {
+      "file": "tools/bf/e2e-audio.js",
+      "from": "  A(jp2.happy === 1, \"真浏览器：这一次上餐照样播了一条欢呼（6 条变体之一）\", String(jp2.happy));",
+      "text": "  A(jp2.happy === 1, \"真浏览器：这一次上餐照样播了一条欢呼（bf-11 的 4 条变体之一）\", String(jp2.happy));"
+    }
+  ]
+}

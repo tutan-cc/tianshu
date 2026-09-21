@@ -1,0 +1,10 @@
+{
+  "jobs": [
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  /* 素材目录与代码里写的目录一致（改目录时两边一起改） */\n  assert.equal(R.audio.DIR, \"audio/bf/\", \"代码里的素材目录 = audio/bf/\");\ntest(\"音效：bf-10 最终轮换池 = 用户拍板的 6 条（v1/alt2/v3/alt3/v5/v6 · 随机不连重）\", () => {",
+      "to": "  seen.forEach(u => assert.ok(POOL.indexOf(u.replace(\"audio/bf/\", \"\")) >= 0, \"播出的都在池子里：\" + u));\n});",
+      "textFile": "tools/bf/_patch/bf11_tests_c.txt"
+    }
+  ]
+}

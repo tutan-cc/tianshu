@@ -134,7 +134,18 @@ function dirForTell() {
   if (/抬腿/.test(t)) return "up";
   return "left";
 }
+/** 故意按**确定错**的方向：先读 tell 推出正确方向，再反着按。
+    别用"固定按某个方向"来模拟不防守 —— 实测按 down 时对手恰好常出需要 down 的招，
+    结果"从不防守"跑出零伤害。方向是 3 选 1，固定值迟早会撞上正确答案。 */
+function dirWrong() {
+  const right = dirForTell();
+  return right === "left" ? "right" : right === "down" ? "up" : "down";
+}
 let turnAtStart = 1;
+/** 直拳的行动力消耗 —— **从 FIGHT2_MOVES 读**，不要在用例里写死。
+    调平期把直拳从 1AP 改成 2AP，所有写死 `ap>=1 就出招` 的用例都会在 ap=1 时空转
+    （出招被拒 → 判定条不开 → 循环到上限），实测就是这么卡住的。 */
+const JAB_AP = JSON.parse(grabConst(html, "FIGHT2_MOVES")).jab.ap;
 
 /** 打一招并把光标推到指定落点。
     ⚠ 不能"边读当前光标位置边推进"：每帧走 2.2，而完美区只有 0.3×14 ≈ 4.2 宽，
@@ -166,7 +177,9 @@ function advanceTurn() {
     const st = F().state();
     if (st.phase === "defend") {
       sawDefend = true;
-      if (!F().defend(dirForTell())) api.step();
+      /* 这一层也会替玩家按方向 —— 调平时"故意按错"必须同样生效，
+         否则 advanceTurn 里会一直按对，把"不防守"这个对照组悄悄变成"完美防守"。 */
+      if (!F().defend(turnDirWrong ? dirWrong() : dirForTell())) api.step();
     } else if (sawDefend) {
       break;                                   // 防守结束、又轮到玩家 → 收工
     } else {
@@ -175,6 +188,8 @@ function advanceTurn() {
   }
   return F().state();
 }
+/** 调平对照用：为 true 时 advanceTurn 里也故意按错方向 */
+let turnDirWrong = false;
 /** 打一招，若因此结束了回合就一路推到下一次轮到玩家 */
 function actAndSettle(kind, pick) {
   const t0 = F().state().turn;
@@ -189,7 +204,7 @@ function settleFight() {
     const st = F().state();
     if (st.phase === "defend") { if (!F().defend(dirForTell())) api.step(); }
     else if (st.stunMine) F().act("jab");
-    else if (st.ap >= 1) actAndSettle("jab", wantPerfect);
+    else if (st.ap >= JAB_AP) actAndSettle("jab", wantPerfect);   // 读真实消耗，别写死
     else api.step();
   }
   return F().state();
@@ -207,8 +222,9 @@ A(api.BOUND.indexOf("skip") >= 0, "「跳过战斗」出口存在（给纯剧情
 A(typeof F().state === "function", "测试接口 __cs2.fight2.state() 可用");
 {
   const st = F().state();
-  A(st.hp > 0 && st.foeHp === 74 && st.ap === 3 && st.turn === 1,
-    "初始状态：满血 / 对手 74 / 3 行动力 / 第 1 回合", JSON.stringify({ hp: st.hp, foe: st.foeHp, ap: st.ap, turn: st.turn }));
+  A(st.hp > 0 && st.foeHp === 320 && st.ap === 4 && st.turn === 1,
+    "初始状态：满血 / 对手 320 / 4 行动力 / 第 1 回合",
+    JSON.stringify({ hp: st.hp, foe: st.foeHp, ap: st.ap, turn: st.turn }));
   A(Array.isArray(st.log) && st.log.length >= 1, "state().log 有开场白", JSON.stringify(st.log));
 }
 
@@ -266,14 +282,18 @@ A(typeof F().state === "function", "测试接口 __cs2.fight2.state() 可用");
     "ap=" + F().ap + " turn=" + F().turn);
 }
 {
-  /* 行动力不够时必须被拒（不能白打） */
+  /* 行动力不够时必须被拒（不能白打）。
+     ⚠ 别用"打一招把行动力用掉"来构造不足：招式消耗与行动力上限都是可调的，
+       写死"低扫之后只剩 1 点"在调平后就失效了（实测 ap 变成 0，断言自己骗自己）。
+       直接用 set() 把行动力摆成不足，语义更清楚。 */
   newFight();
-  actAndSettle("low", wantPerfect);               // ap 3→1
+  F().set({ ap: 1 });                             // 低扫要 2 点
   const before = F().state();
-  F().act("low");                                 // 还想要 2 点 → 应被拒
+  F().act("low");                                 // 应被拒
   A(F().ap === before.ap && F().turn === before.turn,
     "行动力不足时出招被拒（不会白打也不会误推进回合）",
     "ap " + before.ap + " → " + F().ap + " turn " + before.turn + " → " + F().turn);
+  A(F().foeHp === before.foeHp, "被拒时对手一点血都没掉", "foeHp " + before.foeHp + " → " + F().foeHp);
 }
 
 /* ── 4. 读招与意图公示 ── */
@@ -282,6 +302,10 @@ A(typeof F().state === "function", "测试接口 __cs2.fight2.state() 可用");
   const before = EL.fight2Foe.innerHTML;
   strike("read", wantPerfect);
   A(F().read === 2, "读招置位两回合（P2 起公示两回合）", String(F().read));
+  /* 意图公示要**渲染一次**才出现在面板上：strike() 落判那一刻 render 的还是旧状态，
+     这里是再点一帧（玩家在真实流程里下个回合开头就会看到）。 */
+  api.step();
+  F().set({});                                    // set() 内部会 render()
   A(/读招生效/.test(EL.fight2Foe.innerHTML) && EL.fight2Foe.innerHTML !== before,
     "读招后对手意图被公示", plain(EL.fight2Foe.innerHTML));
 }
@@ -485,9 +509,11 @@ function settle() {
   F().defend("left");                                // 闪开 → counter=true
   A(F().state().counter === true, "（前置）反击窗口已打开");
   const foeHp0 = F().state().foeHp;
+  const LOW = JSON.parse(grabConst(html, "FIGHT2_MOVES")).low.dmg;   // 低扫基础伤害（别写死）
   strike("low", () => 1);                            // 低扫不吃三档表 → 纯看反击倍率
   const dealt = foeHp0 - F().state().foeHp;
-  A(dealt === Math.round(16 * 2.2), "反击窗口内低扫 16 → 35（×2.2）", "实际造成 " + dealt);
+  A(dealt === Math.round(LOW * 2.2), "反击窗口内低扫 " + LOW + " → " + Math.round(LOW * 2.2) + "（×2.2）",
+    "实际造成 " + dealt);
   A(F().state().counter === false, "反击窗口用掉即关（不会一路白拿）", "counter=" + F().state().counter);
   void settleFight();
 }
@@ -495,8 +521,9 @@ function settle() {
   /* 关掉反击窗口后，同样的招应当回到基础伤害 */
   newFight();
   const foeHp0 = F().state().foeHp;
+  const LOW = JSON.parse(grabConst(html, "FIGHT2_MOVES")).low.dmg;
   strike("low", () => 1);
-  A(foeHp0 - F().state().foeHp === 16, "非反击窗口低扫就是 16（对照组）",
+  A(foeHp0 - F().state().foeHp === LOW, "非反击窗口低扫就是 " + LOW + "（对照组）",
     "实际造成 " + (foeHp0 - F().state().foeHp));
 }
 
@@ -565,7 +592,7 @@ function settle() {
       if (!F().defend(dir)) api.step();
     } else if (st.stunMine) {
       F().act("jab");
-    } else if (st.ap >= 1) {
+    } else if (st.ap >= JAB_AP) {
       strike("jab", wantPerfect);
     } else {
       api.step();
@@ -597,25 +624,27 @@ function settle() {
   /** 完美打法打完一整局，返回统计 */
   function playFull(grade, dodge) {
     newFight({ hp: foeHpOf });
+    turnDirWrong = !dodge;                  // 让 advanceTurn 里也按同一种策略走
     const maxHp = F().state().maxHp;
-    let g = 0, stunSeen = false, counterSeen = false, restSeen = false;
+    let g = 0, stunSeen = false, counterSeen = false, restSeen = false, defendSeen = 0;
     while (F().alive && g++ < 400) {
       const st = F().state();
       if (st.counter) counterSeen = true;
       if (/喘|没能还手|没打出来/.test(plain(String(st.log.join(" "))))) restSeen = true;
       if (st.phase === "defend") {
-        const dir = dodge ? dirForTell() : "right";
-        if (!F().defend(dir)) api.step();
+        defendSeen++;
+        if (!F().defend(dodge ? dirForTell() : dirWrong())) api.step();
       } else if (st.stunMine) {
         stunSeen = true;
         F().act("jab");
-      } else if (st.ap >= 2) {
+      } else if (st.ap >= JAB_AP) {
         actAndSettle("jab", grade === "perfect" ? wantPerfect : wantGood);
       } else {
         api.step();
       }
     }
     const st = F().state();
+    turnDirWrong = false;
     return { turns: st.turn, lost: maxHp - st.hp, maxHp, stunSeen, counterSeen, restSeen, loops: g };
   }
 
@@ -633,8 +662,11 @@ function settle() {
     "只打良好档 → 一局不会比完美打法更短", "良好 " + sloppy.turns + " 回合 vs 完美 " + ideal.turns);
 
   const noDodge = playFull("perfect", false);
-  A(noDodge.lost > ideal.lost * 2,
-    "从不防守的代价足够大（承伤至少是闪对的两倍）",
+  /* 断言"明显更疼"而不是"两倍"：对手一局只有约 5 次出手机会（体干限制），
+     所以差距不可能无限拉大。实测：闪对 0 伤 / 不闪掉 2/3 血。
+     这条的意义是"防守必须值钱"，不是"不防守必输"。 */
+  A(noDodge.lost > ideal.lost + 20,
+    "从不防守的代价足够大（明显比闪对疼）",
     "不防守 " + noDodge.lost + " vs 闪对 " + ideal.lost);
 }
 
