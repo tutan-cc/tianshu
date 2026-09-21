@@ -2634,15 +2634,10 @@ test("下锅音效④：没有 Audio / 素材缺失的环境（纯逻辑 vm）�
 
 test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120ms / 48kHz / 单声道）", () => {
   const dir = path.join(ROOT, "audio", "bf");
-  /* bf-9：欢呼换成 6 条新录音、下锅音效新增 9 条 —— 全部纳入规格盘点。
-     bf-12 仓库清理：audio/bf/ 下**只留代码点名的 15 个**（9 条 cook_* + 池里 4 条欢呼 + tick + slow），
-     其余 78 个旧件已归档到 audio/bf/_unused/（文件一个都没删；下划线前缀目录被 .gitignore
-     第 93 行的「audio 下划线前缀」规则排除 → 不入库、不分发，与 audio/mj/_bak_pre_wopeng/ 同一做法）。
-     所以这里盘点的就是那 15 个「还在岗」的；归档件在下面单独验「仍在盘上、且没有任何通道引用」。 */
-  const ARCH = path.join(dir, "_unused");
-  const at = f => (fs.existsSync(path.join(dir, f)) ? path.join(dir, f) : path.join(ARCH, f));
+  /* bf-9：欢呼换成 6 条新录音、下锅音效新增 9 条 —— 全部纳入规格盘点 */
   const want = ["tick.mp3", "slow.mp3",
-                "happy_v1.mp3", "happy_v3.mp3", "happy_finally2.mp3", "happy_i45.mp3",
+                "happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3",
+                "happy_v4.mp3", "happy_v5.mp3", "happy_v6.mp3",
                 "cook_congee.mp3", "cook_milk.mp3", "cook_soup.mp3", "cook_egg.mp3",
                 "cook_bacon.mp3", "cook_sandwich.mp3", "cook_bun.mp3",
                 "cook_salad.mp3", "cook_juice.mp3"];
@@ -2666,7 +2661,7 @@ test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120
      bf-10：alt2 / alt3 被用户挑中、**已进轮换池** → 从「不参与」这张清单里移出，
      改成单独断言它们真的在池子里（见下面那段），清单里只留仍未启用的 4 条。 */
   ["happy_alt1.mp3", "happy_alt4.mp3", "happy_alt5.mp3", "happy_alt6.mp3"].forEach(f => {
-    assert.ok(fs.existsSync(at(f)), "对照件 " + f + " 还在盘上（bf-12 起归档在 _unused/，试听页要用）");
+    assert.ok(fs.existsSync(path.join(dir, f)), "对照件 audio/bf/" + f + " 还在（试听页要用）");
     assert.equal(R.audio.NAMES.some(n => R.audio.FILES[n].indexOf(f) >= 0), false,
       f + " 不参与轮换（只在试听页里出现）");
   });
@@ -2687,8 +2682,7 @@ test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120
   });
   /* happy_v2 已出池（用户否决「呜呼」），但**文件仍留在盘上**供对比 */
   assert.equal(R.audio.FILES.happy.indexOf("happy_v2.mp3"), -1, "happy_v2.mp3 已不在任何播放通道里");
-  assert.ok(fs.existsSync(at("happy_v2.mp3")), "happy_v2.mp3 文件仍留在盘上（bf-12 起归档在 _unused/，对比用）");
-  assert.ok(!fs.existsSync(path.join(dir, "happy_v2.mp3")), "happy_v2.mp3 已从 audio/bf/ 移出（不再入库/分发）");
+  assert.ok(fs.existsSync(path.join(dir, "happy_v2.mp3")), "happy_v2.mp3 文件仍留在盘上（对比用）");
   /* 池里的「终于好啦」那条**不许含「呜呼」** —— 这正是本轮替换的目的，写成断言防止回退 */
   const finallyName = R.audio.FILES.happy.filter(f => f.indexOf("finally") >= 0);
   assert.equal(finallyName.length, 1, "池里有且只有一条 happy_finally*.mp3（本轮新换的「终于好啦」）");
@@ -2696,7 +2690,7 @@ test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120
   assert.equal(finallyName[0], "happy_finally2.mp3", "「终于好啦」那条 = happy_finally2.mp3");
   /* 它的字节数必须与摇出来的源件 happy_n56.mp3 一致 —— 防止「复制时拷错文件」这类静默事故
      （本轮它就是 happy_n56.mp3 的副本；尺寸对不上说明接错了源）*/
-  const srcN56 = at("happy_n56.mp3");            // 源件也已归档到 _unused/，用 at() 找
+  const srcN56 = path.join(dir, "happy_n56.mp3");
   if (fs.existsSync(srcN56)) {
     assert.equal(fs.statSync(path.join(dir, "happy_finally2.mp3")).size, fs.statSync(srcN56).size,
       "happy_finally2.mp3 与源件 happy_n56.mp3 尺寸一致（接对了源）");
@@ -2712,28 +2706,12 @@ test("音效：audio/bf 素材在磁盘上齐全，且规格统一（tick ≤120
   assert.ok(tick.decoded > 0.02 && tick.decoded <= 0.120,
     "tick.mp3 解码长度 " + (tick.decoded * 1000).toFixed(0) + "ms ≤120ms（硬性要求）");
   assert.ok(tick.duration <= 0.120, "tick.mp3 gapless 时长也 ≤120ms：" + (tick.duration * 1000).toFixed(0) + "ms");
-  /* 欢呼候选 + 一条「太慢了」都要有人声时长（>0.4s），不是空文件。
-     bf-12：v2/v4/v5/v6 已归档 → 走 at() 到 _unused/ 里量（归档不等于没内容）。 */
+  /* 六条欢呼 + 一条「太慢了」都要有人声时长（>0.4s），不是空文件 */
   ["happy_v1.mp3", "happy_v2.mp3", "happy_v3.mp3", "happy_v4.mp3", "happy_v5.mp3",
    "happy_v6.mp3", "slow.mp3"].forEach(f => {
-    const info = mp3info.mp3Info(at(f));
+    const info = mp3info.mp3Info(path.join(dir, f));
     assert.ok(info.decoded > 0.4, f + " 时长 " + (info.decoded * 1000).toFixed(0) + "ms，像一条语音");
   });
-  /* ── bf-12 仓库清理的两条硬判据 ──────────────────────────────────────────
-     ① 归档件一个都没丢，且**没有任何一个**被通道 / 食材音效表引用；
-     ② audio/bf/ 根目录下只剩代码点名的 15 个 mp3 —— 「清理干净」不看叙述，看目录。 */
-  assert.ok(fs.existsSync(ARCH), "归档目录 audio/bf/_unused/ 存在");
-  const archived = fs.readdirSync(ARCH).filter(f => /\.mp3$/i.test(f));
-  assert.ok(archived.length >= 70, "_unused/ 里归档件齐全（实际 " + archived.length + " 个）");
-  archived.forEach(f => {
-    assert.equal(R.audio.NAMES.some(n => R.audio.FILES[n].indexOf(f) >= 0), false,
-      "归档件 " + f + " 不参与任何播放通道");
-    assert.equal(Object.keys(R.audio.COOK_FILES).some(k => R.audio.COOK_FILES[k] === f), false,
-      "归档件 " + f + " 不是任何食材的下锅音效");
-  });
-  const rootMp3 = fs.readdirSync(dir).filter(f => /\.mp3$/i.test(f)).sort();
-  assert.equal(rootMp3.length, 15, "audio/bf/ 根目录只剩 15 个在岗素材（实际 " + rootMp3.length + "）");
-  assert.deepEqual(rootMp3, want.slice().sort(), "剩下的正好就是通道点名的那些");
   /* 欢呼不能太长（一边上餐一边还在喊会叠声）：6 条都 ≤ 3s */
   R.audio.FILES.happy.forEach(f => {
     const info = mp3info.mp3Info(path.join(dir, f));
@@ -2793,92 +2771,6 @@ test("音效：bf-11 最终轮换池 = 用户拍板的 4 条（v1/v3/finally2/i4
   /* 素材目录与代码里写的目录一致（改目录时两边一起改） */
   assert.equal(R.audio.DIR, "audio/bf/", "代码里的素材目录 = audio/bf/");
   assert.equal(R.audio.url("tick", 0), "audio/bf/tick.mp3", "url() 拼出来的路径对得上");
-});
-
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   bf-12：练手局（practice）
-
-   用户实测：「好感必须 20~79 且当天没送过，否则 9 张卡全灰」→ 根本没法试玩。
-   修法分两层：
-     · 规则层（本文件守）：finish() 把 bondDelta 归零、结果打 practice 标、
-       impact / quota 换成练手局口径；
-     · 页面 glue（tools/e2e/bf.js 模式 A 在真 Chrome 里守）：bfApplyResult 见到 practice
-       就跳过 好感 / S.breakfastDay / bfWin / 成就 —— 那才拿得到 window.__cs2.S。
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-test("练手局①：practice 一路传到规则层（newState / start / debug.state 三处都认）", () => {
-  assert.equal(R.newState({ practice: true }).cfg.practice, true, "newState 的 cfg 白名单里有 practice");
-  assert.equal(R.newState({}).cfg.practice, false, "不传就是 false —— 默认绝不是练手局");
-  const b = bootDom();
-  assert.equal(b.B.start(b.host, {
-    target: { id: "fang", name: "方姐", bond: 40 }, duration: 20, goal: 8, practice: true,
-    onFinish: () => {},
-  }), true, "练手局能正常开局（不再被任何门槛拦住）");
-  const st = b.B.debug.state();
-  assert.equal(st.practice, true, "debug.state() 里读得到 practice（真浏览器验收就靠它）");
-  assert.equal(st.target.id, "fang", "对象正确");
-  b.B.dispose();
-});
-
-test("练手局②：通过路径 —— 数值照常算，但 bondDelta 恒为 0，面板明确标注", () => {
-  const b = bootDom();
-  b.B.start(b.host, {
-    target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 75, goal: 8, practice: true,
-    onFinish: () => {},
-  });
-  botRun(b.B);
-  assert.equal(b.B.debug.state().win, true, "机器人真打出了通过");
-  b.pump(3);
-  const r = b.B.debug.state().result;
-  assert.ok(r, "结算结果已产出");
-  assert.equal(r.practice, true, "结果带 practice 标（页面层据此跳过落账）");
-  assert.equal(r.bondDelta, 0, "练手局 bondDelta 必须是 0（同样表现本来该是 +6~+10）");
-  assert.ok(r.served >= 8, "服务数照常算：" + r.served + "/" + r.goal);
-  assert.ok(r.score > 0, "得分照常算：" + r.score);
-  assert.ok(/练手局/.test(r.impact), "impact 换成练手局口径：" + r.impact);
-  assert.ok(/练手局/.test(r.quota), "quota 换成练手局口径：" + r.quota);
-  const panel = b.host.querySelector(".bf-result");
-  const txt = String(panel._html || panel.innerHTML).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.ok(/练手局\s*·\s*不影响好感/.test(txt), "结算面板顶部明确标注「练手局 · 不影响好感」");
-  assert.ok(/不变（练手局）/.test(txt), "好感那一行写「不变（练手局）」（不是 +6）");
-  const go = b.host.querySelector("#bfGo");
-  assert.ok(go && /结束练手局/.test(go.textContent),
-    "出口按钮文案 =「结束练手局 · 继续」（实际 " + (go && go.textContent) + "）");
-  b.B.dispose();
-});
-
-test("练手局③：失败路径也不扣好感（bondDelta 仍是 0，不是 −3~−6）", () => {
-  const b = bootDom();
-  b.B.start(b.host, {
-    target: { id: "guo", name: "陈果", bond: 30 }, duration: 20, goal: 8, practice: true,
-    onFinish: () => {},
-  });
-  let g = 0;
-  while (!b.B.debug.state().over && g++ < 20000) b.B.debug.tick(0.2);
-  assert.equal(b.B.debug.state().win, false, "失败路径真跑出来了");
-  b.pump(3);
-  const r = b.B.debug.state().result;
-  assert.equal(r.practice, true, "失败结果同样带 practice 标");
-  assert.equal(r.bondDelta, 0, "练手局失败也不扣好感（本来该是 −3~−6）");
-  assert.ok(/练手局/.test(r.impact), "impact 是练手局口径：" + r.impact);
-  b.B.dispose();
-});
-
-test("练手局④：对照 —— 不带 practice 的正常局照旧结算（+6~+10，没被练手局改坏）", () => {
-  const b = bootDom();
-  b.B.start(b.host, {
-    target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 75, goal: 8,
-    onFinish: () => {},
-  });
-  assert.equal(b.B.debug.state().practice, false, "正常局 practice = false");
-  botRun(b.B);
-  assert.equal(b.B.debug.state().win, true, "通过");
-  b.pump(3);
-  const r = b.B.debug.state().result;
-  assert.equal(r.practice, false, "正常局结果不带 practice 标");
-  assert.ok(r.bondDelta >= 6 && r.bondDelta <= 10, "正常局照旧 +6~+10：" + r.bondDelta);
-  b.B.dispose();
 });
 
 

@@ -1,0 +1,15 @@
+{
+  "note": "todo-4 诊断加固：ev() 以前在 CDP 没返回结果/返回 error 时静默 return undefined，调用方只看到「undefined is not valid JSON」根本不知道卡在哪一步。现在显式抛错并把最后一个表达式带出来。",
+  "jobs": [
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "async function ev(expr) {\n  const r = await send(\"Runtime.evaluate\", { expression: expr, returnByValue: true, awaitPromise: true });\n  if (r && r.exceptionDetails) return \"EXC:\" + ((r.exceptionDetails.exception || {}).description || r.exceptionDetails.text || \"\");\n  return r && r.result ? r.result.result.value : undefined;\n}",
+      "text": "/* 出错时告诉人「卡在哪一句」——bf-12 排查模式 A 时，旧 ev() 静默 return undefined，\n   调用方 JSON.parse(undefined) 只抛一句「\"undefined\" is not valid JSON」，看不出是哪一步。 */\nlet lastExpr = \"(还没跑任何表达式)\";\nasync function ev(expr) {\n  lastExpr = String(expr).replace(/\\s+/g, \" \").slice(0, 140);\n  const r = await send(\"Runtime.evaluate\", { expression: expr, returnByValue: true, awaitPromise: true });\n  if (r && r.exceptionDetails) return \"EXC:\" + ((r.exceptionDetails.exception || {}).description || r.exceptionDetails.text || \"\");\n  /* CDP 明确报错 / 干脆没返回 result → 显式抛，绝不静默变 undefined */\n  if (r && r.error) throw new Error(\"CDP 拒绝了表达式（\" + (r.error.message || JSON.stringify(r.error)) + \"）：\" + lastExpr);\n  if (!r || !r.result) throw new Error(\"CDP 没返回结果（响应 \" + JSON.stringify(r).slice(0, 200) + \"）：\" + lastExpr);\n  return r.result.result.value;\n}"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    errors.push(\"CDP 流程异常：\" + (e && e.message || e));",
+      "text": "    errors.push(\"CDP 流程异常（最后求值的表达式：\" + lastExpr + \"）：\" + (e && e.message || e));"
+    }
+  ]
+}

@@ -3,12 +3,6 @@
    模式 A（首选）：Chrome CDP —— 真实渲染 + 真实鼠标 Input.dispatchMouseEvent + canvas 读像素
    模式 B（降级）：沙箱禁止命名管道、Chrome 起不来时，用 mshta(Trident/IE11 引擎) 渲染同一份
                    breakfast.js，走真实 DOM 事件 + canvas.toDataURL 截图
-   bf-12 修（模式 A 长期「进不去」的根因）：
-     本工具以前**没摆前置状态**就点侧栏「🍳 做份早餐」。localStorage.clear() 之后是全新档，
-     全员好感 0 → 9 张卡全灰 → 面板里一张 data-ok="1" 的卡都没有 → 选不了对象 →
-     后面每一步都拿不到东西 → errors 一堆 → 降级到 mshta 模式 B（用户看到的就是「A 进不去」）。
-     现在照抄 tools/bf/e2e-audio.js：进沙盘之后先用 CS2_DEBUG.mjSet 摆好感（覆盖三种分支）。
-     注意：这不是「把断言放松」，断言一条没改；改的是**前置条件本来就该摆**。
    验收点：
      1) 侧栏「🍳 做份早餐」能打开选对象面板；好感区间外的卡片置灰并给原因
      2) 选人后开局：灶台 / 食材桶 / 顾客订单卡渲染非空白（读像素 + 元素数）
@@ -27,20 +21,7 @@ const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const MSHTA = "C:\\Windows\\System32\\mshta.exe";
 const PORT = 9248;
 const OUT = path.join(__dirname, "..", "..");
-const FILE_BASE = "file:///" + OUT.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
-/* bf-12：默认改成**本地 HTTP**（http://127.0.0.1:8000，与 tools/bf/e2e-audio.js 同一口径）。
-   原因是实测出来的：file:// 下 art/*.png 与页面**不同源**，画进 canvas 会把它 taint 掉，
-   于是「读 canvas 像素」那一步的 getImageData 抛 SecurityError → 模式 A 必然降级（与好感无关的第二条根因）。
-   HTTP 下同源，像素读得到。服务器没起就回落到 file:// —— 其余步骤照跑，只有读像素那条会如实失败。 */
-let BASE = FILE_BASE;
-function pickBase() {
-  return new Promise(res => {
-    const want = process.env.BF_BASE || "http://127.0.0.1:8000";
-    const r = http.get(want + "/index.html", resp => { resp.resume(); res(resp.statusCode === 200 ? want : FILE_BASE); });
-    r.on("error", () => res(FILE_BASE));
-    r.setTimeout(3000, () => { try { r.destroy(); } catch (e) {} res(FILE_BASE); });
-  });
-}
+const BASE = "file:///" + OUT.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SHOT_DIR = path.join(OUT, "测试截图");
 
@@ -60,22 +41,10 @@ function send(m, p) {
     setTimeout(() => { if (pend[i]) { delete pend[i]; rej(new Error("timeout " + m)); } }, 60000);
   });
 }
-/* 出错时告诉人「卡在哪一句」——bf-12 排查模式 A 时，旧 ev() 静默 return undefined，
-   调用方 JSON.parse(undefined) 只抛一句「"undefined" is not valid JSON」，看不出是哪一步。 */
-let lastExpr = "(还没跑任何表达式)";
 async function ev(expr) {
-  lastExpr = String(expr).replace(/\s+/g, " ").slice(0, 140);
   const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true });
-  /* ⚠ exceptionDetails 挂在 **r.result** 上，不是 r 上！
-     原写法 `r.exceptionDetails` 永远 undefined → 页内异常一个都检测不到 → 返回 undefined →
-     调用方 JSON.parse(undefined) 抛「"undefined" is not valid JSON」，把真正的错盖掉。
-     bf-12 实测：真正的错是 canvas 被 art/*.png taint 后 getImageData 抛 SecurityError。 */
-  const ex = r && r.result && r.result.exceptionDetails;
-  if (ex) return "EXC:" + ((ex.exception || {}).description || ex.text || "");
-  /* CDP 明确报错 / 干脆没返回 result → 显式抛，绝不静默变 undefined */
-  if (r && r.error) throw new Error("CDP 拒绝了表达式（" + (r.error.message || JSON.stringify(r.error)) + "）：" + lastExpr);
-  if (!r || !r.result) throw new Error("CDP 没返回结果（响应 " + JSON.stringify(r).slice(0, 200) + "）：" + lastExpr);
-  return r.result.result.value;
+  if (r && r.exceptionDetails) return "EXC:" + ((r.exceptionDetails.exception || {}).description || r.exceptionDetails.text || "");
+  return r && r.result ? r.result.result.value : undefined;
 }
 async function png(name) {
   const r = await send("Page.captureScreenshot", { format: "png" });
@@ -168,26 +137,6 @@ async function runChrome() {
     /* ② 进沙盘，点侧栏「🍳 做份早餐」 */
     await ev('document.getElementById("startBtn").click()');
     await sleep(1800);
-
-    /* ②b 摆好前置状态 —— bf-12 修的就是这一步。
-       ⚠ 根因：localStorage.clear() 之后是**全新档**，全员好感 0 → 9 张卡全灰 →
-         面板里没有一张 data-ok="1" 的卡 → 选不了对象 → 后面每步都拿不到东西 →
-         errors 一堆 → 降级到 mshta 模式 B（看起来就像「模式 A 进不去」）。
-       做法照抄 tools/bf/e2e-audio.js：用页面自己的调试钩子 CS2_DEBUG.mjSet 摆好感。
-       摆法刻意覆盖三种分支：可送（20~79）/ 太生疏（<20）/ 已满（≥80）。 */
-    const setup = await ev(`(function(){
-      if (!window.CS2_DEBUG || !window.CS2_DEBUG.mjSet) return "no-debug";
-      window.CS2_DEBUG.mjSet({
-        bonds: { fang:42, su:38, lin:55, wen:24, lei:0, hong:85, guo:31, lu:0, man:0 },
-        breakfastDay: { day: window.__cs2.S.day, sent: [] }
-      });
-      var b = window.__cs2.S.bonds, n = 0, ks = Object.keys(b);
-      for (var i = 0; i < ks.length; i++) if (b[ks[i]] >= 20 && b[ks[i]] < 80) n++;
-      return "ok:" + n;
-    })()`);
-    info.setup = setup;
-    A(setup === "ok:5", "前置状态已摆好：5 位可送（20~79）/ 3 位太生疏 / 1 位已满", String(setup));
-
     const btn = await ev("!!document.getElementById('bfBtn')");
     A(btn === true, "侧栏存在「🍳 做份早餐」入口");
     await ev('document.getElementById("bfBtn").click()');
@@ -200,8 +149,6 @@ async function runChrome() {
     const pickTxt = await ev('document.getElementById("bfPickHost").innerText.replace(/\\n+/g," | ")');
     info.pickText = String(pickTxt).slice(0, 240);
     A(/送过|生疏|满|好感/.test(String(pickTxt)), "置灰卡片带原因文案");
-    A(dom.pickPractice >= 9, "面板底部有练手局入口（任意角色 · 不受 20~79 门槛限制）",
-      "练手入口 " + dom.pickPractice + " 个");
     await png("bf_pick.png");
 
     /* ③ 选苏晚晴开局（先确认她的好感在可送区间） */
@@ -268,16 +215,6 @@ async function runChrome() {
     A(/好感/.test(String(passPanel)) && /完美/.test(String(passPanel)), "通过结算面板显示 服务数/完美/糊掉/用时/好感变化");
     await png("bf_pass.png");
 
-    /* ⚠ bf-12 修的**顺序**问题（模式 A 的第三条根因）：
-       页面 glue 是「点结算面板的出口」才落账的 —— breakfast.js 的 close(true) → onFinish
-       → bfFinish → bfApplyResult。原来这里先读 bfResult / S.bonds / S.breakfastDay，
-       之后才点「收下」→ 读到的永远是**上一局**的值（第一局读到 null / 旧值），
-       于是这一节 4 条断言全灭，看起来像「结算坏了」，其实只是读早了。现在先出口、再读账。 */
-    await ev('(function(){var b=document.querySelector("#bfGameHost .bf-result [data-act=close]"); if(b) b.click();})()');
-    await sleep(600);
-    const closed = JSON.parse(await ev("JSON.stringify(window.__cs2.bfDom())"));
-    A(closed.game === false && closed.canvas === 0, "点「收下」后面板关闭、canvas 已释放");
-
     const res1 = JSON.parse(await ev("JSON.stringify(window.__cs2.bfResult)"));
     info.result1 = res1;
     const bondsAfter = JSON.parse(await ev("JSON.stringify(window.__cs2.S.bonds)"));
@@ -287,6 +224,12 @@ async function runChrome() {
     A(bondsAfter[pick] > bonds[pick], "该角色好感真的上升了", bonds[pick] + " → " + bondsAfter[pick]);
     A(!!bfDay && bfDay.sent && bfDay.sent.indexOf(pick) >= 0, "S.breakfastDay 记录了「今天已送」", JSON.stringify(bfDay));
     A(await ev("window.__cs2.S.bfWin === true") === true, "成就标记 bfWin 已置位");
+
+    /* 面板上的「收下」→ 关闭并交还 */
+    await ev('(function(){var b=document.querySelector("#bfGameHost .bf-result [data-act=close]"); if(b) b.click();})()');
+    await sleep(500);
+    const closed = JSON.parse(await ev("JSON.stringify(window.__cs2.bfDom())"));
+    A(closed.game === false && closed.canvas === 0, "点「收下」后面板关闭、canvas 已释放");
 
     /* ⑥ 每日一次：同一天同一角色不能再送 */
     const again = await ev(`window.__cs2.bfStart(${JSON.stringify(pick)}, {})`);
@@ -299,56 +242,8 @@ async function runChrome() {
     await ev('document.querySelector("#bfPickHost .bf-btn").click()');
     await sleep(300);
 
-    /* ⑥b 练手局（bf-12）：**门槛外的角色也能开局，且好感 / 每日一次一个字都不变**
-       用 man（好感 0 = 用户实测被卡住的那种角色）：正常门槛必拒，练手局必须放行。
-       证据链两层：
-         · 门槛层：bfCanSend("man") 不 ok；不带 force 的 debug 开局同样 false；bfPractice 才 true
-         · 数值层：打完整局之后 S.bonds / S.breakfastDay **逐字段深比**没变，
-                   而且面板里 man 仍显示「太生疏」而不是「今天已经送过」。 */
-    const bondsP0 = await ev("JSON.stringify(window.__cs2.S.bonds)");
-    const bfDayP0 = await ev("JSON.stringify(window.__cs2.S.breakfastDay)");
-    const gateMan = await ev('JSON.stringify(window.bfCanSend("man"))');
-    A(/"ok":false/.test(String(gateMan)), "练手局对照：man 好感 0 走正常门槛必被拒（就是用户被卡住的情形）", String(gateMan));
-    A(await ev('window.__cs2.bfStart("man", {})') === false, "练手局对照：不带 force 的 debug 开局同样被门槛拒绝");
-    A(await ev('window.__cs2.bfPractice("man")') === true, "练手局：好感 0 的角色也能开局（practice + force 绕开门槛）");
-    await sleep(900);
-    const stP = JSON.parse(await ev("JSON.stringify(window.__cs2.bfState)"));
-    A(!!stP && stP.running === true && stP.practice === true, "练手局状态正确（running / practice=true）",
-      JSON.stringify(stP && { practice: stP.practice, target: stP.target && stP.target.name }));
-    const pRun = JSON.parse(await ev("JSON.stringify(" + DRIVER_JS + ")"));
-    A(pRun.done === true && pRun.after && pRun.after.over === true, "练手局 debug 驱动跑完整局（已结算）");
-    await sleep(500);
-    const pPanel = await ev('(function(){var e=document.querySelector("#bfGameHost .bf-result"); return e? e.innerText.replace(/\\n+/g," | ") : "";})()');
-    info.practicePanel = String(pPanel).slice(0, 400);
-    A(/练手局/.test(String(pPanel)) && /不影响好感/.test(String(pPanel)), "★ 练手局结算面板明确标注「练手局 · 不影响好感」");
-    A(/不变/.test(String(pPanel)), "★ 结算面板里好感那一行写「不变（练手局）」（不是 +6）");
-    await png("bf_practice.png");
-    /* 同 ⑤：先点出口让它落账，再读 —— 顺序反了就会读到上一局 */
-    await ev('(function(){var b=document.querySelector("#bfGameHost .bf-result [data-act=close]"); if(b) b.click();})()');
-    await sleep(600);
-    const pRes = JSON.parse(await ev("JSON.stringify(window.__cs2.bfResult)"));
-    A(!!pRes && pRes.practice === true && pRes.bondDelta === 0, "练手局结算结果 practice=true / bondDelta=0",
-      pRes && ("practice=" + pRes.practice + " delta=" + pRes.bondDelta));
-    const bondsP1 = await ev("JSON.stringify(window.__cs2.S.bonds)");
-    const bfDayP1 = await ev("JSON.stringify(window.__cs2.S.breakfastDay)");
-    info.practiceBonds = { before: bondsP0, after: bondsP1 };
-    info.practiceBfDay = { before: bfDayP0, after: bfDayP1 };
-    A(bondsP1 === bondsP0, "★ 练手局结束后 S.bonds 逐字段完全没变（" + bondsP0 + "）");
-    A(bfDayP1 === bfDayP0, "★ 练手局结束后 S.breakfastDay 没变（没写「今天已送」）（" + bfDayP0 + "）");
-    await ev('document.getElementById("bfBtn").click()');
-    await sleep(500);
-    const manCard = await ev(`(function(){var c=document.querySelector('#bfPickHost .bf-card[data-id="man"]'); return c? (c.getAttribute("data-ok")+"|"+c.innerText.replace(/\\n+/g," ")) : "MISSING";})()`);
-    info.manCardAfterPractice = manCard;
-    A(/^0\|/.test(String(manCard)) && /生疏/.test(String(manCard)),
-      "★ 练手局后 man 仍显示「太生疏」而不是「今天已经送过」", String(manCard));
-    await ev('document.querySelector("#bfPickHost .bf-btn").click()');
-    await sleep(300);
-
     /* ⑦ 失败路径：换一位对象，让所有顾客跑掉 */
-    /* bf-12 修：原来这里只是「返回第一位 20~79 的角色」—— 而 pick（上面第一张 data-ok="1" 的卡）
-       很可能就是同一位 → 撞上「每日一次」→「第二位对象开局成功」必失败。
-       现在显式排除本局已经送过的那位。 */
-    const other = await ev(`(function(){var bs=window.__cs2.S.bonds; var ids=["fang","su","lin","wen","lei","hong","guo","lu","man"]; for(var i=0;i<ids.length;i++){ if(ids[i]===${JSON.stringify(pick)}) continue; if(bs[ids[i]]>=20 && bs[ids[i]]<80) return ids[i]; } return null;})()`);
+    const other = await ev(`(function(){var list=window.__cs2.bfResult?null:null; var bs=window.__cs2.S.bonds; var ids=["fang","su","lin","wen","lei","hong","guo","lu","man"]; for(var i=0;i<ids.length;i++){ if(bs[ids[i]]>=20 && bs[ids[i]]<80) return ids[i]; } return null;})()`);
     info.otherTarget = other;
     A(!!other, "还能再找一位对象开第二局", String(other));
     // 直接改游戏日，绕开「每日一次」对同一人的限制（仍走完整规则：换人本来就能送）
@@ -359,17 +254,10 @@ async function runChrome() {
     info.fail = failRun.after;
     A(failRun.done === true && failRun.after && failRun.after.over === true, "失败路径已结算");
     A(failRun.after && failRun.after.win === false, "拿到 win:false", failRun.after && failRun.after.reason);
-    /* ⚠ 必须等一拍：FAILDRIVER 是直接调 d.tick 把局跑完的，而结算面板是 rAF 循环里的
-       showResult() 渲染的 —— 紧接着就读会偶发读到空内容（本轮实测 flaky 一次）。
-       ⑤ 通过路径本来就有 await sleep(500)，这里对齐。断言没动。 */
-    await sleep(500);
     const failPanel = await ev('(function(){var e=document.querySelector("#bfGameHost .bf-result"); return e? e.innerText.replace(/\\n+/g," | ") : "";})()');
     info.failPanel = String(failPanel).slice(0, 400);
     A(/好感/.test(String(failPanel)), "失败结算面板显示好感变化");
     await png("bf_fail.png");
-    /* 同 ⑤：先点出口落账，再读账（失败面板的文案已经在上面读过了） */
-    await ev('(function(){var b=document.querySelector("#bfGameHost .bf-result [data-act=close]"); if(b) b.click();})()');
-    await sleep(600);
     const res2 = JSON.parse(await ev("JSON.stringify(window.__cs2.bfResult)"));
     const bondsAfter2 = JSON.parse(await ev("JSON.stringify(window.__cs2.S.bonds)"));
     info.result2 = res2;
@@ -411,49 +299,14 @@ async function runChrome() {
       info.storyExit = back;
       A(/"game":false/.test(back) && /"bf":false/.test(back), "剧情局收摊后回到剧情线（模块已 dispose）");
     }
-
-    /* ⑨ 标题屏「⚑ 跳到早餐店」（bf-12 改）：
-       以前点它只弹一句 toast（新档全员好感 0 → 9 张卡全灰 → 用户根本没法试玩）。
-       现在要**直接开一局练手局** —— 与「跳到麻将」体验一致。
-       从全新档（localStorage 已清）验证，因为那正是用户被卡住的那个状态。
-       ⚠ 清存档必须**清在导航之后**：先 clear 再 navigate 会有竞态 —— 上一个页面
-         还没死透时它的异步 save()（剧情分支结算会 save）能把存档写回来，于是
-         「全新档」并不新（本轮实测踩到：读到的 hong 是 20 而不是 debugState 的 24，
-         说明它带着上一局的结算）。所以：先导航让旧页彻底结束 → 再清 → 再导航。 */
-    await send("Page.navigate", { url: BASE + "/index.html" });
-    await sleep(1600);
-    await ev('localStorage.clear()');
-    await send("Page.navigate", { url: BASE + "/index.html" });
-    await sleep(2600);
-    A(await ev("!!document.getElementById('dbgBf')") === true, "标题屏有「⚑ 跳到早餐店」按钮");
-    await ev('document.getElementById("dbgBf").click()');
-    await sleep(1800);                       // enterGame + 300ms 延时 + 开局
-    const dbgDom = JSON.parse(await ev("JSON.stringify(window.__cs2.bfDom())"));
-    const dbgSt = JSON.parse(await ev("JSON.stringify(window.__cs2.bfState)"));
-    info.dbgBf = { dom: dbgDom, state: dbgSt };
-    A(dbgDom.game === true && dbgDom.canvas >= 1,
-      "★ 点「跳到早餐店」直接进游戏（canvas 已挂载），不再只是弹 toast",
-      JSON.stringify({ game: dbgDom.game, canvas: dbgDom.canvas }));
-    A(!!dbgSt && dbgSt.running === true && dbgSt.practice === true && !!dbgSt.target && dbgSt.target.id === "fang",
-      "★ 开的是练手局（practice=true · 默认对象 fang）",
-      JSON.stringify(dbgSt && { practice: dbgSt.practice, target: dbgSt.target && dbgSt.target.name }));
-    const dbgBonds = JSON.parse(await ev("JSON.stringify(window.__cs2.S.bonds)"));
-    A(Object.keys(dbgBonds).every(k => dbgBonds[k] === 0),
-      "★ 全新档全员好感仍是 0（练手局一个字都没改）", JSON.stringify(dbgBonds));
-    await png("bf_dbgbf.png");
   } catch (e) {
-    errors.push("CDP 流程异常（最后求值的表达式：" + lastExpr + "）：" + (e && e.message || e));
+    errors.push("CDP 流程异常：" + (e && e.message || e));
   } finally {
     try { ws && ws.close(); } catch (e) {}
     try { chrome.kill(); } catch (e) {}
     try { await sleep(400); fs.rmSync(PROF, { recursive: true, force: true }); } catch (e) {}
   }
-  /* ⚠ ok:false 有两种，必须分清楚：
-       ① Chrome 起不来 —— 上面提前 return，带 why；
-       ② Chrome 起来了但断言没过 —— 这时也要把**第一批失败项**带出去，
-          否则主流程只会打印「（undefined）」，看的人完全不知道发生了什么（bf-12 前一直如此）。 */
-  return { ok: errors.length === 0, checks, errors, info,
-    why: errors.length ? ("模式 A 起来了但断言未过 " + errors.length + " 项：" + errors.slice(0, 3).join(" ／ ")) : "" };
+  return { ok: errors.length === 0, checks, errors, info };
 }
 
 /* ── 模式 B：mshta / Trident(IE11) 降级探针 ──
@@ -608,23 +461,15 @@ async function runTrident() {
 /* ── 主流程 ── */
 (async () => {
   if (!fs.existsSync(SHOT_DIR)) fs.mkdirSync(SHOT_DIR, { recursive: true });
-  BASE = await pickBase();
-  console.log("[基准] 页面基地址 = " + BASE + (BASE === FILE_BASE ? "（本地 HTTP 没起，回落 file:// —— 读像素那条会失败）" : "（本地 HTTP，canvas 同源可读像素）"));
   let mode = "chrome-cdp", checks = [], errors = [], info = {}, extraNote = "";
   console.log("[模式A] 尝试 Chrome(headless) + CDP：真实鼠标 + 读像素 + 完整两条路径…");
-  /* BF_E2E_MODE_B=1：强制走模式 B。
-     模式 A 修好之后模式 B 平时不会再被触发 —— 没有这个开关就**没法证明降级路径仍然可用**
-     （向后兼容要能真跑出来，不能只靠读代码）。默认不设 → 行为与以前完全一样。 */
-  const FORCE_B = String(process.env.BF_E2E_MODE_B || "") === "1";
-  let ch = { ok: false, why: FORCE_B ? "BF_E2E_MODE_B=1 强制走模式 B（验证降级路径仍然可用）" : "未执行" };
-  if (!FORCE_B) { try { ch = await runChrome(); } catch (e) { ch = { ok: false, why: "Chrome 流程异常：" + (e && e.message || e) }; } }
+  let ch = { ok: false, why: "未执行" };
+  try { ch = await runChrome(); } catch (e) { ch = { ok: false, why: "Chrome 流程异常：" + (e && e.message || e) }; }
   if (ch.ok) {
     checks = ch.checks; errors = ch.errors; info = ch.info;
     console.log("[模式] chrome-cdp · 通过 " + checks.length + " 项，失败 " + errors.length + " 项");
   } else {
     console.log("[模式B] 降级：mshta / Trident(IE11 引擎) 真实渲染同一份 breakfast.js …（" + ch.why + "）");
-    /* 降级时把模式 A 的失败项逐条打出来 —— 否则只看得到「降级了」，看不到为什么降级。 */
-    if (ch.errors && ch.errors.length) ch.errors.forEach(e => console.log("    · 模式A 未过：" + e));
     mode = "trident-hta";
     extraNote = "Chrome(headless CDP) 在当前沙箱无法启动：" + ch.why +
       "；已降级用 mshta(Trident/IE11 引擎) 真实渲染 + 真实 DOM 事件 + canvas.toDataURL 截图（同一份 breakfast.js）";
@@ -642,7 +487,7 @@ async function runTrident() {
   const res = {
     success: errors.length === 0, testedAt: new Date().toISOString(), mode: mode,
     checks: checks, errors: errors, info: info,
-    screenshots: fs.readdirSync(SHOT_DIR).filter(f => /^bf_(game|pass|fail|pick|practice|dbgbf)\.png$/.test(f)),
+    screenshots: fs.readdirSync(SHOT_DIR).filter(f => /^bf_(game|pass|fail|pick)\.png$/.test(f)),
     limitation: extraNote
   };
   fs.writeFileSync(resultsFile("breakfast-results.json"), JSON.stringify(res, null, 1), "utf8");

@@ -1,0 +1,10 @@
+{
+  "note": "todo-4 稳定性：失败路径缺一拍等待 —— FAILDRIVER 是直接调 d.tick 把局跑完的，结算面板由 rAF 循环里的 showResult() 渲染；原来紧接着就读面板文案，帧还没跑到就偶发读到空/旧内容（本轮实测 flaky 一次）。⑤ 通过路径本来就有 await sleep(500)，这里对齐。断言没动。",
+  "jobs": [
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    A(failRun.after && failRun.after.win === false, \"拿到 win:false\", failRun.after && failRun.after.reason);\n    const failPanel = await ev('(function(){var e=document.querySelector(\"#bfGameHost .bf-result\"); return e? e.innerText.replace(/\\\\n+/g,\" | \") : \"\";})()');",
+      "text": "    A(failRun.after && failRun.after.win === false, \"拿到 win:false\", failRun.after && failRun.after.reason);\n    /* ⚠ 必须等一拍：FAILDRIVER 是直接调 d.tick 把局跑完的，而结算面板是 rAF 循环里的\n       showResult() 渲染的 —— 紧接着就读会偶发读到空内容（本轮实测 flaky 一次）。\n       ⑤ 通过路径本来就有 await sleep(500)，这里对齐。断言没动。 */\n    await sleep(500);\n    const failPanel = await ev('(function(){var e=document.querySelector(\"#bfGameHost .bf-result\"); return e? e.innerText.replace(/\\\\n+/g,\" | \") : \"\";})()');"
+    }
+  ]
+}

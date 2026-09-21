@@ -1,0 +1,10 @@
+{
+  "note": "todo-4 可用性：模式 A 断言没过而降级时，把 A 的失败项逐条打出来 —— 否则只看得到「降级了」，看不到降级的原因。",
+  "jobs": [
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    console.log(\"[模式B] 降级：mshta / Trident(IE11 引擎) 真实渲染同一份 breakfast.js …（\" + ch.why + \"）\");\n    mode = \"trident-hta\";",
+      "text": "    console.log(\"[模式B] 降级：mshta / Trident(IE11 引擎) 真实渲染同一份 breakfast.js …（\" + ch.why + \"）\");\n    /* 降级时把模式 A 的失败项逐条打出来 —— 否则只看得到「降级了」，看不到为什么降级。 */\n    if (ch.errors && ch.errors.length) ch.errors.forEach(e => console.log(\"    · 模式A 未过：\" + e));\n    mode = \"trident-hta\";"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "note": "todo-1 验收补全：标题屏「⚑ 跳到早餐店」必须**直接开一局练手局**（不再只弹 toast）。在模式 A 收尾加一节真浏览器断言。",
+  "jobs": [
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "      const back = await ev(\"JSON.stringify({game: !!document.querySelector('#bfGame.on'), bf: window.Breakfast.isBusy()})\");\n      info.storyExit = back;\n      A(/\"game\":false/.test(back) && /\"bf\":false/.test(back), \"剧情局收摊后回到剧情线（模块已 dispose）\");\n    }\n  } catch (e) {",
+      "text": "      const back = await ev(\"JSON.stringify({game: !!document.querySelector('#bfGame.on'), bf: window.Breakfast.isBusy()})\");\n      info.storyExit = back;\n      A(/\"game\":false/.test(back) && /\"bf\":false/.test(back), \"剧情局收摊后回到剧情线（模块已 dispose）\");\n    }\n\n    /* ⑨ 标题屏「⚑ 跳到早餐店」（bf-12 改）：\n       以前点它只弹一句 toast（新档全员好感 0 → 9 张卡全灰 → 用户根本没法试玩）。\n       现在要**直接开一局练手局** —— 与「跳到麻将」体验一致。\n       从全新档（localStorage 已清）验证，因为那正是用户被卡住的那个状态。 */\n    await ev('localStorage.clear()');\n    await send(\"Page.navigate\", { url: BASE + \"/index.html\" });\n    await sleep(2600);\n    A(await ev(\"!!document.getElementById('dbgBf')\") === true, \"标题屏有「⚑ 跳到早餐店」按钮\");\n    await ev('document.getElementById(\"dbgBf\").click()');\n    await sleep(1800);                       // enterGame + 300ms 延时 + 开局\n    const dbgDom = JSON.parse(await ev(\"JSON.stringify(window.__cs2.bfDom())\"));\n    const dbgSt = JSON.parse(await ev(\"JSON.stringify(window.__cs2.bfState)\"));\n    info.dbgBf = { dom: dbgDom, state: dbgSt };\n    A(dbgDom.game === true && dbgDom.canvas >= 1,\n      \"★ 点「跳到早餐店」直接进游戏（canvas 已挂载），不再只是弹 toast\",\n      JSON.stringify({ game: dbgDom.game, canvas: dbgDom.canvas }));\n    A(!!dbgSt && dbgSt.running === true && dbgSt.practice === true && !!dbgSt.target && dbgSt.target.id === \"fang\",\n      \"★ 开的是练手局（practice=true · 默认对象 fang）\",\n      JSON.stringify(dbgSt && { practice: dbgSt.practice, target: dbgSt.target && dbgSt.target.name }));\n    const dbgBonds = JSON.parse(await ev(\"JSON.stringify(window.__cs2.S.bonds)\"));\n    A(Object.keys(dbgBonds).every(k => dbgBonds[k] === 0),\n      \"★ 全新档全员好感仍是 0（练手局一个字都没改）\", JSON.stringify(dbgBonds));\n    await png(\"bf_dbgbf.png\");\n  } catch (e) {"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    screenshots: fs.readdirSync(SHOT_DIR).filter(f => /^bf_(game|pass|fail|pick|practice)\\.png$/.test(f)),",
+      "text": "    screenshots: fs.readdirSync(SHOT_DIR).filter(f => /^bf_(game|pass|fail|pick|practice|dbgbf)\\.png$/.test(f)),"
+    }
+  ]
+}

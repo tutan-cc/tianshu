@@ -3242,7 +3242,7 @@ $("mjFreeBtn").addEventListener("click",()=>{ AudioSys.init(); AudioSys.click();
    每日一次：S.breakfastDay 记录 {day, sent[]}，同一天同一角色只能送一次 */
 const BF_TARGET_IDS = ["fang","su","lin","wen","lei","hong","guo","lu","man"];
 const BF_PERFECT = { win:{cha:3, phy:1}, lose:{} };
-let bfRunning = false, bfNode = false, bfPractice = false;   // bfNode：本局从剧情节点来；bfPractice：练手局（不结算好感）
+let bfRunning = false, bfNode = false;                 // bfNode：本局是从剧情节点进来的
 let lastBfPick = 0, bfLastResult = null;               // bfLastResult：面板关掉后仍可读的最近结果
 
 /** 可攻略角色面板数据（好感 20~79 才可选；越界或今天已送 → 置灰并给原因） */
@@ -3258,7 +3258,7 @@ function bfNoteHtml(){
   const list = bfTargets();
   if(!list.length) return "早餐店模块未加载";
   const okList = list.filter(function(t){ return t.ok; });
-  if(!okList.length) return "🍳 今天没人可送了<br><span style=\"color:#6f6c85\">好感 20~79 之间、且今天还没送过的角色才收得下这份早餐<br>想试玩 → 打开面板用底下的 <b style=\"color:var(--gold)\">🎯 练手局</b>（任意角色 · 不影响好感）</span>";
+  if(!okList.length) return "🍳 今天没人可送了<br><span style=\"color:#6f6c85\">好感 20~79 之间、且今天还没送过的角色才收得下这份早餐</span>";
   return "🍳 今天还能送：<b style=\"color:var(--gold)\">" + okList.map(function(t){ return t.name + "（好感 " + t.bond + "）"; }).join(" · ") + "</b>";
 }
 function bfCanSend(id){
@@ -3270,34 +3270,19 @@ function bfApplyResult(res, opts){
   opts = opts || {};
   if(!res) return;
   bfLastResult = res;
-  /* bf-12 练手局：**只**记一条台账给玩家看 —— 好感 / 每日一次 / bfWin / 成就一律不动。
-     两道判据都认（res.practice 由 breakfast.js 的 finish() 打标，opts.practice 由 bfFinish 传下来），
-     任一处漏了都不会误结算。 */
-  const practice = !!(res.practice || opts.practice);
   const id = res.target && res.target.id;
   const before = id ? (S.bonds[id]||0) : 0;
-  if(!practice && id && res.bondDelta){
+  if(id && res.bondDelta){
     S.bonds[id] = Math.max(0, Math.min(100, before + res.bondDelta));
     S.breakfastDay = Breakfast.rules.markSent(S.breakfastDay, id, S.day);
   }
   const after = id ? (S.bonds[id]||0) : 0;
-  if(practice) AudioSys.click();
-  else if(res.win){ S.bfWin = true; AudioSys.good(); } else AudioSys.bad();
+  if(res.win){ S.bfWin = true; AudioSys.good(); } else AudioSys.bad();
   S.bfLast = { target:id||null, win:!!res.win, served:res.served, goal:res.goal,
-    perfect:res.perfect, burnt:res.burnt, score:res.score, delta:res.bondDelta||0, day:S.day, t:Date.now(),
-    practice: practice };
+    perfect:res.perfect, burnt:res.burnt, score:res.score, delta:res.bondDelta||0, day:S.day, t:Date.now() };
   save();
-  if(practice && res.target){
-    toast("🎯 <b>练手局 · 不影响好感</b> · 对象 <b>" + res.target.name + "</b><br><span style=\"color:#8a87a3\">服务 " + res.served + "/" + res.goal + " · 完美 " + res.perfect + " · 糊 " + res.burnt + " · 得分 " + res.score + " · 好感仍是 <b>" + after + "</b>（没变）· " + (res.quote||"") + "</span>");
-  } else if(res.target) toast((res.win?"🍳 送出热乎早餐":"…早餐烧坏了") + " · <b>" + res.target.name + "</b> 好感 <b>" + (res.bondDelta>0?"+":"") + res.bondDelta + "</b>（" + before + " → " + after + "）<br><span style=\"color:#8a87a3\">服务 " + res.served + "/" + res.goal + " · 完美 " + res.perfect + " · 糊 " + res.burnt + " · 得分 " + res.score + " · " + (res.quote||"") + "</span>");
-  if(!practice) checkAchv();
-  render();
-  /* 练手局：到此为止 —— 不写成就、不推剧情、不走「本局影响 / 接下来」那套正式结算话术 */
-  if(practice){
-    toast("📌 练手局不影响任何数值 —— 想真送早餐就点侧栏「🍳 做份早餐」");
-    render();
-    return;
-  }
+  if(res.target) toast((res.win?"🍳 送出热乎早餐":"…早餐烧坏了") + " · <b>" + res.target.name + "</b> 好感 <b>" + (res.bondDelta>0?"+":"") + res.bondDelta + "</b>（" + before + " → " + after + "）<br><span style=\"color:#8a87a3\">服务 " + res.served + "/" + res.goal + " · 完美 " + res.perfect + " · 糊 " + res.burnt + " · 得分 " + res.score + " · " + (res.quote||"") + "</span>");
+  checkAchv(); render();
   if(opts.story && typeof curNode!=="undefined" && curNode){
     afterInter(res.win ? BF_PERFECT.win : BF_PERFECT.lose, res.win ? ("早餐送到了 —— " + res.impact) : res.impact);
   } else {
@@ -3325,28 +3310,20 @@ function startBreakfastGame(id, opts){
     AudioSys.bad(); toast("早餐店模块未加载，已跳过本局");
     return false;
   }
-  /* bf-12：练手局（practice）与调试强开（force）。
-     · practice：本局不结算好感 / 不计每日一次 / 不写 S.breakfastDay（结算面板会标注）
-     · force   ：bfCanSend 不 ok 时也放行 —— **只在 debug / 练手路径生效**：
-       opts.debug 由 CS2_DEBUG.bfStart / __cs2.bfStart 注入，opts.practice 由练手卡注入；
-       正常剧情（startCook→openBreakfast）与侧栏入口都不带这两个标记 → 行为一字不变。 */
-  const practice = !!opts.practice;
-  const forceOK = !!opts.force && (practice || !!opts.debug);
   const chk = bfCanSend(id);
-  if(!chk.ok && !forceOK){ AudioSys.bad(); toast("🍳 " + chk.why); return false; }
+  if(!chk.ok){ AudioSys.bad(); toast("🍳 " + chk.why); return false; }
   const bond = BONDS[id] || {n:id, f:"🙂"};
   const host = $("bfGameHost");
   if(!host) return false;
   AudioSys.init(); AudioSys.click();
-  bfRunning = true; bfNode = !!opts.story; bfPractice = practice;
+  bfRunning = true; bfNode = !!opts.story;
   $("bfGame").classList.add("on");
   const target = { id:id, name:bond.n, bond:S.bonds[id]||0 };
   const ok = Breakfast.start(host, {
     target: target, duration: 75, goal: 8,
-    practice: practice,                                  // bf-12：练手局 → 规则层把 bondDelta 归零
     onFinish: function(res){ bfFinish(res); }
   });
-  if(ok !== true){ bfRunning = false; bfPractice = false; $("bfGame").classList.remove("on"); toast("早餐店开局失败"); return false; }
+  if(ok !== true){ bfRunning = false; $("bfGame").classList.remove("on"); toast("早餐店开局失败"); return false; }
   window.__cs2.bf = Breakfast.debug || null;
   try{ window.__cs2.bfTarget = target; }catch(e){}
   return true;
@@ -3354,10 +3331,10 @@ function startBreakfastGame(id, opts){
 function bfFinish(res){
   if(!bfRunning) return;
   bfRunning = false;
-  const story = bfNode, practice = bfPractice; bfNode = false; bfPractice = false;
+  const story = bfNode; bfNode = false;
   $("bfGame").classList.remove("on");
   try{ if(window.Breakfast && Breakfast.dispose) Breakfast.dispose(); }catch(e){}
-  bfApplyResult(res, { story:story, practice:practice });
+  bfApplyResult(res, { story:story });
 }
 /** 入口 B · 侧栏：选对象面板 */
 function openBreakfast(opts){
@@ -3372,14 +3349,6 @@ function openBreakfast(opts){
   if(!list.length){ toast("早餐店模块未加载"); return false; }
   const ok = Breakfast.ui.openTargetPanel(host, list, {
     day: S.day,
-    /* bf-12 练手局入口：面板底部那一排「任意角色」按钮 → practice + force 开局 */
-    onPracticePick: function(t){
-      if(t.id === lastBfPick) return;                          // 防抖：与正式卡共用同一个闸
-      lastBfPick = t.id; setTimeout(function(){ lastBfPick = 0; }, 600);
-      $("bfPick").classList.remove("on");
-      toast("🎯 练手局 · 不影响好感 —— 对象 <b>" + t.name + "</b>");
-      startBreakfastGame(t.id, { story:false, practice:true, force:true });
-    },
     onPick: function(t){
       if(t.id === lastBfPick) return;                          // 防抖：手快双击不会开两局
       lastBfPick = t.id; setTimeout(function(){ lastBfPick = 0; }, 600);
@@ -3524,12 +3493,7 @@ window.CS2_DEBUG = {
   mjSet: (o)=>{ Object.assign(S, o||{}); save(); render(); return mjRecord(); },
   /* ── 早餐店调试 ── */
   bfPick: ()=>{ $("title").classList.add("hide"); $("game").classList.add("on"); render(); return openBreakfast(); },
-  /* bf-12：debug 入口注入 debug:true —— 只有带 debug 标记的调用才认 {force:true}（绕开 bfCanSend 门槛）；
-     练手局再叠 practice:true（不结算好感）。正常剧情 / 侧栏入口都不带这两个标记。 */
-  bfStart: (id, o)=>{ $("title").classList.add("hide"); $("game").classList.add("on"); render();
-    return startBreakfastGame(id||"su", Object.assign({ debug:true }, o||{})); },
-  bfPractice: (id, o)=>{ $("title").classList.add("hide"); $("game").classList.add("on"); render();
-    return startBreakfastGame(id||"su", Object.assign({ debug:true, practice:true, force:true }, o||{})); },
+  bfStart: (id, o)=>{ $("title").classList.add("hide"); $("game").classList.add("on"); render(); return startBreakfastGame(id||"su", o||{}); },
   bfDebug: ()=> (window.Breakfast && Breakfast.debug) ? Breakfast.debug : null,
   bfState: ()=> (window.Breakfast && Breakfast.debug && Breakfast.debug.state) ? Breakfast.debug.state() : null,
   /* ── 打斗 2.0 调试 ──
@@ -3562,11 +3526,9 @@ window.__cs2 = {
   get bfTarget(){ return (window.Breakfast && Breakfast.debug && Breakfast.debug.state) ? (Breakfast.debug.state()||{}).target : null; },
   get bfResult(){ return bfLastResult; },
   bfPick: ()=> openBreakfast(),
-  bfStart: (id, o)=> startBreakfastGame(id, Object.assign({ debug:true }, o||{})),
-  bfPractice: (id, o)=> startBreakfastGame(id, Object.assign({ debug:true, practice:true, force:true }, o||{})),
+  bfStart: (id, o)=> startBreakfastGame(id, o),
   bfDom: ()=>({ pick: !!document.querySelector("#bfPick.on"), pickCards: document.querySelectorAll("#bfPickHost .bf-card").length,
     pickOff: document.querySelectorAll("#bfPickHost .bf-card.off").length,
-    pickPractice: document.querySelectorAll("#bfPickHost .bf-pchip").length,
     game: !!document.querySelector("#bfGame.on"), canvas: document.querySelectorAll("#bfGameHost canvas.bf-cv").length,
     result: !!document.querySelector("#bfGameHost .bf-result[style*=\"block\"]"),
     go: !!document.querySelector("#bfGameHost #bfGo"), goText: (function(){ var b=document.querySelector("#bfGameHost #bfGo"); return b?b.textContent:null; })() }),
@@ -3584,12 +3546,10 @@ $("dbgJump").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("negoti
 $("dbgFight").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("brawl"); });
 $("dbgFight2").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("brawl2"); });
 $("dbgMj").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("mahjong"); });
-/* ⚑ 跳到早餐店（bf-12 改）：以前只弹 toast —— 新档全员好感 0 → 9 张卡全灰 → 用户根本没法试玩。
-   现在与「跳到麻将」体验一致：点下去**直接开一局练手局**（默认对象 fang，不结算好感）；
-   想挑人就在面板里选（面板底部另有一排不受门槛限制的练手入口）。 */
+/* ⚑ 跳到早餐店：数值沿用 debugState()，此时只有羁绊 20~79 的角色收得下早餐
+   （hong 24 / man 24 可选；其余需先「全部解锁」或自行提升羁绊），面板空时 openBreakfast 会 toast 说明原因 */
 $("dbgBf").addEventListener("click",()=>{ enterGame();
-  setTimeout(()=>{ if(startBreakfastGame("fang", { practice:true, force:true })!==true)
-    if(openBreakfast()===false) toast("早餐店模块未加载（缺 breakfast.js）"); }, 300); });
+  setTimeout(()=>{ if(openBreakfast()===false) toast("早餐店需要先把羁绊提到 <b>20~79</b>"); }, 300); });
 $("dbgTalk").addEventListener("click",()=>{ AudioSys.init(); CS2_DEBUG.unlockAll();
   $("title").classList.add("hide"); $("game").classList.add("on"); render(); });
 /* ═══ 进入游戏运行时（开始重生 / 各调试跳转共用，避免 S 未初始化就 render） ═══ */
@@ -3647,11 +3607,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260921-1222" data-fp="63a9c7"
-     title="构建版本戳 · build 20260921-1222 · 内容指纹 63a9c7（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260921-1205" data-fp="ddb0cf"
+     title="构建版本戳 · build 20260921-1205 · 内容指纹 ddb0cf（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260921-1222 · ch 63a9c7 · bf 211K · mj 288K · idx 231K · map 68K</div>
-<script>window.__BUILD={"build":"20260921-1222","fingerprint":"63a9c7","sizes":{"idx":231,"mj":288,"bf":211,"map":68},"files":{"index.html":236315,"mahjong.js":295035,"breakfast.js":216155,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789964551633,"map3d.js":1789789317181},"idxContentHash":"abb1a340db752527352d90c7df3e5aa4457a11e5","idxContentBytes":235025,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260921-1205 · ch ddb0cf · bf 206K · mj 288K · idx 227K · map 68K</div>
+<script>window.__BUILD={"build":"20260921-1205","fingerprint":"ddb0cf","sizes":{"idx":227,"mj":288,"bf":206,"map":68},"files":{"index.html":232756,"mahjong.js":295035,"breakfast.js":211292,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789963552680,"map3d.js":1789789317181},"idxContentHash":"7c705b06141ba6609fd04c380b4bf653889e289e","idxContentBytes":231459,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>

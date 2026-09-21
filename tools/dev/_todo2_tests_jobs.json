@@ -1,0 +1,30 @@
+{
+  "note": "todo-2：audio/bf 归档 78 个未被引用的旧件到 _unused/ 之后，把「旧件还在盘上」的断言改成走 _unused/（语义没变：文件一个没删，只是位置变了），并新增「归档件无任何通道引用 + 根目录只剩 15 个」的硬判据。",
+  "jobs": [
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  /* bf-9：欢呼换成 6 条新录音、下锅音效新增 9 条 —— 全部纳入规格盘点 */\n  const want = [\"tick.mp3\", \"slow.mp3\",\n                \"happy_v1.mp3\", \"happy_v2.mp3\", \"happy_v3.mp3\",\n                \"happy_v4.mp3\", \"happy_v5.mp3\", \"happy_v6.mp3\",\n                \"cook_congee.mp3\", \"cook_milk.mp3\", \"cook_soup.mp3\", \"cook_egg.mp3\",\n                \"cook_bacon.mp3\", \"cook_sandwich.mp3\", \"cook_bun.mp3\",\n                \"cook_salad.mp3\", \"cook_juice.mp3\"];",
+      "text": "  /* bf-9：欢呼换成 6 条新录音、下锅音效新增 9 条 —— 全部纳入规格盘点。\n     bf-12 仓库清理：audio/bf/ 下**只留代码点名的 15 个**（9 条 cook_* + 池里 4 条欢呼 + tick + slow），\n     其余 78 个旧件已归档到 audio/bf/_unused/（文件一个都没删；下划线前缀目录被 .gitignore\n     第 93 行的「audio 下划线前缀」规则排除 → 不入库、不分发，与 audio/mj/_bak_pre_wopeng/ 同一做法）。\n     所以这里盘点的就是那 15 个「还在岗」的；归档件在下面单独验「仍在盘上、且没有任何通道引用」。 */\n  const ARCH = path.join(dir, \"_unused\");\n  const at = f => (fs.existsSync(path.join(dir, f)) ? path.join(dir, f) : path.join(ARCH, f));\n  const want = [\"tick.mp3\", \"slow.mp3\",\n                \"happy_v1.mp3\", \"happy_v3.mp3\", \"happy_finally2.mp3\", \"happy_i45.mp3\",\n                \"cook_congee.mp3\", \"cook_milk.mp3\", \"cook_soup.mp3\", \"cook_egg.mp3\",\n                \"cook_bacon.mp3\", \"cook_sandwich.mp3\", \"cook_bun.mp3\",\n                \"cook_salad.mp3\", \"cook_juice.mp3\"];"
+    },
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "    assert.ok(fs.existsSync(path.join(dir, f)), \"对照件 audio/bf/\" + f + \" 还在（试听页要用）\");",
+      "text": "    assert.ok(fs.existsSync(at(f)), \"对照件 \" + f + \" 还在盘上（bf-12 起归档在 _unused/，试听页要用）\");"
+    },
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  assert.ok(fs.existsSync(path.join(dir, \"happy_v2.mp3\")), \"happy_v2.mp3 文件仍留在盘上（对比用）\");",
+      "text": "  assert.ok(fs.existsSync(at(\"happy_v2.mp3\")), \"happy_v2.mp3 文件仍留在盘上（bf-12 起归档在 _unused/，对比用）\");\n  assert.ok(!fs.existsSync(path.join(dir, \"happy_v2.mp3\")), \"happy_v2.mp3 已从 audio/bf/ 移出（不再入库/分发）\");"
+    },
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  const srcN56 = path.join(dir, \"happy_n56.mp3\");",
+      "text": "  const srcN56 = at(\"happy_n56.mp3\");            // 源件也已归档到 _unused/，用 at() 找"
+    },
+    {
+      "file": "tests/breakfast.test.cjs",
+      "from": "  /* 六条欢呼 + 一条「太慢了」都要有人声时长（>0.4s），不是空文件 */\n  [\"happy_v1.mp3\", \"happy_v2.mp3\", \"happy_v3.mp3\", \"happy_v4.mp3\", \"happy_v5.mp3\",\n   \"happy_v6.mp3\", \"slow.mp3\"].forEach(f => {\n    const info = mp3info.mp3Info(path.join(dir, f));\n    assert.ok(info.decoded > 0.4, f + \" 时长 \" + (info.decoded * 1000).toFixed(0) + \"ms，像一条语音\");\n  });",
+      "text": "  /* 欢呼候选 + 一条「太慢了」都要有人声时长（>0.4s），不是空文件。\n     bf-12：v2/v4/v5/v6 已归档 → 走 at() 到 _unused/ 里量（归档不等于没内容）。 */\n  [\"happy_v1.mp3\", \"happy_v2.mp3\", \"happy_v3.mp3\", \"happy_v4.mp3\", \"happy_v5.mp3\",\n   \"happy_v6.mp3\", \"slow.mp3\"].forEach(f => {\n    const info = mp3info.mp3Info(at(f));\n    assert.ok(info.decoded > 0.4, f + \" 时长 \" + (info.decoded * 1000).toFixed(0) + \"ms，像一条语音\");\n  });\n  /* ── bf-12 仓库清理的两条硬判据 ──────────────────────────────────────────\n     ① 归档件一个都没丢，且**没有任何一个**被通道 / 食材音效表引用；\n     ② audio/bf/ 根目录下只剩代码点名的 15 个 mp3 —— 「清理干净」不看叙述，看目录。 */\n  assert.ok(fs.existsSync(ARCH), \"归档目录 audio/bf/_unused/ 存在\");\n  const archived = fs.readdirSync(ARCH).filter(f => /\\.mp3$/i.test(f));\n  assert.ok(archived.length >= 70, \"_unused/ 里归档件齐全（实际 \" + archived.length + \" 个）\");\n  archived.forEach(f => {\n    assert.equal(R.audio.NAMES.some(n => R.audio.FILES[n].indexOf(f) >= 0), false,\n      \"归档件 \" + f + \" 不参与任何播放通道\");\n    assert.equal(Object.keys(R.audio.COOK_FILES).some(k => R.audio.COOK_FILES[k] === f), false,\n      \"归档件 \" + f + \" 不是任何食材的下锅音效\");\n  });\n  const rootMp3 = fs.readdirSync(dir).filter(f => /\\.mp3$/i.test(f)).sort();\n  assert.equal(rootMp3.length, 15, \"audio/bf/ 根目录只剩 15 个在岗素材（实际 \" + rootMp3.length + \"）\");\n  assert.deepEqual(rootMp3, want.slice().sort(), \"剩下的正好就是通道点名的那些\");"
+    }
+  ]
+}

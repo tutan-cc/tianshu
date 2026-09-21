@@ -1,0 +1,20 @@
+{
+  "note": "todo-4 根因（第二条）：① 页面走 file:// 时 art/*.png 与页面不同源，画进 canvas 会 taint 它 → getImageData 抛 SecurityError → 「读像素」永远失败；② ev() 把 exceptionDetails 查在 r 上，而它其实挂在 r.result 上 → 页内异常被静默吞成 undefined。两条都修。",
+  "jobs": [
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "  if (r && r.exceptionDetails) return \"EXC:\" + ((r.exceptionDetails.exception || {}).description || r.exceptionDetails.text || \"\");",
+      "text": "  /* ⚠ exceptionDetails 挂在 **r.result** 上，不是 r 上！\n     原写法 `r.exceptionDetails` 永远 undefined → 页内异常一个都检测不到 → 返回 undefined →\n     调用方 JSON.parse(undefined) 抛「\"undefined\" is not valid JSON」，把真正的错盖掉。\n     bf-12 实测：真正的错是 canvas 被 art/*.png taint 后 getImageData 抛 SecurityError。 */\n  const ex = r && r.result && r.result.exceptionDetails;\n  if (ex) return \"EXC:\" + ((ex.exception || {}).description || ex.text || \"\");"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "const BASE = \"file:///\" + OUT.replace(/\\\\/g, \"/\").split(\"/\").map(encodeURIComponent).join(\"/\");",
+      "text": "const FILE_BASE = \"file:///\" + OUT.replace(/\\\\/g, \"/\").split(\"/\").map(encodeURIComponent).join(\"/\");\n/* bf-12：默认改成**本地 HTTP**（http://127.0.0.1:8000，与 tools/bf/e2e-audio.js 同一口径）。\n   原因是实测出来的：file:// 下 art/*.png 与页面**不同源**，画进 canvas 会把它 taint 掉，\n   于是「读 canvas 像素」那一步的 getImageData 抛 SecurityError → 模式 A 必然降级（与好感无关的第二条根因）。\n   HTTP 下同源，像素读得到。服务器没起就回落到 file:// —— 其余步骤照跑，只有读像素那条会如实失败。 */\nlet BASE = FILE_BASE;\nfunction pickBase() {\n  return new Promise(res => {\n    const want = process.env.BF_BASE || \"http://127.0.0.1:8000\";\n    const r = http.get(want + \"/index.html\", resp => { resp.resume(); res(resp.statusCode === 200 ? want : FILE_BASE); });\n    r.on(\"error\", () => res(FILE_BASE));\n    r.setTimeout(3000, () => { try { r.destroy(); } catch (e) {} res(FILE_BASE); });\n  });\n}"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "  if (!fs.existsSync(SHOT_DIR)) fs.mkdirSync(SHOT_DIR, { recursive: true });\n  let mode = \"chrome-cdp\", checks = [], errors = [], info = {}, extraNote = \"\";",
+      "text": "  if (!fs.existsSync(SHOT_DIR)) fs.mkdirSync(SHOT_DIR, { recursive: true });\n  BASE = await pickBase();\n  console.log(\"[基准] 页面基地址 = \" + BASE + (BASE === FILE_BASE ? \"（本地 HTTP 没起，回落 file:// —— 读像素那条会失败）\" : \"（本地 HTTP，canvas 同源可读像素）\"));\n  let mode = \"chrome-cdp\", checks = [], errors = [], info = {}, extraNote = \"\";"
+    }
+  ]
+}

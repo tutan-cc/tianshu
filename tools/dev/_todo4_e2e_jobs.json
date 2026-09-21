@@ -1,0 +1,45 @@
+{
+  "note": "todo-4 / tools/e2e/bf.js：模式 A 修根因（先摆好感/前置状态再开面板）+ 顺手修「第二位对象」撞车 + 加练手局两条硬证据 + 模式 B 强制开关 + 降级原因不再打印 undefined。",
+  "jobs": [
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "   验收点：\n     1) 侧栏「🍳 做份早餐」能打开选对象面板；好感区间外的卡片置灰并给原因",
+      "text": "   bf-12 修（模式 A 长期「进不去」的根因）：\n     本工具以前**没摆前置状态**就点侧栏「🍳 做份早餐」。localStorage.clear() 之后是全新档，\n     全员好感 0 → 9 张卡全灰 → 面板里一张 data-ok=\"1\" 的卡都没有 → 选不了对象 →\n     后面每一步都拿不到东西 → errors 一堆 → 降级到 mshta 模式 B（用户看到的就是「A 进不去」）。\n     现在照抄 tools/bf/e2e-audio.js：进沙盘之后先用 CS2_DEBUG.mjSet 摆好感（覆盖三种分支）。\n     注意：这不是「把断言放松」，断言一条没改；改的是**前置条件本来就该摆**。\n   验收点：\n     1) 侧栏「🍳 做份早餐」能打开选对象面板；好感区间外的卡片置灰并给原因"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    /* ② 进沙盘，点侧栏「🍳 做份早餐」 */\n    await ev('document.getElementById(\"startBtn\").click()');\n    await sleep(1800);\n    const btn = await ev(\"!!document.getElementById('bfBtn')\");",
+      "text": "    /* ② 进沙盘，点侧栏「🍳 做份早餐」 */\n    await ev('document.getElementById(\"startBtn\").click()');\n    await sleep(1800);\n\n    /* ②b 摆好前置状态 —— bf-12 修的就是这一步。\n       ⚠ 根因：localStorage.clear() 之后是**全新档**，全员好感 0 → 9 张卡全灰 →\n         面板里没有一张 data-ok=\"1\" 的卡 → 选不了对象 → 后面每步都拿不到东西 →\n         errors 一堆 → 降级到 mshta 模式 B（看起来就像「模式 A 进不去」）。\n       做法照抄 tools/bf/e2e-audio.js：用页面自己的调试钩子 CS2_DEBUG.mjSet 摆好感。\n       摆法刻意覆盖三种分支：可送（20~79）/ 太生疏（<20）/ 已满（≥80）。 */\n    const setup = await ev(`(function(){\n      if (!window.CS2_DEBUG || !window.CS2_DEBUG.mjSet) return \"no-debug\";\n      window.CS2_DEBUG.mjSet({\n        bonds: { fang:42, su:38, lin:55, wen:24, lei:0, hong:85, guo:31, lu:0, man:0 },\n        breakfastDay: { day: window.__cs2.S.day, sent: [] }\n      });\n      var b = window.__cs2.S.bonds, n = 0, ks = Object.keys(b);\n      for (var i = 0; i < ks.length; i++) if (b[ks[i]] >= 20 && b[ks[i]] < 80) n++;\n      return \"ok:\" + n;\n    })()`);\n    info.setup = setup;\n    A(setup === \"ok:5\", \"前置状态已摆好：5 位可送（20~79）/ 3 位太生疏 / 1 位已满\", String(setup));\n\n    const btn = await ev(\"!!document.getElementById('bfBtn')\");"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    A(/送过|生疏|满|好感/.test(String(pickTxt)), \"置灰卡片带原因文案\");\n    await png(\"bf_pick.png\");",
+      "text": "    A(/送过|生疏|满|好感/.test(String(pickTxt)), \"置灰卡片带原因文案\");\n    A(dom.pickPractice >= 9, \"面板底部有练手局入口（任意角色 · 不受 20~79 门槛限制）\",\n      \"练手入口 \" + dom.pickPractice + \" 个\");\n    await png(\"bf_pick.png\");"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    const other = await ev(`(function(){var list=window.__cs2.bfResult?null:null; var bs=window.__cs2.S.bonds; var ids=[\"fang\",\"su\",\"lin\",\"wen\",\"lei\",\"hong\",\"guo\",\"lu\",\"man\"]; for(var i=0;i<ids.length;i++){ if(bs[ids[i]]>=20 && bs[ids[i]]<80) return ids[i]; } return null;})()`);",
+      "text": "    /* bf-12 修：原来这里只是「返回第一位 20~79 的角色」—— 而 pick（上面第一张 data-ok=\"1\" 的卡）\n       很可能就是同一位 → 撞上「每日一次」→「第二位对象开局成功」必失败。\n       现在显式排除本局已经送过的那位。 */\n    const other = await ev(`(function(){var bs=window.__cs2.S.bonds; var ids=[\"fang\",\"su\",\"lin\",\"wen\",\"lei\",\"hong\",\"guo\",\"lu\",\"man\"]; for(var i=0;i<ids.length;i++){ if(ids[i]===${JSON.stringify(pick)}) continue; if(bs[ids[i]]>=20 && bs[ids[i]]<80) return ids[i]; } return null;})()`);"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    await ev('document.querySelector(\"#bfPickHost .bf-btn\").click()');\n    await sleep(300);\n\n    /* ⑦ 失败路径：换一位对象，让所有顾客跑掉 */",
+      "text": "    await ev('document.querySelector(\"#bfPickHost .bf-btn\").click()');\n    await sleep(300);\n\n    /* ⑥b 练手局（bf-12）：**门槛外的角色也能开局，且好感 / 每日一次一个字都不变**\n       用 man（好感 0 = 用户实测被卡住的那种角色）：正常门槛必拒，练手局必须放行。\n       证据链两层：\n         · 门槛层：bfCanSend(\"man\") 不 ok；不带 force 的 debug 开局同样 false；bfPractice 才 true\n         · 数值层：打完整局之后 S.bonds / S.breakfastDay **逐字段深比**没变，\n                   而且面板里 man 仍显示「太生疏」而不是「今天已经送过」。 */\n    const bondsP0 = await ev(\"JSON.stringify(window.__cs2.S.bonds)\");\n    const bfDayP0 = await ev(\"JSON.stringify(window.__cs2.S.breakfastDay)\");\n    const gateMan = await ev('JSON.stringify(window.bfCanSend(\"man\"))');\n    A(/\"ok\":false/.test(String(gateMan)), \"练手局对照：man 好感 0 走正常门槛必被拒（就是用户被卡住的情形）\", String(gateMan));\n    A(await ev('window.__cs2.bfStart(\"man\", {})') === false, \"练手局对照：不带 force 的 debug 开局同样被门槛拒绝\");\n    A(await ev('window.__cs2.bfPractice(\"man\")') === true, \"练手局：好感 0 的角色也能开局（practice + force 绕开门槛）\");\n    await sleep(900);\n    const stP = JSON.parse(await ev(\"JSON.stringify(window.__cs2.bfState)\"));\n    A(!!stP && stP.running === true && stP.practice === true, \"练手局状态正确（running / practice=true）\",\n      JSON.stringify(stP && { practice: stP.practice, target: stP.target && stP.target.name }));\n    const pRun = JSON.parse(await ev(\"JSON.stringify(\" + DRIVER_JS + \")\"));\n    A(pRun.done === true && pRun.after && pRun.after.over === true, \"练手局 debug 驱动跑完整局（已结算）\");\n    await sleep(500);\n    const pPanel = await ev('(function(){var e=document.querySelector(\"#bfGameHost .bf-result\"); return e? e.innerText.replace(/\\\\n+/g,\" | \") : \"\";})()');\n    info.practicePanel = String(pPanel).slice(0, 400);\n    A(/练手局/.test(String(pPanel)) && /不影响好感/.test(String(pPanel)), \"★ 练手局结算面板明确标注「练手局 · 不影响好感」\");\n    A(/不变/.test(String(pPanel)), \"★ 结算面板里好感那一行写「不变（练手局）」（不是 +6）\");\n    const pRes = JSON.parse(await ev(\"JSON.stringify(window.__cs2.bfResult)\"));\n    A(!!pRes && pRes.practice === true && pRes.bondDelta === 0, \"练手局结算结果 practice=true / bondDelta=0\",\n      pRes && (\"practice=\" + pRes.practice + \" delta=\" + pRes.bondDelta));\n    await png(\"bf_practice.png\");\n    await ev('(function(){var b=document.querySelector(\"#bfGameHost .bf-result [data-act=close]\"); if(b) b.click();})()');\n    await sleep(500);\n    const bondsP1 = await ev(\"JSON.stringify(window.__cs2.S.bonds)\");\n    const bfDayP1 = await ev(\"JSON.stringify(window.__cs2.S.breakfastDay)\");\n    info.practiceBonds = { before: bondsP0, after: bondsP1 };\n    info.practiceBfDay = { before: bfDayP0, after: bfDayP1 };\n    A(bondsP1 === bondsP0, \"★ 练手局结束后 S.bonds 逐字段完全没变（\" + bondsP0 + \"）\");\n    A(bfDayP1 === bfDayP0, \"★ 练手局结束后 S.breakfastDay 没变（没写「今天已送」）（\" + bfDayP0 + \"）\");\n    await ev('document.getElementById(\"bfBtn\").click()');\n    await sleep(500);\n    const manCard = await ev(`(function(){var c=document.querySelector('#bfPickHost .bf-card[data-id=\"man\"]'); return c? (c.getAttribute(\"data-ok\")+\"|\"+c.innerText.replace(/\\\\n+/g,\" \")) : \"MISSING\";})()`);\n    info.manCardAfterPractice = manCard;\n    A(/^0\\|/.test(String(manCard)) && /生疏/.test(String(manCard)),\n      \"★ 练手局后 man 仍显示「太生疏」而不是「今天已经送过」\", String(manCard));\n    await ev('document.querySelector(\"#bfPickHost .bf-btn\").click()');\n    await sleep(300);\n\n    /* ⑦ 失败路径：换一位对象，让所有顾客跑掉 */"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "  return { ok: errors.length === 0, checks, errors, info };\n}",
+      "text": "  /* ⚠ ok:false 有两种，必须分清楚：\n       ① Chrome 起不来 —— 上面提前 return，带 why；\n       ② Chrome 起来了但断言没过 —— 这时也要把**第一批失败项**带出去，\n          否则主流程只会打印「（undefined）」，看的人完全不知道发生了什么（bf-12 前一直如此）。 */\n  return { ok: errors.length === 0, checks, errors, info,\n    why: errors.length ? (\"模式 A 起来了但断言未过 \" + errors.length + \" 项：\" + errors.slice(0, 3).join(\" ／ \")) : \"\" };\n}"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "  let ch = { ok: false, why: \"未执行\" };\n  try { ch = await runChrome(); } catch (e) { ch = { ok: false, why: \"Chrome 流程异常：\" + (e && e.message || e) }; }",
+      "text": "  /* BF_E2E_MODE_B=1：强制走模式 B。\n     模式 A 修好之后模式 B 平时不会再被触发 —— 没有这个开关就**没法证明降级路径仍然可用**\n     （向后兼容要能真跑出来，不能只靠读代码）。默认不设 → 行为与以前完全一样。 */\n  const FORCE_B = String(process.env.BF_E2E_MODE_B || \"\") === \"1\";\n  let ch = { ok: false, why: FORCE_B ? \"BF_E2E_MODE_B=1 强制走模式 B（验证降级路径仍然可用）\" : \"未执行\" };\n  if (!FORCE_B) { try { ch = await runChrome(); } catch (e) { ch = { ok: false, why: \"Chrome 流程异常：\" + (e && e.message || e) }; } }"
+    },
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "    screenshots: fs.readdirSync(SHOT_DIR).filter(f => /^bf_(game|pass|fail|pick)\\.png$/.test(f)),",
+      "text": "    screenshots: fs.readdirSync(SHOT_DIR).filter(f => /^bf_(game|pass|fail|pick|practice)\\.png$/.test(f)),"
+    }
+  ]
+}

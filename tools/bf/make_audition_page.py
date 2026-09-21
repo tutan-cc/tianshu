@@ -29,10 +29,31 @@ import gen_bf_happy_i as G
 
 REPO = N.REPO
 BF = os.path.join(REPO, "audio", "bf")
+# ── bf-12 仓库清理 ──────────────────────────────────────────────────────────
+# audio/bf/ 根目录下现在**只留代码点名的 15 个**（池里 4 条欢呼 + tick + slow + 9 条 cook_*），
+# 其余 78 个旧候选已归档到 audio/bf/_unused/（文件一个都没删，只是不入库/不分发）。
+# 两件事必须跟着走，否则试听页会「静默缺条目 / 静默 404」：
+#   ① 现量数字要从归档目录读（bf_path）；
+#   ② 页面里的 <audio> 路径要按同一份保留清单解析（data["keep"]）。
+COOK_IDS = ["congee", "milk", "soup", "egg", "bacon", "sandwich", "bun", "salad", "juice"]
+POOL_IDS_FOR_KEEP = ["happy_v1", "happy_v3", "happy_finally2", "happy_i45"]
+KEEP_IN_ROOT = (["tick.mp3", "slow.mp3"] + [fid + ".mp3" for fid in POOL_IDS_FOR_KEEP] +
+                ["cook_%s.mp3" % c for c in COOK_IDS])
+BF_UNUSED = os.path.join(BF, "_unused")
 PAGE = os.path.join(REPO, "测试截图", "bf_happy_audition.html")
 PAGE5 = os.path.join(REPO, "测试截图", "bf_pick5.html")
 SRC_N = N.SRC_DIR
 SRC_I = G.SRC_DIR
+
+
+def bf_path(fn):
+    """素材路径解析（bf-12）：正式目录 audio/bf/ 优先；不在就回落到归档目录 audio/bf/_unused/。
+
+    为什么要这一步：归档后如果还死读 audio/bf/，os.path.exists 为假 → row() 返回 None →
+    那一整行**从页面上静默消失**（不报错），看的人只会以为「候选本来就少」。
+    """
+    p = os.path.join(BF, fn)
+    return p if os.path.exists(p) else os.path.join(BF_UNUSED, fn)
 
 # ── bf-11 用户拍板的轮换池（必须与 breakfast.js 里的 BF_SFX_FILES 逐字一致）──
 # 用户先说：「游戏里轮换『终于好啦』『开动啦』『哼，太慢了』这三个之前的语言。
@@ -123,7 +144,7 @@ def build_pick5():
     不手写。
     """
     def row(file, use, note, extra_label=""):
-        p = os.path.join(BF, file)
+        p = bf_path(file)
         if not os.path.exists(p):
             print("⚠ 缺文件，跳过：%s" % p, file=sys.stderr)
             return None
@@ -162,6 +183,7 @@ def build_pick5():
         if r["file"] == "happy_finally2.mp3":
             r["heard"] = " ／ ".join((heard.get("happy_n56") or {}).get("heard") or [])
     data = {"rows": rows, "extra": extra,
+            "keep": KEEP_IN_ROOT,
             "alt_heard": " ／ ".join((heard.get("happy_n56") or {}).get("heard") or []),
             "generated": __import__("time").strftime("%Y-%m-%d %H:%M")}
     html = TEMPLATE5.replace("__DATA__", json.dumps(data, ensure_ascii=False, indent=1))
@@ -256,6 +278,10 @@ TEMPLATE5 = r"""<!DOCTYPE html>
     <code>slow: ["slow.mp3"]</code>。<br>
     <b>slow.mp3（「哼，太慢了」）本轮一个字都没改</b> —— 改动前后 SHA256 一致，写在报告里。<br>
     完整的候选对比页：<a href="bf_happy_audition.html" style="color:var(--cyan)">bf_happy_audition.html</a>。<br>
+    <b>bf-12 归档</b>：<code>audio/bf/</code> 根目录只留 15 个在岗素材（池里 4 条欢呼 + <code>tick</code> +
+    <code>slow</code> + 9 条 <code>cook_*</code>），旧候选已挪到 <code>audio/bf/_unused/</code>
+    （<b>文件一个都没删</b>，只是不入库、不分发）。本页按同一份保留清单解析路径 ——
+    下面那两条「停用 / 对比件」会自动走 <code>../audio/bf/_unused/</code>，照样能播。<br>
     本页无外链、无 CDN，离线可开。生成时间：<span id="genat"></span>。
   </div>
 </div>
@@ -294,7 +320,7 @@ function mk(v, i, small){
     '</div>';
   var au = document.createElement("audio");
   au.preload = "none";
-  au.src = "../audio/bf/" + v.file;
+  au.src = ((DATA.keep || []).indexOf(v.file) >= 0 ? "../audio/bf/" : "../audio/bf/_unused/") + v.file;
   var b = d.querySelector("button.big");
   au.addEventListener("play", function(){
     els.forEach(function(o){ if (o.au !== au) { try { o.au.pause(); } catch(e){} } });
@@ -389,7 +415,7 @@ def main():
         base = old.get(fid)
         if not base:
             return None
-        p = os.path.join(BF, base.get("file") or (fid + ".mp3"))
+        p = bf_path(base.get("file") or (fid + ".mp3"))
         if not os.path.exists(p):
             return None
         info = N.G.probe_info(p)
@@ -423,7 +449,7 @@ def main():
         r = irows.get(nm)
         if not r:
             continue
-        p = os.path.join(BF, nm + ".mp3")
+        p = bf_path(nm + ".mp3")
         sp = N.spec_stats(p) if os.path.exists(p) else None
         m = metrics(r)
         m["cen"] = round((sp or {}).get("centroid_med") or 0)
@@ -434,6 +460,7 @@ def main():
                       omni_ok=bool((heard_i.get(nm) or {}).get("ok"))))
 
     data = {"A": A, "B": B, "C": C, "OFF": OFF,
+            "keep": KEEP_IN_ROOT,
             "weights": nrep.get("weights") or {},
             "generated": __import__("time").strftime("%Y-%m-%d %H:%M")}
     html = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False, indent=1))
@@ -591,7 +618,12 @@ TEMPLATE = r"""<!DOCTYPE html>
     再用 <code>tools/bf/make_audition_page.py</code> 生成本页 —— 数字全是实测，没有手写。<br>
     DSP 自检（<code>--selftest</code>）：FFT 8 档 n 全部峰值正确；已知纯音 300/1000/3000/5000Hz
     量出的谱质心误差 ≤0.2%。<br>
-    本页无外链、无 CDN：音频走相对路径 <code>../audio/bf/*.mp3</code>，离线也能打开。
+    本页无外链、无 CDN：音频走相对路径 <code>../audio/bf/*.mp3</code>，离线也能打开。<br>
+    <b>bf-12 归档</b>：<code>audio/bf/</code> 根目录现在只留代码点名的 15 个在岗素材
+    （池里 4 条欢呼 + <code>tick</code> + <code>slow</code> + 9 条 <code>cook_*</code>）；
+    旧候选（<code>happy_n*</code> / <code>happy_alt*</code> / v2 / v4 / v5 / v6 / i 系列…）
+    已挪到 <code>audio/bf/_unused/</code>（<b>文件一个都没删</b>，只是该目录不入库、不分发）。
+    本页会按同一份保留清单解析路径：归档件自动走 <code>../audio/bf/_unused/</code>，播放不受影响。
     密钥只在进程环境变量里用过，没有写进任何文件。生成时间：<span id="genat"></span>。
   </div>
 </div>
@@ -633,7 +665,7 @@ function card(v, gi){
     '<div class="bar"><button class="play">▶ 播放 ' + esc(v.short) + '</button></div>';
   var au = document.createElement("audio");
   au.preload = "none";
-  au.src = "../audio/bf/" + v.file;
+  au.src = ((DATA.keep || []).indexOf(v.file) >= 0 ? "../audio/bf/" : "../audio/bf/_unused/") + v.file;
   var b = d.querySelector("button.play");
   au.addEventListener("play", function(){
     Object.keys(els).forEach(function(k){ if (els[k] !== au) { try { els[k].pause(); } catch(e){} } });

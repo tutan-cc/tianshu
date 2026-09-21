@@ -742,10 +742,7 @@
              /* 自动落盘（要求 A3：熟了自动落到本列专属盘）——
                 bf-3 起这是核心规则，所以默认打开；显式传 autoPlate:false 才关掉
                 （关掉是「按住看火」的调试手感：食物留在锅里，手动 takePlate 才落盘）。 */
-             autoPlate: cfg.autoPlate !== false,
-             /* bf-12 练手局：一路从 start() 的 opts 带到这里。newState 只挑白名单字段，
-                所以必须显式列出来 —— 否则 st.cfg.practice 永远是 undefined。 */
-             practice: cfg.practice === true },
+             autoPlate: cfg.autoPlate !== false },
       running:false, over:false, elapsed:0, score:0,
       served:0, perfect:0, normal:0, hot:0, burnt:0, burntServed:0, wrong:0, angry:0, made:0,
       partialServes:0, partialBonus:0,          // 部分上餐：次数 / 一共回给顾客多少秒耐心
@@ -1375,10 +1372,6 @@
     for (i = 0; i < st.plates.length; i++) if (st.plates[i].hot) hot++;
     var quality = bondHeat(st.perfect, hot) / 100;
     var delta = bondDeltaFor(st.win, st.perfect, hot, st.burnt, st.served);
-    /* bf-12 练手局：数值照常算（面板要显示服务 / 完美 / 糊），但 **bondDelta 归零**，
-       impact / quota 也换成「练手局」口径 —— 页面层据此不落账，也不写 S.breakfastDay。 */
-    var practice = !!st.cfg.practice;
-    if (practice) delta = 0;
     st.result = {
       win: st.win, served: st.served, goal: st.cfg.goal,
       perfect: st.perfect, normal: st.normal, hot: hot,
@@ -1394,14 +1387,9 @@
       score: st.score, elapsed: round1(st.elapsed), duration: st.cfg.duration,
       bondDelta: delta, quality: quality,
       target: target ? { id:(target.id || ""), name:(target.name || target.id || ""), bond:target.bond } : null,
-      practice: practice,                    // 页面层据此跳过好感 / 每日一次 / 成就
       quote: quoteFor(role, st.win, quality, st.seq),
-      impact: practice
-        ? ("练手局 · 不影响好感（" + (target && target.name ? target.name : "对方") + " 的好感与今日次数都没变）")
-        : impactOf(st.win, st.perfect, st.burnt, hot, target ? (target.name || "") : "对方"),
-      quota: practice
-        ? "练手局不算成绩 —— 想真送早餐就回侧栏「🍳 做份早餐」（好感 20~79 且今天没送过的角色才收得下）"
-        : quotaOf(st.win, delta, target ? (target.name || "") : "对方"),
+      impact: impactOf(st.win, st.perfect, st.burnt, hot, target ? (target.name || "") : "对方"),
+      quota: quotaOf(st.win, delta, target ? (target.name || "") : "对方"),
       reason: st.reason
     };
     return st.result;
@@ -2166,10 +2154,6 @@
       goal: opts.goal > 0 ? opts.goal : 8,
       target: opts.target || null,
       autoPlate: opts.autoPlate !== false,           // 页面默认打开「做好自动落入专属盘」
-      /* bf-12 练手局：不结算好感 / 不计每日一次 / 不写 S.breakfastDay（结算面板会明确标注）。
-         门槛（好感 20~79、今天没送过）不在规则层 —— 它在页面 glue 的 bfCanSend 里；
-         这里只负责「这一局不落账」。 */
-      practice: opts.practice === true,
       onFinish: (typeof opts.onFinish === "function") ? opts.onFinish : null
     };
     var st = newState(cfg);
@@ -2179,8 +2163,7 @@
     hostEl.classList.add("bf-on");
     var wrap = el("div", "bf-wrap");
     var bar = el("div", "bf-bar");
-    bar.appendChild(el("div", "bf-title", "🍳 早餐店 · 拼手速" + (cfg.target ? ("　→ " + cfg.target.name) : "") +
-      (cfg.practice ? "　🎯 练手局 · 不影响好感" : "")));
+    bar.appendChild(el("div", "bf-title", "🍳 早餐店 · 拼手速" + (cfg.target ? ("　→ " + cfg.target.name) : "")));
     bar.appendChild(el("div", "bf-tip",
       "① 点食材 → 自动进它正上方那一列的锅 ｜ ② 点上方专属盘 → 自动送给最急的顾客（耐心最少 / 快走的那位优先） ｜ " +
       "③ 双击盘 → 丢垃圾桶（不扣分）· 盘上停留超过 " + SERVE_WINDOW.toFixed(1) + "s 会糊，糊了只能双击丢掉"));
@@ -2528,8 +2511,7 @@
                  " · 盘上 " + st.plates.length + "/" + PLATES_TOTAL + " · 过火计时 " + SERVE_WINDOW.toFixed(1) + "s", 18, 50);
       if (st.cfg.target) {
         g.textAlign = "right"; g.fillStyle = PAL.sakura; g.font = fontOf(16, true);
-        g.fillText("这份早餐 → " + st.cfg.target.name + "（好感 " + st.cfg.target.bond + "）" +
-                   (st.cfg.practice ? "　🎯 练手局" : ""), W - 18, 50);
+        g.fillText("这份早餐 → " + st.cfg.target.name + "（好感 " + st.cfg.target.bond + "）", W - 18, 50);
         g.textAlign = "left";
       }
     }
@@ -3021,13 +3003,8 @@
       function row(k, v) { return '<div class="bf-kv"><span>' + k + '</span><b>' + v + '</b></div>'; }
       /* 信息区走 innerHTML；出口按钮用真实 DOM 节点建 —— 无论浏览器还是无头 DOM，
          document.querySelector("#bfGo") / panel.querySelector("#bfGo") 都取得到。 */
-      /* bf-12 练手局：标题、顶部横幅、好感那一行三处都明确写「练手局 · 不影响好感」——
-         用户要求「结算面板要明确标注」，不能只靠颜色暗示。 */
-      var prac = !!r.practice;
       panel.innerHTML =
-        '<h3>' + uiIconTag(win ? "check" : "cross", win ? "🍳" : "…") +
-          (prac ? "练手局 · 不影响好感" : (win ? "送出热乎早餐" : "早餐烧坏了")) + '</h3>' +
-        (prac ? '<div class="bf-imp" style="border:1px solid #ffd76e;color:#ffd76e;font-weight:700">🎯 练手局 · 不影响好感（不结算好感 / 不计每日一次 / 不写「今天已送」）</div>' : '') +
+        '<h3>' + uiIconTag(win ? "check" : "cross", win ? "🍳" : "…") + (win ? "送出热乎早餐" : "早餐烧坏了") + '</h3>' +
         '<div class="bf-q">' + escHtml(r.quote) + '</div>' +
         '<div class="bf-grid">' +
           row("服务顾客", r.served + " / " + r.goal) +
@@ -3037,17 +3014,15 @@
           row("烧糊份数", String(r.burnt) + (r.expire ? ("（忘取 " + r.expire + "）") : "")) +
           row("用时", r.elapsed.toFixed(1) + "s / " + r.duration + "s") +
           row("本局得分", String(r.score)) +
-          row(tgt.name + " 好感", prac
-            ? '<b style="color:#ffd76e">不变（练手局）</b>'
-            : '<b class="' + (r.bondDelta > 0 ? "up" : "down") + '">' + bondTxt + '</b>') +
+          row(tgt.name + " 好感", '<b class="' + (r.bondDelta > 0 ? "up" : "down") + '">' + bondTxt + '</b>') +
         '</div>' +
         '<div class="bf-imp">📌 本局影响 · ' + escHtml(r.impact) + '</div>' +
         '<div class="bf-imp dim">' + uiIconTag("bulb", "🎯") + ' 接下来 · ' + escHtml(r.quota || quotaOf(win, r.bondDelta, tgt.name)) + '</div>' +
-        (prac ? '' : (win ? '' : '<div class="bf-imp dim">失败也有台阶：明天再来一次就行 —— 只要好感还在 20~79 之间。</div>'));
+        (win ? '' : '<div class="bf-imp dim">失败也有台阶：明天再来一次就行 —— 只要好感还在 20~79 之间。</div>');
       var rowEl = el("div", "bf-row");
       var escHint = el("span", "bf-esc");
       escHint.textContent = "按 ESC 也可以退出（结算结果不会丢）";
-      var go = mkBtn(prac ? "结束练手局 · 继续" : (win ? "收下早餐 · 继续" : "算了，明天再来 · 继续"), "primary bf-red");
+      var go = mkBtn(win ? "收下早餐 · 继续" : "算了，明天再来 · 继续", "primary bf-red");
       go.id = "bfGo";
       go.setAttribute("data-act", "close");                 // 兼容旧验收脚本选择器
       go.addEventListener("click", function (ev) {
@@ -3193,44 +3168,6 @@
         })(list[i]);
       }
       wrap.appendChild(grid);
-      /* ── 练手局（bf-12）：门槛卡死时的出口 ────────────────────────────────
-         用户实测：「好感必须 20~79 且当天没送过，否则 9 张卡全灰」→ 没法试玩。
-         所以正式那 9 张卡之外，再恒定给一排练手入口：任意角色都能开局，
-         **不结算好感、不计每日一次、不写 S.breakfastDay**（规则层 finish() 把 bondDelta 归零
-         并打 practice 标；页面层 bfApplyResult 再跳过落账）。
-         ⚠ 两个类名都是刻意选的，别改成既有类：
-           · 不用 .bf-card —— tools/bf/headless.js 断言正式卡恰好 9 张；
-           · 不用 .bf-btn  —— tools/e2e/bf.js 用 #bfPickHost .bf-btn 的第一个当「先不做了」。 */
-      if (opts.onPracticePick) {
-        var pbox = el("div", "bf-tp-practice");
-        pbox.style.cssText = "margin:2px 0 14px;padding:12px 14px;border:1px dashed #ffd76e;" +
-          "border-radius:10px;background:rgba(255,215,110,.06)";
-        pbox.appendChild(el("div", "bf-tp-pt", "🎯 <b>练手局 · 不影响好感</b>"));
-        var psub = el("div", "bf-tp-psub",
-          "上面 9 张受「好感 20~79 且今天没送过」限制；这一排不受任何限制 —— " +
-          "任意角色都能开局练手，不结算好感、不计每日一次、不写「今天已送」。");
-        psub.style.cssText = "font-size:13px;color:#b9a6c2;line-height:1.7;margin:5px 0 9px";
-        pbox.appendChild(psub);
-        var prow = el("div", "bf-tp-prow");
-        prow.style.cssText = "display:flex;flex-wrap:wrap;gap:8px";
-        for (var k = 0; k < list.length; k++) {
-          (function (t) {
-            var chip = doc.createElement("button");
-            chip.type = "button";
-            chip.className = "bf-pchip";
-            chip.innerHTML = (t.f || "🙂") + " " + escHtml(t.name);
-            chip.setAttribute("data-practice", "1");
-            chip.setAttribute("data-practice-id", t.id);
-            chip.title = "练手局：以「" + t.name + "」为对象开一局（当前好感 " + t.bond + "，本局不结算）";
-            chip.style.cssText = "font:inherit;font-size:14px;padding:7px 13px;cursor:pointer;border-radius:8px;" +
-              "border:1px solid #ffd76e;color:#ffd76e;background:rgba(255,215,110,.10)";
-            chip.addEventListener("click", function () { opts.onPracticePick({ id:t.id, name:t.name, bond:t.bond, f:t.f }); });
-            prow.appendChild(chip);
-          })(list[k]);
-        }
-        pbox.appendChild(prow);
-        wrap.appendChild(pbox);
-      }
       var row = el("div", "bf-row");
       var cancel = mkBtn("先不做了");
       cancel.addEventListener("click", function () { if (opts.onCancel) opts.onCancel(); });
@@ -3260,7 +3197,7 @@
         return { running:st.running, over:st.over, elapsed:Math.round(st.elapsed * 100) / 100,
           score:st.score, served:st.served, goal:st.cfg.goal, perfect:st.perfect, normal:st.normal,
           hot:st.hot, heat:{ hot:st.heat.hot || 0, warm:st.heat.warm || 0, cold:st.heat.cold || 0 },
-          prepped:st.prepped, autoPlate:!!st.cfg.autoPlate, practice:!!st.cfg.practice, plateCount:st.plates.length,
+          prepped:st.prepped, autoPlate:!!st.cfg.autoPlate, plateCount:st.plates.length,
           partialServes:st.partialServes || 0, partialBonus:Math.round((st.partialBonus || 0) * 10) / 10,
           partialBonusPer:PARTIAL_PATIENCE_BONUS, serveDangerSec:SERVE_DANGER_SEC,
           /* 下锅音效的次数记在**音频台账** st.audio.cooks 上（playCook 里 a.cooks++，

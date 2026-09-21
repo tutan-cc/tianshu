@@ -1,0 +1,65 @@
+{
+  "note": "todo-1 / index.html：练手局 + bfStart{force} + #dbgBf 直接开局。逐字字面替换。改前已备份 index.html.todo1bak。",
+  "jobs": [
+    {
+      "file": "index.html",
+      "from": "let bfRunning = false, bfNode = false;                 // bfNode：本局是从剧情节点进来的",
+      "text": "let bfRunning = false, bfNode = false, bfPractice = false;   // bfNode：本局从剧情节点来；bfPractice：练手局（不结算好感）"
+    },
+    {
+      "file": "index.html",
+      "from": "  const chk = bfCanSend(id);\n  if(!chk.ok){ AudioSys.bad(); toast(\"🍳 \" + chk.why); return false; }",
+      "text": "  /* bf-12：练手局（practice）与调试强开（force）。\n     · practice：本局不结算好感 / 不计每日一次 / 不写 S.breakfastDay（结算面板会标注）\n     · force   ：bfCanSend 不 ok 时也放行 —— **只在 debug / 练手路径生效**：\n       opts.debug 由 CS2_DEBUG.bfStart / __cs2.bfStart 注入，opts.practice 由练手卡注入；\n       正常剧情（startCook→openBreakfast）与侧栏入口都不带这两个标记 → 行为一字不变。 */\n  const practice = !!opts.practice;\n  const forceOK = !!opts.force && (practice || !!opts.debug);\n  const chk = bfCanSend(id);\n  if(!chk.ok && !forceOK){ AudioSys.bad(); toast(\"🍳 \" + chk.why); return false; }"
+    },
+    {
+      "file": "index.html",
+      "from": "  bfRunning = true; bfNode = !!opts.story;\n  $(\"bfGame\").classList.add(\"on\");\n  const target = { id:id, name:bond.n, bond:S.bonds[id]||0 };\n  const ok = Breakfast.start(host, {\n    target: target, duration: 75, goal: 8,\n    onFinish: function(res){ bfFinish(res); }\n  });\n  if(ok !== true){ bfRunning = false; $(\"bfGame\").classList.remove(\"on\"); toast(\"早餐店开局失败\"); return false; }",
+      "text": "  bfRunning = true; bfNode = !!opts.story; bfPractice = practice;\n  $(\"bfGame\").classList.add(\"on\");\n  const target = { id:id, name:bond.n, bond:S.bonds[id]||0 };\n  const ok = Breakfast.start(host, {\n    target: target, duration: 75, goal: 8,\n    practice: practice,                                  // bf-12：练手局 → 规则层把 bondDelta 归零\n    onFinish: function(res){ bfFinish(res); }\n  });\n  if(ok !== true){ bfRunning = false; bfPractice = false; $(\"bfGame\").classList.remove(\"on\"); toast(\"早餐店开局失败\"); return false; }"
+    },
+    {
+      "file": "index.html",
+      "from": "  const story = bfNode; bfNode = false;\n  $(\"bfGame\").classList.remove(\"on\");\n  try{ if(window.Breakfast && Breakfast.dispose) Breakfast.dispose(); }catch(e){}\n  bfApplyResult(res, { story:story });",
+      "text": "  const story = bfNode, practice = bfPractice; bfNode = false; bfPractice = false;\n  $(\"bfGame\").classList.remove(\"on\");\n  try{ if(window.Breakfast && Breakfast.dispose) Breakfast.dispose(); }catch(e){}\n  bfApplyResult(res, { story:story, practice:practice });"
+    },
+    {
+      "file": "index.html",
+      "from": "  bfLastResult = res;\n  const id = res.target && res.target.id;\n  const before = id ? (S.bonds[id]||0) : 0;\n  if(id && res.bondDelta){\n    S.bonds[id] = Math.max(0, Math.min(100, before + res.bondDelta));\n    S.breakfastDay = Breakfast.rules.markSent(S.breakfastDay, id, S.day);\n  }\n  const after = id ? (S.bonds[id]||0) : 0;\n  if(res.win){ S.bfWin = true; AudioSys.good(); } else AudioSys.bad();\n  S.bfLast = { target:id||null, win:!!res.win, served:res.served, goal:res.goal,\n    perfect:res.perfect, burnt:res.burnt, score:res.score, delta:res.bondDelta||0, day:S.day, t:Date.now() };\n  save();",
+      "text": "  bfLastResult = res;\n  /* bf-12 练手局：**只**记一条台账给玩家看 —— 好感 / 每日一次 / bfWin / 成就一律不动。\n     两道判据都认（res.practice 由 breakfast.js 的 finish() 打标，opts.practice 由 bfFinish 传下来），\n     任一处漏了都不会误结算。 */\n  const practice = !!(res.practice || opts.practice);\n  const id = res.target && res.target.id;\n  const before = id ? (S.bonds[id]||0) : 0;\n  if(!practice && id && res.bondDelta){\n    S.bonds[id] = Math.max(0, Math.min(100, before + res.bondDelta));\n    S.breakfastDay = Breakfast.rules.markSent(S.breakfastDay, id, S.day);\n  }\n  const after = id ? (S.bonds[id]||0) : 0;\n  if(practice) AudioSys.click();\n  else if(res.win){ S.bfWin = true; AudioSys.good(); } else AudioSys.bad();\n  S.bfLast = { target:id||null, win:!!res.win, served:res.served, goal:res.goal,\n    perfect:res.perfect, burnt:res.burnt, score:res.score, delta:res.bondDelta||0, day:S.day, t:Date.now(),\n    practice: practice };\n  save();"
+    },
+    {
+      "file": "index.html",
+      "from": "  if(res.target) toast((res.win?\"🍳 送出热乎早餐\":\"…早餐烧坏了\") + \" · <b>\" + res.target.name + \"</b> 好感 <b>\" + (res.bondDelta>0?\"+\":\"\") + res.bondDelta + \"</b>（\" + before + \" → \" + after + \"）<br><span style=\\\"color:#8a87a3\\\">服务 \" + res.served + \"/\" + res.goal + \" · 完美 \" + res.perfect + \" · 糊 \" + res.burnt + \" · 得分 \" + res.score + \" · \" + (res.quote||\"\") + \"</span>\");\n  checkAchv(); render();\n  if(opts.story && typeof curNode!==\"undefined\" && curNode){",
+      "text": "  if(practice && res.target){\n    toast(\"🎯 <b>练手局 · 不影响好感</b> · 对象 <b>\" + res.target.name + \"</b><br><span style=\\\"color:#8a87a3\\\">服务 \" + res.served + \"/\" + res.goal + \" · 完美 \" + res.perfect + \" · 糊 \" + res.burnt + \" · 得分 \" + res.score + \" · 好感仍是 <b>\" + after + \"</b>（没变）· \" + (res.quote||\"\") + \"</span>\");\n  } else if(res.target) toast((res.win?\"🍳 送出热乎早餐\":\"…早餐烧坏了\") + \" · <b>\" + res.target.name + \"</b> 好感 <b>\" + (res.bondDelta>0?\"+\":\"\") + res.bondDelta + \"</b>（\" + before + \" → \" + after + \"）<br><span style=\\\"color:#8a87a3\\\">服务 \" + res.served + \"/\" + res.goal + \" · 完美 \" + res.perfect + \" · 糊 \" + res.burnt + \" · 得分 \" + res.score + \" · \" + (res.quote||\"\") + \"</span>\");\n  if(!practice) checkAchv();\n  render();\n  /* 练手局：到此为止 —— 不写成就、不推剧情、不走「本局影响 / 接下来」那套正式结算话术 */\n  if(practice){\n    toast(\"📌 练手局不影响任何数值 —— 想真送早餐就点侧栏「🍳 做份早餐」\");\n    render();\n    return;\n  }\n  if(opts.story && typeof curNode!==\"undefined\" && curNode){"
+    },
+    {
+      "file": "index.html",
+      "from": "    day: S.day,\n    onPick: function(t){\n      if(t.id === lastBfPick) return;                          // 防抖：手快双击不会开两局",
+      "text": "    day: S.day,\n    /* bf-12 练手局入口：面板底部那一排「任意角色」按钮 → practice + force 开局 */\n    onPracticePick: function(t){\n      if(t.id === lastBfPick) return;                          // 防抖：与正式卡共用同一个闸\n      lastBfPick = t.id; setTimeout(function(){ lastBfPick = 0; }, 600);\n      $(\"bfPick\").classList.remove(\"on\");\n      toast(\"🎯 练手局 · 不影响好感 —— 对象 <b>\" + t.name + \"</b>\");\n      startBreakfastGame(t.id, { story:false, practice:true, force:true });\n    },\n    onPick: function(t){\n      if(t.id === lastBfPick) return;                          // 防抖：手快双击不会开两局"
+    },
+    {
+      "file": "index.html",
+      "from": "  bfStart: (id, o)=>{ $(\"title\").classList.add(\"hide\"); $(\"game\").classList.add(\"on\"); render(); return startBreakfastGame(id||\"su\", o||{}); },",
+      "text": "  /* bf-12：debug 入口注入 debug:true —— 只有带 debug 标记的调用才认 {force:true}（绕开 bfCanSend 门槛）；\n     练手局再叠 practice:true（不结算好感）。正常剧情 / 侧栏入口都不带这两个标记。 */\n  bfStart: (id, o)=>{ $(\"title\").classList.add(\"hide\"); $(\"game\").classList.add(\"on\"); render();\n    return startBreakfastGame(id||\"su\", Object.assign({ debug:true }, o||{})); },\n  bfPractice: (id, o)=>{ $(\"title\").classList.add(\"hide\"); $(\"game\").classList.add(\"on\"); render();\n    return startBreakfastGame(id||\"su\", Object.assign({ debug:true, practice:true, force:true }, o||{})); },"
+    },
+    {
+      "file": "index.html",
+      "from": "  bfPick: ()=> openBreakfast(),\n  bfStart: (id, o)=> startBreakfastGame(id, o),",
+      "text": "  bfPick: ()=> openBreakfast(),\n  bfStart: (id, o)=> startBreakfastGame(id, Object.assign({ debug:true }, o||{})),\n  bfPractice: (id, o)=> startBreakfastGame(id, Object.assign({ debug:true, practice:true, force:true }, o||{})),"
+    },
+    {
+      "file": "index.html",
+      "from": "/* ⚑ 跳到早餐店：数值沿用 debugState()，此时只有羁绊 20~79 的角色收得下早餐\n   （hong 24 / man 24 可选；其余需先「全部解锁」或自行提升羁绊），面板空时 openBreakfast 会 toast 说明原因 */\n$(\"dbgBf\").addEventListener(\"click\",()=>{ enterGame();\n  setTimeout(()=>{ if(openBreakfast()===false) toast(\"早餐店需要先把羁绊提到 <b>20~79</b>\"); }, 300); });",
+      "text": "/* ⚑ 跳到早餐店（bf-12 改）：以前只弹 toast —— 新档全员好感 0 → 9 张卡全灰 → 用户根本没法试玩。\n   现在与「跳到麻将」体验一致：点下去**直接开一局练手局**（默认对象 fang，不结算好感）；\n   想挑人就在面板里选（面板底部另有一排不受门槛限制的练手入口）。 */\n$(\"dbgBf\").addEventListener(\"click\",()=>{ enterGame();\n  setTimeout(()=>{ if(startBreakfastGame(\"fang\", { practice:true, force:true })!==true)\n    if(openBreakfast()===false) toast(\"早餐店模块未加载（缺 breakfast.js）\"); }, 300); });"
+    },
+    {
+      "file": "index.html",
+      "from": "  if(!okList.length) return \"🍳 今天没人可送了<br><span style=\\\"color:#6f6c85\\\">好感 20~79 之间、且今天还没送过的角色才收得下这份早餐</span>\";",
+      "text": "  if(!okList.length) return \"🍳 今天没人可送了<br><span style=\\\"color:#6f6c85\\\">好感 20~79 之间、且今天还没送过的角色才收得下这份早餐<br>想试玩 → 打开面板用底下的 <b style=\\\"color:var(--gold)\\\">🎯 练手局</b>（任意角色 · 不影响好感）</span>\";"
+    },
+    {
+      "file": "index.html",
+      "from": "    pickOff: document.querySelectorAll(\"#bfPickHost .bf-card.off\").length,",
+      "text": "    pickOff: document.querySelectorAll(\"#bfPickHost .bf-card.off\").length,\n    pickPractice: document.querySelectorAll(\"#bfPickHost .bf-pchip\").length,"
+    }
+  ]
+}

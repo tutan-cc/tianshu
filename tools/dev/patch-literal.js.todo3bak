@@ -8,18 +8,12 @@
      ① 唯一性：from（起始锚）与 to（结束锚）在全文中必须**恰好出现 1 次**
         —— 出现 0 次（写错字）或 ≥2 次（锚太短）都直接中止，绝不猜；
      ② 幂等：替换文本不得已经在文件里（防止同一份 job 跑两遍悄悄插两份）；
-     ③ 备份：**每次写之前**把原文件复制成 <file>.bf8bak（刷新 → 备份永远是「本次改前」
-        那一版）。这一点 bf-12 明确改了默认：原来是「备份已存在就不动」= 备份 = 最初那一版，
-        于是语法闸回滚会**把上一轮的好改动一起退掉**（历史上真出过这个事故）。
-        现在默认就是刷新；要「备份 = 最初那一版」用 --keep-bak 拿回旧语义，
-        --fresh-bak 仍然接受（与默认等价，老脚本 / 老文档不用改）。
+     ③ 备份：第一次写之前把原文件复制成 <file>.bf8bak（已存在则不动 → 永远是改前的那份）；
      ④ 语法闸：写完对 .js/.cjs 跑 node --check；对 .html 抽出每个内联 <script>
         块单独 node --check。任何一条不过 → 立刻用备份整文件回滚并报错退出。
 
    用法：
-     node tools/dev/patch-literal.js jobs.json              # 默认：每次改前刷新备份（= 旧 --fresh-bak）
-     node tools/dev/patch-literal.js jobs.json --keep-bak   # 旧语义：备份已存在则不动（备份 = 最初版本）
-     node tools/dev/patch-literal.js jobs.json --fresh-bak  # 显式声明默认行为（与不加参数完全等价）
+     node tools/dev/patch-literal.js jobs.json
    jobs.json：
      { "jobs": [
          { "file":"breakfast.js", "from":"<起始锚>", "to":"<结束锚>", "textFile":"_new_a.txt" },
@@ -93,17 +87,8 @@ function checkHtml(file) {
 }
 
 const jobFile = process.argv[2];
-if (!jobFile) { console.error("用法：node tools/dev/patch-literal.js jobs.json [--keep-bak|--fresh-bak]"); process.exit(2); }
-/* 备份策略（bf-12 翻转默认）：
-     默认        = **刷新**：写之前把旧备份删掉、重拷当前磁盘版本 → 备份 = 「本次改前」那一版，
-                   语法闸回滚只退本次改动（不会连上一轮的好改动一起退掉）。
-     --keep-bak  = 旧默认：备份已存在就不动 → 备份 = 「第一次改前」那一版。
-     --fresh-bak = 显式声明默认行为；老脚本 / 老文档里写着它，继续接受，与默认等价。 */
-const KEEP_BAK = process.argv.indexOf("--keep-bak") >= 0;
-const FRESH_FLAG = process.argv.indexOf("--fresh-bak") >= 0;
-if (KEEP_BAK && FRESH_FLAG) { console.error("✗ --keep-bak 与 --fresh-bak 互斥，只能写一个"); process.exit(2); }
-const FRESH = !KEEP_BAK;
-console.log("· 备份模式：" + (FRESH ? "刷新（默认：备份 = 本次改前那一版）" : "保留（--keep-bak：备份 = 第一次改前那一版）"));
+if (!jobFile) { console.error("用法：node tools/dev/patch-literal.js jobs.json [--fresh-bak]"); process.exit(2); }
+const FRESH = process.argv.indexOf("--fresh-bak") >= 0;
 const spec = JSON.parse(fs.readFileSync(path.resolve(OUT, jobFile), "utf8"));
 
 /* 先把所有 job 在内存里跑一遍（全部通过才落盘 —— 避免"改了一半"的中间态）*/
@@ -150,21 +135,12 @@ for (const job of spec.jobs) {
     " 字符 → 插 " + text.split("\n").length + " 行 / " + text.length + " 字符");
 }
 
-/* 落盘（先备份）。默认**每次刷新**备份 → 备份永远是「本次改前」那一版，
-   所以下面语法闸回滚只会退回本次改动；--keep-bak 时保留第一次的备份（旧语义）。 */
+/* 落盘（先备份；--fresh-bak 时把旧备份删掉，让备份 = 上一版好状态）*/
 const written = [];
 for (const [file, e] of plan) {
   const bak = file + BAK;
-  if (FRESH) {
-    if (fs.existsSync(bak)) fs.rmSync(bak);
-    fs.copyFileSync(file, bak);
-    console.log("· 备份 → " + path.basename(bak) + "（已刷新 = 本次改前那一版）");
-  } else if (!fs.existsSync(bak)) {
-    fs.copyFileSync(file, bak);
-    console.log("· 备份 → " + path.basename(bak) + "（新建 = 第一次改前那一版）");
-  } else {
-    console.log("· 备份 → " + path.basename(bak) + "（保留 = 第一次改前那一版 · --keep-bak）");
-  }
+  if (FRESH && fs.existsSync(bak)) fs.rmSync(bak);
+  if (!fs.existsSync(bak)) { fs.copyFileSync(file, bak); console.log("· 备份 → " + path.basename(bak)); }
   fs.writeFileSync(file, e.next);
   written.push(file);
 }

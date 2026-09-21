@@ -1,0 +1,25 @@
+{
+  "note": "todo-3：把 patch-literal.js 的备份默认从「已存在则不动」翻转成「每次改前刷新」，并新增 --keep-bak 保留旧语义。四个 job 都是逐字字面替换，锚全部唯一。",
+  "jobs": [
+    {
+      "file": "tools/dev/patch-literal.js",
+      "from": "     ③ 备份：第一次写之前把原文件复制成 <file>.bf8bak（已存在则不动 → 永远是改前的那份）；",
+      "text": "     ③ 备份：**每次写之前**把原文件复制成 <file>.bf8bak（刷新 → 备份永远是「本次改前」\n        那一版）。这一点 bf-12 明确改了默认：原来是「备份已存在就不动」= 备份 = 最初那一版，\n        于是语法闸回滚会**把上一轮的好改动一起退掉**（历史上真出过这个事故）。\n        现在默认就是刷新；要「备份 = 最初那一版」用 --keep-bak 拿回旧语义，\n        --fresh-bak 仍然接受（与默认等价，老脚本 / 老文档不用改）。"
+    },
+    {
+      "file": "tools/dev/patch-literal.js",
+      "from": "   用法：\n     node tools/dev/patch-literal.js jobs.json",
+      "text": "   用法：\n     node tools/dev/patch-literal.js jobs.json              # 默认：每次改前刷新备份（= 旧 --fresh-bak）\n     node tools/dev/patch-literal.js jobs.json --keep-bak   # 旧语义：备份已存在则不动（备份 = 最初版本）\n     node tools/dev/patch-literal.js jobs.json --fresh-bak  # 显式声明默认行为（与不加参数完全等价）"
+    },
+    {
+      "file": "tools/dev/patch-literal.js",
+      "from": "if (!jobFile) { console.error(\"用法：node tools/dev/patch-literal.js jobs.json [--fresh-bak]\"); process.exit(2); }\nconst FRESH = process.argv.indexOf(\"--fresh-bak\") >= 0;",
+      "text": "if (!jobFile) { console.error(\"用法：node tools/dev/patch-literal.js jobs.json [--keep-bak|--fresh-bak]\"); process.exit(2); }\n/* 备份策略（bf-12 翻转默认）：\n     默认        = **刷新**：写之前把旧备份删掉、重拷当前磁盘版本 → 备份 = 「本次改前」那一版，\n                   语法闸回滚只退本次改动（不会连上一轮的好改动一起退掉）。\n     --keep-bak  = 旧默认：备份已存在就不动 → 备份 = 「第一次改前」那一版。\n     --fresh-bak = 显式声明默认行为；老脚本 / 老文档里写着它，继续接受，与默认等价。 */\nconst KEEP_BAK = process.argv.indexOf(\"--keep-bak\") >= 0;\nconst FRESH_FLAG = process.argv.indexOf(\"--fresh-bak\") >= 0;\nif (KEEP_BAK && FRESH_FLAG) { console.error(\"✗ --keep-bak 与 --fresh-bak 互斥，只能写一个\"); process.exit(2); }\nconst FRESH = !KEEP_BAK;\nconsole.log(\"· 备份模式：\" + (FRESH ? \"刷新（默认：备份 = 本次改前那一版）\" : \"保留（--keep-bak：备份 = 第一次改前那一版）\"));"
+    },
+    {
+      "file": "tools/dev/patch-literal.js",
+      "from": "/* 落盘（先备份；--fresh-bak 时把旧备份删掉，让备份 = 上一版好状态）*/\nconst written = [];\nfor (const [file, e] of plan) {\n  const bak = file + BAK;\n  if (FRESH && fs.existsSync(bak)) fs.rmSync(bak);\n  if (!fs.existsSync(bak)) { fs.copyFileSync(file, bak); console.log(\"· 备份 → \" + path.basename(bak)); }\n  fs.writeFileSync(file, e.next);\n  written.push(file);\n}",
+      "text": "/* 落盘（先备份）。默认**每次刷新**备份 → 备份永远是「本次改前」那一版，\n   所以下面语法闸回滚只会退回本次改动；--keep-bak 时保留第一次的备份（旧语义）。 */\nconst written = [];\nfor (const [file, e] of plan) {\n  const bak = file + BAK;\n  if (FRESH) {\n    if (fs.existsSync(bak)) fs.rmSync(bak);\n    fs.copyFileSync(file, bak);\n    console.log(\"· 备份 → \" + path.basename(bak) + \"（已刷新 = 本次改前那一版）\");\n  } else if (!fs.existsSync(bak)) {\n    fs.copyFileSync(file, bak);\n    console.log(\"· 备份 → \" + path.basename(bak) + \"（新建 = 第一次改前那一版）\");\n  } else {\n    console.log(\"· 备份 → \" + path.basename(bak) + \"（保留 = 第一次改前那一版 · --keep-bak）\");\n  }\n  fs.writeFileSync(file, e.next);\n  written.push(file);\n}"
+    }
+  ]
+}

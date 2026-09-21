@@ -1,0 +1,10 @@
+{
+  "note": "todo-1/⑨ 修正：原来「localStorage.clear() → navigate」有竞态 —— 上一个页面的异步 save()（剧情分支结算会 save）可能在导航完成前把存档写回来，于是所谓「全新档」其实带着上一局的结算（实测读到 hong=20 而不是 24）。改成先导航让旧页彻底死掉、再清、再导航。",
+  "jobs": [
+    {
+      "file": "tools/e2e/bf.js",
+      "from": "       从全新档（localStorage 已清）验证，因为那正是用户被卡住的那个状态。 */\n    await ev('localStorage.clear()');\n    await send(\"Page.navigate\", { url: BASE + \"/index.html\" });\n    await sleep(2600);",
+      "text": "       从全新档（localStorage 已清）验证，因为那正是用户被卡住的那个状态。\n       ⚠ 清存档必须**清在导航之后**：先 clear 再 navigate 会有竞态 —— 上一个页面\n         还没死透时它的异步 save()（剧情分支结算会 save）能把存档写回来，于是\n         「全新档」并不新（本轮实测踩到：读到的 hong 是 20 而不是 debugState 的 24，\n         说明它带着上一局的结算）。所以：先导航让旧页彻底结束 → 再清 → 再导航。 */\n    await send(\"Page.navigate\", { url: BASE + \"/index.html\" });\n    await sleep(1600);\n    await ev('localStorage.clear()');\n    await send(\"Page.navigate\", { url: BASE + \"/index.html\" });\n    await sleep(2600);"
+    }
+  ]
+}
