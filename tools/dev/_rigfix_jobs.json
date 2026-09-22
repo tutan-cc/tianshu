@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "mahjong.js",
+      "from": "  /* ═══════════════ 6. 调试 API（自动化测试用） ═══════════════ */",
+      "textFile": "tools/dev/_rigfix_sec.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  function dbgSetHand(hand, melds, drawn) {\n    var E = G.E; if (!E) return false;\n    var p = E.P[0];\n    p.hand = (hand || []).slice();\n    if (melds !== undefined && melds !== null) p.melds = melds.slice();\n    if (hand && hand.length) p.drawn = drawn === undefined ? null : drawn;\n    normalizeHand(p);",
+      "text": "  function dbgSetHand(hand, melds, drawn) {\n    var E = G.E; if (!E) return false;\n    var p = E.P[0];\n    /* 守恒摆牌（根因修复）：只搬牌不造牌 —— 旧实现 p.hand = hand.slice() 会把新牌\n       「凭空加上去」，实测能摆出 6 张 6条（见 rigPlayerPreserving 注释）。\n       这里把「期望的手牌 / 副露」交给守恒版；请求不合法（同名牌 >4 张）→ 返回 false 且不改任何状态。 */\n    var wantHand = (hand === undefined || hand === null) ? p.hand.slice() : hand.slice();\n    var wantMelds = (melds === undefined || melds === null) ? p.melds : melds;\n    if (!rigPlayerPreserving(E, 0, wantHand, wantMelds)) return false;\n    if (hand && hand.length && drawn !== undefined) { p.drawn = drawn; normalizeHand(p); }"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    var p = E.P[seat];\n    var hand = [\"1万\", \"2万\", \"3万\", \"4万\", \"5万\", \"6万\", \"7万\", \"8万\", \"9万\", \"1条\", \"2条\", \"3条\", \"9条\", \"9条\"];\n    var oldCount = p.hand.length;\n    p.hand = hand.slice();\n    p.melds = [];\n    p.drawn = hand[hand.length - 1];\n    normalizeHand(p);",
+      "text": "    var p = E.P[seat];\n    var hand = [\"1万\", \"2万\", \"3万\", \"4万\", \"5万\", \"6万\", \"7万\", \"8万\", \"9万\", \"1条\", \"2条\", \"3条\", \"9条\", \"9条\"];\n    /* 守恒摆牌（根因修复）：旧实现 p.hand = hand.slice() + p.melds = [] 是「只加不减」——\n       旧手牌凭空消失、新 14 张凭空出现，结算亮牌板上就会出现「六张六条」。\n       改走守恒版：缺的牌从牌墙 / 别家手里换过来，等量旧牌回填。 */\n    if (!rigPlayerPreserving(E, seat, hand, [])) return false;\n    p.drawn = hand[hand.length - 1];\n    normalizeHand(p);"
+    }
+  ]
+}

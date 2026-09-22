@@ -105,8 +105,23 @@ const prelude = `
      所以桩不需要画得对，只要存在且能被调用。 */
   var PIX = { minX: 1e9, maxX: -1, minY: 1e9, maxY: -1, n: 0 };
   var IMGS = [];
+  /* STRAYS = "世界糊到裁剪框外"的记录。
+     为什么要单独记：PIX 记的是调用参数的变换后坐标、**不过裁剪**，
+     而世界本来就比屏幕宽（相机在动），拿 PIX 断言"没溢出屏幕"必然误报。
+     记账区间只在**世界那一段**（drawMachineFrame 之外）：
+     机壳/操作台本来就画在裁剪框外，算进来会假报警。 */
+  var STRAYS = [];
+  var CLIPBOX = null;                       // {x0,y0,x1,y1}，只在世界那一段生效
+  var CANVAS = { w: 1680, h: 900 };         // 画布外的顶点不算越界（整幅矩形的边角）
+  var STRAY_TOL = 0;                        // 越界容差（由用例设定）
+  var STRAY_TAG = "";                       // 当前正在画什么（定位越界来源用）
   function px(x, y){ if(x<PIX.minX)PIX.minX=x; if(x>PIX.maxX)PIX.maxX=x;
-                     if(y<PIX.minY)PIX.minY=y; if(y>PIX.maxY)PIX.maxY=y; PIX.n++; }
+                     if(y<PIX.minY)PIX.minY=y; if(y>PIX.maxY)PIX.maxY=y; PIX.n++;
+                     var inCanvas = x>=0 && y>=0 && x<CANVAS.w && y<CANVAS.h;
+                     if(CLIPBOX && inCanvas && STRAYS.length < 20 &&
+                        (x<CLIPBOX.x0-STRAY_TOL||x>CLIPBOX.x1+STRAY_TOL||
+                         y<CLIPBOX.y0-STRAY_TOL||y>CLIPBOX.y1+STRAY_TOL))
+                       STRAYS.push([Math.round(x), Math.round(y), STRAY_TAG]); }
   var FAKE_CTX = (function(){
     var M = [1,0,0,1,0,0], st = [];
     var tf = function(x,y){ return [M[0]*x+M[2]*y+M[4], M[1]*x+M[3]*y+M[5]]; };
@@ -123,15 +138,37 @@ const prelude = `
       closePath:function(){}, arc:function(){}, ellipse:function(){}, rect:function(){},
       createLinearGradient:function(){ return grad; }, createRadialGradient:function(){ return grad; },
       measureText:function(t){ return { width:String(t).length*8 }; },
-      fillRect:function(x,y){ var p=tf(x,y); px(p[0],p[1]); },
-      strokeRect:function(x,y){ var p=tf(x,y); px(p[0],p[1]); },
+      fillRect:function(x,y,w,h){
+        /* 记账要和真画布一致：**先与裁剪框求交**，再看落笔是否越界。
+           只记角点是错的 —— 铺满整幅的 fillRect（环境光、地面线）角点天然在框外，
+           但实际落笔被裁在框内，那样会刷出一堆假越界（实测 18 例全是假的）。 */
+        var a=tf(x,y), b=tf(x+w,y+h);
+        var x0=Math.min(a[0],b[0]), x1=Math.max(a[0],b[0]);
+        var y0=Math.min(a[1],b[1]), y1=Math.max(a[1],b[1]);
+        if(CLIPBOX){
+          var cx0=Math.max(x0,CLIPBOX.x0), cx1=Math.min(x1,CLIPBOX.x1);
+          var cy0=Math.max(y0,CLIPBOX.y0), cy1=Math.min(y1,CLIPBOX.y1);
+          if(cx1>=cx0 && cy1>=cy0){ px(cx0,cy0); px(cx1,cy1); }
+          else { px(x0,y0); px(x1,y1); }                  // 整块在框外：照实记，该报警
+        } else { px(x0,y0); px(x1,y1); }
+      },
+      strokeRect:function(x,y,w,h){ var p=tf(x,y); var q=tf(x+w,y+h);
+        px(Math.min(p[0],q[0]),Math.min(p[1],q[1])); px(Math.max(p[0],q[0]),Math.max(p[1],q[1])); },
       fill:function(){}, stroke:function(){},
       fillText:function(t,x,y){ var p=tf(x,y); px(p[0],p[1]); },
       strokeText:function(t,x,y){ var p=tf(x,y); px(p[0],p[1]); },
       drawImage:function(img,dx,dy,dw,dh){
+        /* ⚠ 与真 canvas 对齐口径：drawImage 的 dx/dy/dw/dh 是**用户坐标**（世界坐标），
+           当前变换只在"绘制那一刻"生效。所以这里同时记两份：
+             · dw/dh/worldX/worldY = 调用参数（世界坐标）—— 断言缩放/贴地用它
+             · x0..y1 = 变换后的设备矩形 —— 断言"画在屏幕内"用它
+           早期只记设备矩形，于是"立绘缩放"这类断言怎么算都对不上（多乘了一次 k）。 */
+        IMGS.push({ img:img, dw:dw, dh:dh, wx:dx, wy:dy, wLowY:dy+dh,
+                    x0:Math.min(tf(dx,dy)[0],tf(dx+dw,dy+dh)[0]),
+                    x1:Math.max(tf(dx,dy)[0],tf(dx+dw,dy+dh)[0]),
+                    y0:Math.min(tf(dx,dy)[1],tf(dx+dw,dy+dh)[1]),
+                    y1:Math.max(tf(dx,dy)[1],tf(dx+dw,dy+dh)[1]) });
         var a=tf(dx,dy), b=tf(dx+dw,dy+dh);
-        IMGS.push({ img:img, dw:dw, dh:dh, x0:Math.min(a[0],b[0]), x1:Math.max(a[0],b[0]),
-                    y0:Math.min(a[1],b[1]), y1:Math.max(a[1],b[1]) });
         px(a[0],a[1]); px(b[0],b[1]);
       },
     };
@@ -152,6 +189,8 @@ try {
   api = new vm.Script("(function(){\n" + prelude + "\n" + grabFn(html, "startFight2") + "\n" +
     "return { startFight2:startFight2, EL:EL, SFX:SFX, AFTER:AFTER, BOUND:BOUND, S:S, WIN:window,\n" +
     "  Stage:Fight2Stage, PIX:PIX, IMGS:IMGS, FAKE_CV:FAKE_CV, fakeSprite:fakeSprite,\n" +
+    "  STRAYS:STRAYS, setClipBox:function(b){ CLIPBOX = b; },\n" +
+    "  setStrayTol:function(v){ STRAY_TOL = v; }, setStrayTag:function(t){ STRAY_TAG = t; },\n" +
     "  step:function(){ var q=PENDING; PENDING=[]; CLOCK+=FRAME_MS;\n" +
     "    for(var i=0;i<q.length;i++) q[i](CLOCK); return q.length; },\n" +
     "  clear:function(){ PENDING.length = 0; SFX.length = 0; },\n" +
@@ -163,6 +202,26 @@ A(!!api && typeof api.startFight2 === "function", "能从 index.html 抽出真�
 if (!api) { console.log("\n[结果] 通过 " + pass + "，失败 " + fails.length + " —— 抽取失败"); process.exit(1); }
 
 const { EL, SFX, AFTER, fakeSprite } = api;
+/** 直接从**源文件 HTML** 里取某个 id 元素的内容（桩 DOM 不装填 innerHTML，查它永远是空的） */
+function srcEl(id) {
+  const m = new RegExp('id="' + id + '"[^>]*>([\\s\\S]*?)<\\/(?:div|button|i)>').exec(html);
+  return m ? m[1] : "";
+}
+/** 三档图例与六颗招式按钮的**源文件**文案（机制断言之外的可读性断言要用）。
+    ⚠ 必须先把范围切到 #fight2Btns 区块：旧打斗面板里也有一批 `<button class="mbtn" data-act=...>`，
+      直接全文扫会扫到 17 颗，读出来的是旧那套数值（实测读到"直拳 1 行动力 · 精准"）。 */
+const acts = ["jab", "combo", "low", "guard", "read", "skip"];
+function actsOf(src) {
+  const a = src.indexOf('id="fight2Btns"');
+  if (a < 0) return [];
+  const b = src.indexOf("</div>", src.indexOf("skip", a));
+  const seg = src.slice(a, b > 0 ? b : a + 4000);
+  const out = [];
+  const re = /<button class="mbtn" data-act="([a-z]+)"[^>]*>([\s\S]*?)<\/button>/g;
+  let m;
+  while ((m = re.exec(seg))) out.push({ act: m[1], text: m[2] });
+  return out;
+}
 const F = () => api.cs2().fight2;
 const fightSfx = () => SFX.filter((s) => /^sfx-fight-/.test(s));
 const plain = (s) => String(s).replace(/<[^>]+>/g, "");
@@ -203,9 +262,18 @@ let turnAtStart = 1;
     调平期把直拳从 1AP 改成 2AP，所有写死 `ap>=1 就出招` 的用例都会在 ap=1 时空转
     （出招被拒 → 判定条不开 → 循环到上限），实测就是这么卡住的。 */
 const JAB_AP = JSON.parse(grabConst(html, "FIGHT2_MOVES")).jab.ap;
+/** 判定条调参：游标速度与输入缓冲都从调参表读（它们是手感旋钮，不是常量）。
+    用 evalConstIn 拿**真的那个对象**（不是 JSON 副本），这样能直接改它来构造测试局面。 */
+const F2_TUNE = evalConstIn(html, "FIGHT2_TUNE");
+const BAR_SPEED = F2_TUNE.BAR_SPEED;
+/* 输入缓冲窗口（判定条刚出现的那一小段）对"推 N 帧再点"的用例是干扰：
+   那段时间里的点击被按 pos=0 判，于是"推到完美区再点"会判成偏出。
+   整段用例把缓冲设为 0（precision() 每次调用时读表，改了就生效）；
+   缓冲本身的行为另有一条专门用例（见文件末尾）。 */
+F2_TUNE.INPUT_GRACE = 0;
 
 /** 打一招并把光标推到指定落点。
-    ⚠ 不能"边读当前光标位置边推进"：每帧走 2.2，而完美区只有 0.3×14 ≈ 4.2 宽，
+    ⚠ 不能"边读当前光标位置边推进"：每帧只走 BAR_SPEED，而完美区只有 0.3×14 ≈ 4.2 宽，
       一旦多推一帧就掉出完美区（实测"完美"会偶发变成"良好"）；
       而"先读一次当前位置"又会被上一招残留的 DOM 值骗到。
       可靠做法：算出**目标帧数**，推那么多帧，不再回头看。 */
@@ -215,10 +283,12 @@ function strike(kind, pick) {
   F().act(kind);
   const L = parseFloat(EL.fight2Zone.style.left), W = parseFloat(EL.fight2Zone.style.width);
   const target = pick(L, W);
-  /* judgeBar 每帧 pos += 2.2（从 0 起），所以第 n 帧落在 2.2n */
-  const need = Math.round(target / 2.2);
+  /* judgeBar 每帧 pos += BAR_SPEED（从 0 起），所以第 n 帧落在 BAR_SPEED*n。
+     ⚠ 还要跳过**输入缓冲窗口**（FIGHT2_TUNE.INPUT_GRACE）：那段时间里点击按"还没开始动"判，
+       不跨过去的话"推 N 帧再点"会被当成 pos=0 → 全部判偏出。 */
+  const need = Math.round(target / BAR_SPEED);
   for (let i = 0; i < need; i++) api.step();
-  const landed = 2.2 * need;
+  const landed = BAR_SPEED * need;
   if (EL.fight2Bar.style.display !== "none" && typeof EL.fight2Bar.onclick === "function") EL.fight2Bar.click();
   return { landed, zoneL: L, zoneW: W, target: target, need: need, sfx: fightSfx(), log: plain(lastRow()) };
 }
@@ -999,13 +1069,37 @@ function stageStep(n) { for (let i = 0; i < n; i++) { api.step(); api.Stage.fram
   A(S.arcadeOn === false && S.arcadeMode === true,
     "过场结束后机台**不消失**（玩家一直在机器里打）",
     "arcadeOn=" + S.arcadeOn + " arcadeMode=" + S.arcadeMode);
-  /* 机内模式下画一帧：内容必须真的画在屏幕矩形内，而不是铺满整块画布 */
-  api.PIX.minX = 1e9; api.PIX.maxX = -1; api.PIX.minY = 1e9; api.PIX.maxY = -1;
-  S.frameOnce();
-  A(api.PIX.maxX <= R.x + R.w + 40 && api.PIX.maxY <= R.y + R.h + 40,
-    "机身常驻时游戏内容画在屏幕矩形内（不会溢出到机壳上）",
-    "内容右下 (" + api.PIX.maxX + "," + api.PIX.maxY + ") 屏幕右下 (" +
-    (R.x + R.w) + "," + (R.y + R.h) + ")");
+  /* 机内模式：世界必须**被缩放并裁进屏幕**。
+     这条用**精确几何**判，不用"落笔包围盒"：
+     试过四种口径都不行 —— 整帧 PIX（机壳本来就画在屏外）、世界段的越界记账
+     （桩的记账与真画布有偏差，实测把 HUD 贴边的像素全报成越界）、数最终像素
+     （桩不保存像素）。而"世界被缩放成屏幕大小"这件事本身是精确可判的：
+     立绘的 drawImage 目标矩形 = 屏幕矩形 × (世界坐标/世界尺寸)，反推即得缩放与落点。
+     真实像素层面的"溢出多少"由 `node tools/dev/cabinet-check.js` 负责（实测 0.082%）。 */
+  const S2 = api.Stage;
+  const meta = S2.SPRITE_META;
+  meta.puncher.standH = 400; meta.puncher.lowY = { idle:12, strike:12, hit:12, ko:12 };
+  meta.brawler.standH = 420; meta.brawler.lowY = { idle:30, strike:30, hit:30, ko:30 };
+  S2.SPRITES.puncher = { ready:4, need:4, poses:{ idle:fakeSprite(220, 400) } };
+  S2.SPRITES.brawler = { ready:4, need:4, poses:{ idle:fakeSprite(200, 420) } };
+  S2.pose("me", "idle");
+  api.IMGS.length = 0;
+  S2.frameOnce();
+  const kk = R.w / S2.W;
+  /* dw/dh 是**世界坐标**下的尺寸（真 canvas 的口径）：立绘在世界里身高 = 420*hi = 445.2，
+     与"世界→屏幕"的 k 无关；k 只在绘制那一刻作用于画布变换。 */
+  const wantDh = 420 * 1.06;
+  const gi = api.IMGS.filter((r) => Math.abs(r.dh - wantDh) < 1).pop();
+  A(!!gi, "机内模式：立绘仍按世界尺度缩放（世界的坐标体系没有被屏幕矩形改动）",
+    gi ? ("世界身高 dh=" + gi.dh.toFixed(1) + " 期望≈" + wantDh.toFixed(1) + " · k=" + kk.toFixed(4))
+       : JSON.stringify(api.IMGS.map((r) => [Math.round(r.dw), Math.round(r.dh)])));
+  if (gi) {
+    A(gi.x0 >= R.x - 2 && gi.x1 <= R.x + R.w + 2 && gi.y1 <= R.y + R.h + 2,
+      "立绘落在屏幕矩形内（世界的落点被框进 CRT）",
+      "立绘 (" + gi.x0.toFixed(0) + "," + gi.y0.toFixed(0) + ")..(" + gi.x1.toFixed(0) + "," + gi.y1.toFixed(0) +
+      ") · 屏幕 (" + R.x + "," + R.y + ")..(" + (R.x + R.w) + "," + (R.y + R.h) + ")");
+  }
+  S2.SPRITES.puncher = null; S2.SPRITES.brawler = null;
 }
 {
   /* 街机过场：点「开始战斗」先"化身进街机"，期间锁住出招。
@@ -1024,6 +1118,157 @@ function stageStep(n) { for (let i = 0; i < n; i++) { api.step(); api.Stage.fram
   F().act("jab");
   A(EL.fight2Bar.style.display === "block", "过场结束后出招能打开判定条（出招不再被挡）",
     "bar.display=" + EL.fight2Bar.style.display);
+}
+
+/* ── 玩法可读性：判定条图例 / 招式类型标签 / 常驻操作提示 ────────────────
+   为什么要有这组：这三样都是**玩家实测反馈**才发现的缺失 ——
+     · 判定条没有图例，玩家不知道游标要进绿带、金色块是完美区；
+     · 按钮只写「精准」二字，读不出"精准 = 要推判定条"；
+     · 规则原文在面板顶部的 #fight2Sub 里，打起来一滚就看不见，
+       于是"对手出招要按方向闪"这条也没人看到。
+   它们很容易在后续改动里被悄悄删掉（删了不影响任何机制断言），所以钉在这里。 */
+{
+  /* ① 判定条图例：文案与可见性都查。
+     ⚠ 图例文案只能读**源文件 HTML** —— 桩 DOM 的 innerHTML 不会装填（那是浏览器的活），
+       直接查 EL.fight2Legend.innerHTML 永远是空字符串（第一版就是这么误报的）。 */
+  const legendSrc = srcEl("fight2Legend");
+  A(/绿带/.test(legendSrc) && /金/.test(legendSrc) && /偏出/.test(legendSrc),
+    "图例把三档都写清楚了（绿带 / 金色块 / 偏出）",
+    legendSrc.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 64));
+  A(/点一下|点条子/.test(legendSrc), "图例说清了操作（点一下，而不是拖拽/长按）",
+    (legendSrc.match(/点一下[^·]*/) || ["-"])[0].slice(0, 30));
+
+  newFight();
+  /* 桩元素的 style 是空对象（没有初始 display），所以说"不是显示状态"用 != "block" */
+  A(EL.fight2Legend.style.display !== "block", "开局（未推条）不显示图例",
+    "legend.display=" + JSON.stringify(EL.fight2Legend.style.display));
+  F().act("jab");
+  A(EL.fight2Bar.style.display === "block", "出招后判定条出现（前提）", "bar=" + EL.fight2Bar.style.display);
+  A(EL.fight2Legend.style.display !== "none", "判定条出现时图例也在（玩家看得到怎么打）",
+    "legend.display=" + EL.fight2Legend.style.display);
+  const B = F().bars();
+  if (B.bar.onclick) B.bar.onclick({ stopPropagation() {} });   // 落判，别留悬空状态
+
+  /* ② 招式类型标签：从**源文件**取六颗按钮的文案 */
+  const btnSrc = actsOf(html);
+  A(btnSrc.length === 6, "源文件里六颗招式按钮都在", "找到 " + btnSrc.length + " 颗");
+  const txt = (a) => {
+    const one = btnSrc.find((b) => b.act === a);
+    return one ? one.text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
+  };
+  A(/需推条/.test(txt("jab")) && /需推条/.test(txt("combo")),
+    "要推判定的两招标了【需推条】", txt("jab").slice(0, 26) + " / " + txt("combo").slice(0, 26));
+  A(/确定/.test(txt("low")), "低扫标了【确定伤害】（不赌判定）", txt("low").slice(0, 26));
+  A(/体干/.test(txt("guard")) && /意图/.test(txt("read")),
+    "抱架标了回体干、读招标了看意图（两招的用途一眼可辨）",
+    txt("guard").slice(0, 24) + " / " + txt("read").slice(0, 24));
+  A(acts.every((a) => txt(a).length > 0), "每颗按钮都有文案（没有空按钮）",
+    acts.map((a) => txt(a).length).join(","));
+
+  /* ③ 常驻操作提示：底部状态行按阶段给"现在该干什么" */
+  newFight();
+  const hintOf = () => plain(EL.fight2Num.innerHTML);
+  A(/该你出招/.test(hintOf()), "轮到你时提示怎么出招", hintOf().slice(-42));
+  A(/绿带/.test(hintOf()), "第一次出招前就把「进绿带点一下」说出来了", hintOf().slice(-42));
+  F().set({ ap: 0 });   // set() 内部会 render()，所以提示会跟着更新
+  A(/用完/.test(hintOf()) || /他的回合/.test(hintOf()), "行动力用完后提示改口", hintOf().slice(-38));
+
+  /* 防守阶段（另起一局，避免上一段把回合弄僵） */
+  newFight();
+  advanceToDefend();
+  A(F().state().phase === "defend", "确实进入了防守阶段（前提）", "phase=" + F().state().phase);
+  A(/←/.test(hintOf()) && /闪/.test(hintOf()), "对手出招时提示按方向闪开", hintOf().slice(-48));
+  A(EL.fight2Legend.style.display === "none", "防守时不显示判定条图例（那时没有判定条）",
+    "legend.display=" + JSON.stringify(EL.fight2Legend.style.display));
+  let g = 0;
+  while (F().state().phase === "defend" && g++ < 200) api.step();
+}
+
+/* ── 判定条手感：完美区够得着 + 提前点击不会被吞 ──────────────────────────
+   玩家实测原话："完美区还是太难瞄，盯着游标进绿带点了，可是直接跳过了根本没反应"。
+   两条根因，都要测：
+     ① 游标每帧走 BAR_SPEED，而完美区只有全长的 4.2% —— 2.2%/帧时只够 2 帧（33ms 级），
+        那不是"偏难"而是"没法瞄"；
+     ② 判定条刚出现时玩家常已点下去（手比眼快），原来那次点击被吞掉，
+        表现出来就是"点了没反应"。 */
+{
+  /* ① 完美区必须留出够用的帧数（按 60fps 折算真实时间） */
+  const zoneW = 14;                                        // precision() 里的 zonesW
+  F2_TUNE.BAR_SPEED = BAR_SPEED;                           // 确保用生产值算
+  const perfectPct = zoneW * 0.30;                         // 绿带的中央 30%
+  const frames = perfectPct / BAR_SPEED;
+  const ms = Math.round(frames * (1000 / 60));
+  A(frames >= 3.5,
+    "完美区留出 ≥3.5 帧（约 60ms+）—— 够得着，不是只能靠运气",
+    "完美区 " + perfectPct.toFixed(2) + "% ÷ " + BAR_SPEED + "%/帧 = " + frames.toFixed(1) +
+    " 帧 ≈ " + ms + "ms");
+  A(BAR_SPEED < 2.2, "游标速度已经是「放缓后」的值（2.2 是玩家抱怨太快的旧值）", "BAR_SPEED=" + BAR_SPEED);
+  const greenFrames = zoneW / BAR_SPEED;
+  A(greenFrames >= 10, "整条绿带留出 ≥10 帧（良好档好中）",
+    greenFrames.toFixed(1) + " 帧 ≈ " + Math.round(greenFrames * 1000 / 60) + "ms");
+
+  /* ② 输入缓冲：判定条刚开就点 → 不吞、按"还没开始动"判偏出（不是"没反应"） */
+  /* ⚠ 生产值要从**源文件副本**读：上面为了跑用例把这份 F2_TUNE.INPUT_GRACE 改成了 0 */
+  const prodTune = JSON.parse(grabConst(html, "FIGHT2_TUNE"));
+  A(prodTune.INPUT_GRACE > 0, "生产参数里输入缓冲是开着的",
+    "INPUT_GRACE=" + prodTune.INPUT_GRACE + "ms");
+  A(prodTune.BAR_SPEED === BAR_SPEED, "调参表里的 BAR_SPEED 与被测代码用的是同一个值",
+    "生产 " + prodTune.BAR_SPEED + " / 本用例 " + BAR_SPEED);
+  /* 缓冲行为要**真的**验一次：把缓冲设回来，刚开条就点，必须落判而不是没反应 */
+  F2_TUNE.INPUT_GRACE = prodTune.INPUT_GRACE;
+  newFight();
+  api.setRng(0.5);
+  F().act("jab");
+  A(EL.fight2Bar.style.display === "block", "判定条已开出（前提）", "bar=" + EL.fight2Bar.style.display);
+  /* 一帧都不推就点：这就是"手比眼快"的真实场景 */
+  EL.fight2Bar.click();
+  const afterEarly = plain(lastRow());
+  A(/偏出|完美|命中/.test(afterEarly),
+    "判定条刚出现就点，也会**落判**（不会像以前那样没反应）",
+    "日志：" + afterEarly.slice(0, 40));
+  A(EL.fight2Bar.style.display === "none" && EL.fight2Bar.onclick === null,
+    "提前点击后判定条正常收摊（不会卡在开着等超时）",
+    "display=" + EL.fight2Bar.style.display + " onclick=" + String(EL.fight2Bar.onclick));
+  F2_TUNE.INPUT_GRACE = 0;                                 // 还原成 0，后续用例照旧
+  /* 缓冲窗口过后，点击要按真实位置算（不然缓冲会把所有点都拖到 pos=0） */
+  newFight();
+  api.setRng(0.5);
+  const R2 = strike("jab", wantPerfect);
+  A(/完美命中/.test(R2.log), "缓冲窗口之外，点击仍按游标真实位置判（完美档仍可打出）",
+    "落点 " + R2.landed.toFixed(1) + " | " + R2.log.slice(0, 30));
+}
+
+/* ── 招式经济：每个招式都要有存在的理由 ──────────────────────────────────
+   为什么单独测：玩家实测问过"蓄力连按很多下的意义是什么" —— 查下去发现组合拳
+   连打 10 下总共只有 19 伤害，而直拳完美是 23：**这个招式的收益是负的**。
+   这类"数值上没有意义"的选项不会有任何机制断言去抓，所以在这里钉住两条边界。 */
+{
+  const G = evalConstIn(html, "FIGHT_GRADE_MULT");
+  const MV = evalConstIn(html, "FIGHT2_MOVES");
+  const T2 = evalConstIn(html, "FIGHT2_TUNE");
+  const bone = (c) => Math.min(T2.COMBO_BONUS_CAP, Math.max(0, -4 + 3 * Math.floor(c / 2)));
+  const jabPerfect = Math.round(MV.jab.dmg * G.perfect);
+  const comboFirst = Math.round(MV.combo.dmg * G.perfect);
+  const comboFull = comboFirst + bone(12);
+  const comboNone = comboFirst + bone(0);
+
+  A(comboFull > jabPerfect,
+    "组合拳「完美一段 + 连打打满」必须**优于**完美直拳（否则连按没有意义）",
+    "组合拳 " + comboFull + " vs 直拳 " + jabPerfect + "（二段 " + bone(12) + "）");
+  A(comboNone < jabPerfect,
+    "组合拳不打连打时必须**劣于**完美直拳（有取舍，不是无脑最优）",
+    "组合拳 " + comboNone + " vs 直拳 " + jabPerfect);
+  A(bone(6) > bone(3) && bone(3) > bone(0),
+    "连打越多二段越重（每 2 下一档，玩家能感到进步）",
+    "0→" + bone(0) + " · 3→" + bone(3) + " · 6→" + bone(6) + " · 12→" + bone(12));
+  A(bone(20) === T2.COMBO_BONUS_CAP,
+    "连打收益有上限（不会无限叠）", "封顶 " + T2.COMBO_BONUS_CAP);
+  A(MV.low.precise === false && MV.jab.precise === true && MV.combo.precise === true,
+    "三招的判定类型与 UI 标签一致（低扫不吃判定）",
+    "直拳 " + MV.jab.precise + " / 组合拳 " + MV.combo.precise + " / 低扫 " + MV.low.precise);
+  /* 每回合行动力要够出两次招，否则一局会被拖长 */
+  A(T2.AP >= MV.jab.ap * 2, "每回合行动力够出两次主要招式（AP " + T2.AP + " ≥ " + MV.jab.ap + "×2）",
+    "AP=" + T2.AP);
 }
 
 console.log("");

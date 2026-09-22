@@ -316,6 +316,13 @@ const HTA = [
   '    var seats0 = Mahjong.debug.seats(), tot0 = Mahjong.debug.wall().count, s0, j0;',
   '    for (s0 = 0; s0 < 4; s0++) { tot0 += seats0[s0].handCount + seats0[s0].discards.length; for (j0 = 0; j0 < seats0[s0].melds.length; j0++) tot0 += seats0[s0].melds[j0].tiles.length; }',
   '    A("deck136", tot0 === 136, tot0);',
+  '    /* tile conservation audit (the hard invariant: every tile kind <= 4, total = 136) */',
+  '    var ta0 = (Mahjong.debug.tileAudit ? Mahjong.debug.tileAudit() : null);',
+  '    A("tile_audit_api", !!ta0, ta0 ? (ta0.total + "/" + ta0.expect) : "no-api");',
+  '    A("tile_audit_ok", !!(ta0 && ta0.ok), ta0 ? (ta0.ok ? (ta0.total + "/" + ta0.expect + " tiles, max-per-kind " + ta0.max) : JSON.stringify(ta0.violations)) : "no-api");',
+  '    var ra0 = (Mahjong.debug.renderAudit ? Mahjong.debug.renderAudit() : null);',
+  '    A("render_audit_api", !!ra0, ra0 ? (ra0.mode + " " + ra0.total + " faces") : "no-api");',
+  '    A("render_audit_ok", !!(ra0 && ra0.ok && ra0.max <= 4), ra0 ? (ra0.total + " faces on screen, max-per-kind " + ra0.max) : "no-api");',
   '  } catch (e) { A("step1_throw", false, String(e.message || e)); }',
   '  setTimeout(step2, 400);',
   '}',
@@ -886,6 +893,68 @@ const HTA = [
   '    A("dispose_clears_dom", document.getElementById("mj").innerHTML.length === 0, document.getElementById("mj").innerHTML.length);',
   '    A("dispose_not_busy", Mahjong.isBusy() === false, Mahjong.isBusy());',
   '  } catch (e) { A("step6_throw", false, String(e.message || e)); }',
+  '  stepAudit();',
+  '}',
+  '/* self-play whole game inside the real Trident engine: audit after EVERY state change,',
+  '   and audit the RENDERED faces of every frame (max 4 per tile kind on screen). */',
+  'function stepAudit() {',
+  '  try {',
+  '    var hostA = document.getElementById("mj");',
+  '    var startedA = Mahjong.start(hostA, {});',
+  '    A("audit_restart", startedA === true, startedA);',
+  '    Mahjong.debug.tileAuditInstall();',
+  '    Mahjong.debug.tileAuditOn(true, null);',
+  '    var frames = 0, worst = 0, over = 0, guard = 0, waitN = 0;',
+  '    var one = function () {',
+  '      try { Mahjong.debug.render(); } catch (e2) {}',
+  '      frames++;',
+  '      var ra = Mahjong.debug.renderAudit();',
+  '      if (ra) { if (ra.max > worst) worst = ra.max; if (!ra.ok && !ra.debugView) over++; }',
+  '    };',
+  '    one();',
+  '    while (guard++ < 900) {',
+  '      var st = Mahjong.debug.state();',
+  '      if (!st || st.phase === "over" || st.result) break;',
+  '      var E = Mahjong.debug.engine(), act = "";',
+  '      if (E && E.phase === "claim" && E.pending && E.pending.seat === 0) act = "pass";',
+  '      else if (E && E.phase === "rob" && E.pending && E.pending.seats && E.pending.seats.indexOf(0) >= 0) act = "pass";',
+  '      else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 1) act = "draw";',
+  '      else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 2) act = "discard";',
+  '      if (act) { if (!Mahjong.debug.act(act)) { if (++waitN > 3) break; } else waitN = 0; }',
+  '      else {',
+  '        var r = Mahjong.debug.step();',
+  '        if (r === "off" || r === "over") break;',
+  '        if (r === "wait") { if (++waitN > 3) break; } else waitN = 0;',
+  '      }',
+  '      one();',
+  '    }',
+  '    var stt = Mahjong.debug.tileAuditState();',
+  '    var fin = Mahjong.debug.tileAudit();',
+  '    A("tile_audit_beats", stt.n > 40, stt.n);',
+  '    A("tile_audit_game_ok", stt.fails === 0, stt.fails === 0 ? (stt.n + " beats, all conserved") : JSON.stringify(Mahjong.debug.tileAuditReport().list[0]));',
+  '    A("tile_audit_final_ok", !!(fin && fin.ok), fin ? (fin.total + "/" + fin.expect + " tiles, max-per-kind " + fin.max) : "no-api");',
+  '    A("render_audit_frames", frames > 20, frames + " frames");',
+  '    A("render_audit_max", worst <= 4 && over === 0, "max faces per kind " + worst + " (limit 4), over-frames " + over);',
+  '    var rig = Mahjong.debug.engine();',
+  '    var inHand = {}, qh;',
+  '    for (qh = 0; qh < rig.P[0].hand.length; qh++) inHand[rig.P[0].hand[qh]] = 1;',
+  '    /* 牌面格式是「数字 + 花色」：1万..9万 / 1条..9条 / 1筒..9筒 + 东南西北中發白 */',
+  '    var cands = ["9\\u4e07", "1\\u4e07", "9\\u6761", "9\\u7b52", "\\u4e2d", "\\u767d"];',
+  '    var t1 = null, qt;',
+  '    for (qt = 0; qt < cands.length; qt++) if (!inHand[cands[qt]]) { t1 = cands[qt]; break; }',
+  '    if (!t1) t1 = cands[0];',
+  '    var hand = [t1, t1, t1];',
+  '    for (qh = 0; qh < rig.P[0].hand.length && hand.length < 14; qh++) {',
+  '      if (rig.P[0].hand[qh] !== t1) hand.push(rig.P[0].hand[qh]);',
+  '    }',
+  '    var okSet = Mahjong.debug.setHand(hand, [], null);',
+  '    var af = Mahjong.debug.tileAudit();',
+  '    A("rig_setHand_ok", okSet === true, okSet + " / " + hand.length + " tiles of " + t1);',
+  '    A("rig_audit_ok", !!(af && af.ok), af ? (af.total + "/" + af.expect + " tiles, " + t1 + " x " + af.byType[t1] + (af.ok ? "" : " -> " + JSON.stringify(af.violations))) : "no-api");',
+  '    A("rig_no_overflow", !!(af && af.total === 136 && af.byType[t1] <= 4), af ? (af.byType[t1] + " x " + t1 + ", total " + af.total) : "no-api");',
+  '    A("rig_refuse_impossible", Mahjong.debug.setHand([t1, t1, t1, t1, t1], [], null) === false, "5 copies refused");',
+  '    try { Mahjong.dispose(); } catch (e3) {}',
+  '  } catch (e) { A("stepAudit_throw", false, String(e.message || e)); }',
   '  done();',
   '}',
   '</script></head><body><div id="mj" class="on"></div></body></html>'
@@ -1042,6 +1111,20 @@ result_btn: "结算面板「继续」按钮存在",
   voice_zimo: "自摸播 自摸.mp3（优先用户原话「自摸！」）",
   voice_no_liuju: "胡牌时不会误播 流局.mp3",
   voice_shot: "出图：测试截图/mahjong_voice.png（含 🔊 开关的牌桌）",
+  tile_audit_api: "牌张守恒审计出口（Mahjong.debug.tileAudit）可读",
+  tile_audit_ok: "牌张守恒审计 ok：每种牌 ≤4 且总数 = 136（用户实测「桌上出现六张六条」的硬不变量）",
+  render_audit_api: "渲染层守恒出口（Mahjong.debug.renderAudit）可读",
+  render_audit_ok: "本帧画面上每种牌面 ≤ 4 张（渲染层守恒，不猜像素）",
+  audit_restart: "审计段：重开一局（真引擎）",
+  tile_audit_beats: "整局自走：每一拍都做了审计（发牌/摸/打/碰/杠/补摸/抢杠/胡/流局）",
+  tile_audit_game_ok: "整局自走：没有任何一拍违反牌张守恒",
+  tile_audit_final_ok: "整局末态：每种牌 ≤4 · 总数 = 应有张数",
+  render_audit_frames: "整局逐帧审计（每一帧都读画面上每张牌各几张）",
+  render_audit_max: "整局每一帧画面单种 ≤ 4 张",
+  rig_setHand_ok: "调试摆牌成功（合法请求）",
+  rig_audit_ok: "摆牌后牌张仍守恒（只搬牌不造牌）",
+  rig_no_overflow: "摆牌不会让同名牌超过 4 张、总数也不变（旧实现会变成 6 张 / 137 张）",
+  rig_refuse_impossible: "摆 5 张同名牌被拒绝（物理上只有 4 张）",
   ready_for_chain: "主链路开跑前确保轮到自己出牌",
   ready_for_hint: "语音段之后把牌局摆回轮到自己（提示/结算段照常执行）"
 };
@@ -1162,6 +1245,19 @@ async function runChrome() {
     const tot = await ev(`(function(){var s=Mahjong.debug.seats(),n=Mahjong.debug.wall().count,i,j;
       for(i=0;i<4;i++){n+=s[i].handCount+s[i].discards.length;for(j=0;j<s[i].melds.length;j++)n+=s[i].melds[j].tiles.length;}return n;})()`);
     A(tot === 136, "136 张牌守恒（浏览器里真发 136 张）", tot);
+  }
+  {
+    /* ── 牌张守恒审计（用户实测「桌上出现六张六条」的硬不变量）──
+       tileAudit：遍历牌墙 / 四家暗手 / 四家副露 / 四家牌河 / 摸到的牌 / 动画容器，
+       判据 = 每种牌 ≤4 且总数 = 136（或 108）。renderAudit：本帧画面上每种牌面各几张。 */
+    const ta = JSON.parse(await ev("JSON.stringify(Mahjong.debug.tileAudit())"));
+    info.tileAudit = ta;
+    A(ta && ta.ok === true, "牌张守恒审计 ok（每种牌 ≤4 · 总数 = 应有张数）",
+      ta ? (ta.total + "/" + ta.expect + " 张 · 单种最大 " + ta.max + (ta.ok ? "" : " → " + JSON.stringify(ta.violations))) : "no-api");
+    const ra = JSON.parse(await ev("JSON.stringify(Mahjong.debug.renderAudit())"));
+    info.renderAudit = ra;
+    A(ra && ra.ok === true && ra.max <= 4, "本帧画面每种牌面 ≤ 4 张（渲染层守恒）",
+      ra ? (ra.total + " 张牌面 · 单种最大 " + ra.max + " · 模式 " + ra.mode) : "no-api");
   }
   {
     // 手牌布局：56×78 / 间距 6px / 摸牌前 12px
@@ -1313,6 +1409,109 @@ async function runChrome() {
   A(fin.win === true, "结算回调 win:true → 页面标记 S.mjWin");
   A(fin.on === false, "结算后麻将面板关闭");
   A(fin.busy === false, "isBusy=false");
+
+  /* ── 整局自走 + 每一拍审计 + 每一帧渲染审计（真浏览器引擎 + 真 canvas）──
+     这条是「桌上出现六张六条」的常驻断言：只要有一拍违反守恒、或有一帧画出 >4 张同名牌，就红。 */
+  {
+    const rep = JSON.parse(await ev(`JSON.stringify((function(){
+      var MJ = window.Mahjong;
+      MJ.debug.tileAuditInstall();
+      MJ.debug.tileAuditOn(true, null);
+      var host = document.getElementById("mj");
+      if (!host) return { err: "no-host" };
+      MJ.start(host, {});
+      MJ.debug.tileAuditInstall();
+      MJ.debug.tileAuditOn(true, null);
+      var frames = 0, worst = 0, over = [], guard = 0, wait = 0;
+      function one() {
+        try { MJ.debug.render(); } catch (e) {}
+        frames++;
+        var ra = MJ.debug.renderAudit();
+        if (ra) { if (ra.max > worst) worst = ra.max; if (!ra.ok && !ra.debugView && over.length < 4) over.push(ra); }
+      }
+      one();
+      while (guard++ < 900) {
+        var st = MJ.debug.state();
+        if (!st || st.phase === "over" || st.result) break;
+        var E = MJ.debug.engine(), act = "";
+        if (E && E.phase === "claim" && E.pending && E.pending.seat === 0) act = "pass";
+        else if (E && E.phase === "rob" && E.pending && E.pending.seats && E.pending.seats.indexOf(0) >= 0) act = "pass";
+        else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 1) act = "draw";
+        else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 2) act = "discard";
+        if (act) { if (!MJ.debug.act(act)) { if (++wait > 3) break; } else wait = 0; }
+        else {
+          var r = MJ.debug.step();
+          if (r === "off" || r === "over") break;
+          if (r === "wait") { if (++wait > 3) break; } else wait = 0;
+        }
+        one();
+      }
+      var stt = MJ.debug.tileAuditState();
+      var fin = MJ.debug.tileAudit();
+      var out = { beats: stt.n, fails: stt.fails, frames: frames, renderMax: worst, renderOver: over,
+                  final: fin ? { ok: fin.ok, total: fin.total, expect: fin.expect, max: fin.max, violations: fin.violations } : null };
+      try { MJ.dispose(); } catch (e) {}
+      return out;
+    })())`));
+    info.selfPlayAudit = rep;
+    A(rep && rep.beats > 40, "整局自走：每一拍都审计", rep && (rep.beats + " 拍"));
+    A(rep && rep.fails === 0, "整局自走：没有任何一拍违反牌张守恒（每种牌 ≤4 · 总数 136）",
+      rep && (rep.fails === 0 ? (rep.beats + " 拍全绿") : "违规 " + rep.fails + " 拍 → " + JSON.stringify((rep.final || {}).violations)));
+    A(rep && rep.final && rep.final.ok === true, "整局末态审计 ok（总数 = 应有张数）",
+      rep && rep.final ? (rep.final.total + "/" + rep.final.expect + " 张 · 单种最大 " + rep.final.max +
+        (rep.final.ok ? "" : " → " + JSON.stringify(rep.final.violations))) : "no-api");
+    A(rep && rep.renderMax <= 4 && (!rep.renderOver || rep.renderOver.length === 0),
+      "整局每一帧画面上每种牌面 ≤ 4 张（渲染层守恒）",
+      rep ? (rep.frames + " 帧 · 单种最大 " + rep.renderMax) : "no-api");
+  }
+
+  /* ── 摆牌/造胡也必须守恒（根因修复的浏览器端断言）──
+     旧实现 setHand/forceWin 只加不减，实测能摆出「六张六条 · 总数 137」。 */
+  {
+    const rig = JSON.parse(await ev(`JSON.stringify((function(){
+      var MJ = window.Mahjong, host = document.getElementById("mj");
+      MJ.start(host, {});
+      var E = MJ.debug.engine();
+      for (var i = 0; i < 26; i++) {
+        var st = MJ.debug.state(); if (!st || st.phase === "over") break;
+        if (st.phase === "claim" && st.pending && st.pending.seat === 0) MJ.debug.act("pass");
+        else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 2) MJ.debug.act("discard");
+        else MJ.debug.step();
+      }
+      var before = MJ.debug.tileAudit(), T = null, best = 0, k;
+      for (k in before.byType) if (before.byType.hasOwnProperty(k)) {
+        var mine = 0, q;
+        for (q = 0; q < E.P[0].hand.length; q++) if (E.P[0].hand[q] === k) mine++;
+        if (mine === 0 && before.byType[k] > best) { best = before.byType[k]; T = k; }
+      }
+      if (!T) return { err: "no-candidate" };
+      var hand = [T, T, T], q2;
+      for (q2 = 0; q2 < E.P[0].hand.length && hand.length < 14; q2++) hand.push(E.P[0].hand[q2]);
+      var okSet = MJ.debug.setHand(hand, [], null);
+      var after = MJ.debug.tileAudit();
+      MJ.debug.render();
+      var ra = MJ.debug.renderAudit();
+      var out = { tile: T, elsewhere: best, set: okSet,
+                  before: { ok: before.ok, total: before.total },
+                  after: { ok: after.ok, total: after.total, count: after.byType[T], max: after.max,
+                           violations: after.violations },
+                  render: ra ? { ok: ra.ok, max: ra.max, faces: (ra.byType && ra.byType[T]) || 0 } : null,
+                  refuse: MJ.debug.setHand([T, T, T, T, T], [], null) };
+      try { MJ.dispose(); } catch (e) {}
+      return out;
+    })())`));
+    info.rigAudit = rig;
+    A(rig && rig.set === true, "调试摆牌成功（合法请求）", rig && rig.tile);
+    A(rig && rig.after && rig.after.ok === true, "摆牌后牌张仍守恒（只搬牌不造牌）",
+      rig && rig.after ? (rig.after.total + " 张 · 「" + rig.tile + "」" + rig.after.count + " 张 · 单种最大 " + rig.after.max +
+        (rig.after.ok ? "" : " → " + JSON.stringify(rig.after.violations))) : "no-api");
+    A(rig && rig.after && rig.after.count <= 4 && rig.after.total === rig.before.total,
+      "摆牌不会让同名牌超过 4 张、也不会让总数变化（旧实现会变成 6 张 / 137 张）",
+      rig && rig.after ? ("「" + rig.tile + "」" + rig.after.count + " 张 · 总数 " + rig.before.total + "→" + rig.after.total) : "no-api");
+    A(rig && rig.refuse === false, "摆 5 张同名牌被拒绝（物理上只有 4 张）", rig && String(rig.refuse));
+    A(rig && rig.render && rig.render.max <= 4, "摆牌后本帧画面单种 ≤ 4 张",
+      rig && rig.render ? (rig.render.faces + " 张「" + rig.tile + "」· 单种最大 " + rig.render.max) : "no-api");
+  }
 
   try { chrome.kill(); } catch (e) {}
   return { ok: errors.length === 0, checks, errors, info };

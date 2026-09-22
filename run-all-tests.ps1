@@ -65,7 +65,7 @@ $SUITES = @(
   #    火花判定用单调累加器 fxCount，不要比较 fx 数组长度 —— 粒子有生命周期会被回收。
   # ⑥ 立绘走 Lovart 出图；测试环境没有真 Image，必须验证"立绘未就绪 → 回落骨骼"这条路仍然能跑。
   # ⑦ 两个角色必须"一眼能分辨"：体型参数方向、POSES 两套、配色冷暖两系，出拳幅度差 ≥1.5 倍。
-  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（机制+调平+侧视舞台）"; Script = "tests/fight2.test.cjs";         Expect = 137 }
+  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（机制+调平+侧视舞台）"; Script = "tests/fight2.test.cjs";         Expect = 170 }
   [pscustomobject]@{ Layer = "headless"; Name = "早餐店无头证据链";             Script = "tools/bf/headless.js";            Expect = 351 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将浏览器实测（CDP→mshta）";  Script = "tools/e2e/mj-browser.js";         Expect = 168 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将系统 E2E（mshta）";         Script = "tools/e2e/mj-system.js";          Expect = 115 }

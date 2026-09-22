@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {
+      "file": "mahjong.js",
+      "from": "    /* 判据①：每种牌 ≤ 4，且必须属于本局牌种 */",
+      "text": "    /* 判据③：容器之间不许共用同一个数组对象（浅拷贝 / 共享引用 → 同一张牌同时存在于两处） */\n    var arrs = [{ n: \"牌墙\", a: E.wall }], shared = [];\n    for (i = 0; i < E.P.length; i++) {\n      var pp = E.P[i];\n      arrs.push({ n: \"P\" + i + \".手牌\", a: pp.hand });\n      arrs.push({ n: \"P\" + i + \".弃牌\", a: pp.discards });\n      arrs.push({ n: \"P\" + i + \".副露表\", a: pp.melds });\n      for (j = 0; j < (pp.melds || []).length; j++) {\n        if (pp.melds[j]) arrs.push({ n: \"P\" + i + \".副露\" + j + \".tiles\", a: pp.melds[j].tiles });\n      }\n    }\n    for (i = 0; i < arrs.length; i++) for (j = i + 1; j < arrs.length; j++) {\n      if (arrs[i].a && arrs[i].a === arrs[j].a) shared.push(arrs[i].n + \" ↔ \" + arrs[j].n);\n    }\n    note(\"容器引用独立\", shared.length === 0,\n      shared.join(\" / \") + \" 是**同一个数组对象** —— 同一张牌会同时存在于两处（浅拷贝 / 共享引用）\");\n\n    /* 判据①：每种牌 ≤ 4，且必须属于本局牌种 */"
+    }
+  ]
+}

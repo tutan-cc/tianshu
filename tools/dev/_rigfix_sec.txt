@@ -1,0 +1,110 @@
+  /**
+   * 调试摆牌的**守恒版**（修掉「凭空复制」的根因）。
+   *
+   * 旧实现（= 用户实测「桌上出现六张六条」的来源）：
+   *   `dbgSetHand` / `dbgForceWin` 直接 `p.hand = want.slice()`、`p.melds = []` ——
+   *   **只加不减**：旧手牌 / 旧副露的牌凭空消失，want 里的牌凭空出现。
+   *   实测（tools/dev/_mj-ui-audit-probe.js --repro）：
+   *     真打 82 拍 · 容器审计 ok（136/136，6条 4 张）
+   *     → setHand(含 3 张 6条 的 14 张) → **6条 6 张 · 总数 137/136**
+   *   也就是说：只要走了这条路径，牌桌/结算亮牌板上就会出现「六张六条」。
+   *
+   * 新实现只做一件事：**搬牌，绝不造牌**。
+   *   · 想留的牌优先从「自己现有手牌 + 副露」里留用（不折腾牌墙）；
+   *   · 缺的那些从「牌墙 → 别家暗手 → 别家牌河 → 别家副露」依次取，
+   *     每取走一张就等量回填一张旧牌（别家容器张数不变；副露被取则整组拆掉、其余牌回牌墙）；
+   *   · 最后剩下的旧牌全部回牌墙。
+   * 因为整副牌只是被重新分配，「每种牌 ≤4 · 全场 = 136/108」在摆牌后**自动成立** ——
+   * 不可能再摆出第 5 张同名牌。请求里某种牌超过 4 张（物理上不存在）→ 返回 false。
+   *
+   * @returns {boolean} true = 已落位且守恒；false = 请求不合法（没改任何状态）
+   */
+  function rigPlayerPreserving(E, seat, wantHand, wantMelds) {
+    if (!E || !E.P || !E.P[seat]) return false;
+    var p = E.P[seat], i, j, k, t, q;
+    var want = [], melds = [], need = {};
+    for (i = 0; i < (wantHand || []).length; i++) {
+      t = wantHand[i];
+      if (typeof t !== "string" || !t) return false;
+      want.push(t);
+      need[t] = (need[t] || 0) + 1;
+    }
+    for (i = 0; i < (wantMelds || []).length; i++) {
+      var m = wantMelds[i];
+      if (!m || !m.tiles) return false;
+      var mt = [];
+      for (j = 0; j < m.tiles.length; j++) {
+        t = m.tiles[j];
+        if (typeof t !== "string" || !t) return false;
+        mt.push(t); want.push(t);
+        need[t] = (need[t] || 0) + 1;
+      }
+      melds.push({ type: m.type || (mt.length === 4 ? "gang" : "peng"), tiles: mt,
+                   from: (m.from === undefined || m.from === null) ? -1 : m.from,
+                   an: !!m.an, kind: m.kind || (m.an ? "an" : "ming") });
+    }
+    for (t in need) if (Object.prototype.hasOwnProperty.call(need, t) && need[t] > 4) return false;   // 一种牌只有 4 张
+
+    /* ① 能留用的旧牌（自己手牌 + 副露）先留用，其余进「待回填池」 */
+    var pool = p.hand.slice();
+    for (i = 0; i < (p.melds || []).length; i++) {
+      if (!p.melds[i] || !p.melds[i].tiles) continue;
+      for (j = 0; j < p.melds[i].tiles.length; j++) pool.push(p.melds[i].tiles[j]);
+    }
+    var take = [];
+    for (i = 0; i < want.length; i++) {
+      t = want[i];
+      k = pool.indexOf(t);
+      if (k >= 0) pool.splice(k, 1); else take.push(t);
+    }
+    /* ② 缺的牌按优先级从外面取；每取一张等量回填一张旧牌（池空则只取不回填该位置） */
+    function fill(arr) {
+      if (!take.length) return;
+      for (var x = arr.length - 1; x >= 0 && take.length; x--) {
+        var w = take.indexOf(arr[x]);
+        if (w < 0) continue;
+        var give = pool.length ? pool.shift() : null;
+        arr.splice(x, 1);
+        if (give !== null) arr.push(give);
+        take.splice(w, 1);
+      }
+    }
+    fill(E.wall);
+    for (i = 0; i < E.P.length; i++) {
+      if (i === seat || !take.length) continue;
+      fill(E.P[i].hand);
+      fill(E.P[i].discards);
+    }
+    /* ③ 兜底：别家副露（整组拆掉，其余牌回牌墙）—— 保证不会因为「牌都压在别人杠里」而失败 */
+    for (i = 0; i < E.P.length && take.length; i++) {
+      if (i === seat) continue;
+      var ms = E.P[i].melds || [];
+      for (j = ms.length - 1; j >= 0 && take.length; j--) {
+        var md = ms[j];
+        if (!md || !md.tiles) continue;
+        var hit = false;
+        for (k = md.tiles.length - 1; k >= 0 && take.length; k--) {
+          var w2 = take.indexOf(md.tiles[k]);
+          if (w2 < 0) continue;
+          take.splice(w2, 1);
+          md.tiles.splice(k, 1);
+          hit = true;
+        }
+        if (hit) {
+          for (k = 0; k < md.tiles.length; k++) E.wall.push(md.tiles[k]);      // 拆掉的副露其余牌回牌墙
+          ms.splice(j, 1);
+          if (ms.length) normalizeHand(E.P[i]);
+        }
+      }
+    }
+    if (take.length) return false;                                     // 仍然凑不齐 → 拒绝（绝不伪造）
+    /* ④ 剩余的旧牌全部回牌墙，然后落位 */
+    for (i = 0; i < pool.length; i++) E.wall.push(pool[i]);
+    p.hand = wantHand ? wantHand.slice() : [];
+    p.melds = melds;
+    p.drawn = null;
+    normalizeHand(p);
+    return true;
+  }
+
+  /* ═══════════════ 6. 调试 API（自动化测试用） ═══════════════ */

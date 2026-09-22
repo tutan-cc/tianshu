@@ -1,0 +1,9 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  console.log(\"通过 \" + pass + \" / 共 \" + (pass + fail) + (fail ? \"，失败 \" + fail : \"，全部通过 ✔\"));",
+      "textFile": "tools/dev/_tests_sec22.txt"
+    }
+  ]
+}

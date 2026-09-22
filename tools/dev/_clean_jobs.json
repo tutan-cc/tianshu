@@ -1,0 +1,10 @@
+{
+  "jobs": [
+    {
+      "file": "tools/dev/_mj-tile-audit-probe.js",
+      "from": "/* ═══════════ 定向压力：集中造「碰 / 杠 / 补杠 / 抢杠 / 流局 / 重开」 ═══════════ */",
+      "to": "/* ═══════════ 主流程 ═══════════ */",
+      "text": "/* ═══════════ 定向压力（边界用例） ═══════════\n   边界用例（补杠/直杠被抢杠、暗杠补摸、连续碰杠、四副露大吊车、流局、重开、108 张）\n   已搬到专用探针 tools/dev/_mj-stress-audit-probe.js —— 那里用**固定牌墙夹具**把局面钉死，\n   而且夹具本身守恒（craft 只重排整副牌 / makeMeld 只搬自己手里的牌），\n   所以报出来的任何违规都只可能来自 mahjong.js。\n   （早期版本在这里用 rigHand 直接改内存摆牌，那等于用探针自己的 bug 去测被测代码 —— 已删。）*/\nfunction stressBattery() {\n  console.log(\"\\n边界用例请跑：node tools/dev/_mj-stress-audit-probe.js\");\n  return 0;\n}\n\n"
+    }
+  ]
+}

@@ -143,7 +143,10 @@ function strikeSelf(grade) {
   const B = F().bars();
   const Lp = parseFloat(B.zone.style.left), Wp = parseFloat(B.zone.style.width);
   const target = grade === "good" ? Lp + Wp * 0.15 : Lp + Wp * 0.5;
-  const need = Math.round(target / 2.2);
+  /* ⚠ 帧数按调参表的 BAR_SPEED 算，别写死：这个值被调过一次（2.2 → 1.1，玩家反馈完美区太难瞄），
+     写死会让样片里的档位全部失真 —— 推到的位置只有目标的一半，全判成偏出。 */
+  const spd = JSON.parse(grabConst(html, "FIGHT2_TUNE")).BAR_SPEED;
+  const need = Math.round(target / spd);
   for (let i = 0; i < need; i++) api.step();
   if (B.bar.onclick) B.bar.onclick({ stopPropagation() {} });
 }

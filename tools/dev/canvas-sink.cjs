@@ -43,6 +43,12 @@ function makeSink(W, H, scale = 1, opts = {}) {
   /* 开关：背景/地面线是**全不透明**填的，若把它们的 alpha 也记进 amax，
      整块画布都会变成"实心"，量测就失去意义。所以只在画人物那一遍打开它。 */
   let alphaOn = !!opts.alphaTrack;
+  /* 真正"落笔"的像素包围盒（设备坐标、已过裁剪）。
+     与 PIX（记录**调用参数**的变换后坐标、不过裁剪）不同：
+     世界本来就比屏幕宽，用调用坐标去断言"没溢出屏幕"必然误报 —— 要看的是落笔。 */
+  const paint = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, n: 0 };
+  const paintBox = () => (paint.n ? { minX: paint.minX, maxX: paint.maxX, minY: paint.minY, maxY: paint.maxY, n: paint.n } : null);
+  const paintReset = () => { paint.minX = paint.minY = Infinity; paint.maxX = paint.maxY = -Infinity; paint.n = 0; };
   const num = (v) => (typeof v === "number" && isFinite(v) ? v : 0);
 
   const mkGrad = () => {
@@ -67,6 +73,11 @@ function makeSink(W, H, scale = 1, opts = {}) {
     if (!inClip(x, y)) return;
     const a = rgba[3] * alpha; if (a <= 0) return;
     if (amax && alphaOn) { const k = y * W + x; if (a > amax[k]) amax[k] = a; }
+    if (x < paint.minX) paint.minX = x;
+    if (x > paint.maxX) paint.maxX = x;
+    if (y < paint.minY) paint.minY = y;
+    if (y > paint.maxY) paint.maxY = y;
+    paint.n++;
     const i = (y * W + x) * 3;
     px[i] = px[i] * (1 - a) + rgba[0] * a;
     px[i + 1] = px[i + 1] * (1 - a) + rgba[1] * a;
@@ -83,7 +94,10 @@ function makeSink(W, H, scale = 1, opts = {}) {
      所以 clip() 必须真的生效 —— 否则相机推近时屏外内容会盖住机壳。
      只支持矩形裁剪（stage 只用到 rect），与 save/restore 一起进出栈。 */
   let clip = null;
-  const inClip = (x, y) => !clip || (x >= clip.x0 && x <= clip.x1 && y >= clip.y0 && y <= clip.y1);
+  const inClip = (x, y) => {
+    if (!clip) return true;
+    return x >= clip.x0 && x <= clip.x1 && y >= clip.y0 && y <= clip.y1;
+  };
 
   const ctx = {
     canvas: { width: W, height: H },
@@ -222,7 +236,7 @@ function makeSink(W, H, scale = 1, opts = {}) {
       }
     },
   };
-  return { ctx, px, amax };
+  return { ctx, px, amax, paintBox, paintReset, clipNow: () => clip };
 }
 
 module.exports = { makeSink, styleOf };

@@ -1,0 +1,258 @@
+  /** 整局纯 AI 自动跑（单测 / 回归用）；honors=true 可跑带字牌的 136 张 */
+  function autoPlay(maxSteps, honors) {
+    var e = new Engine(STAKE_DEFAULT, honors === undefined ? null : { honors: !!honors }), steps = 0;
+    e.deal();
+    while (e.phase !== "over" && steps < (maxSteps || 4000)) { e.aiStep(); steps++; }
+    return { result: e.result, steps: steps, engine: e };
+  }
+
+  /* ═══════════════ 3c. 牌张守恒审计（硬不变量 · 唯一口径） ═══════════════════════════
+     用户实测「桌上出现六张六条」→ 牌墙 / 暗手 / 副露 / 牌河之间发生了「凭空复制」。
+     麻将的硬不变量只有两条，简单到可以**每一拍都验**：
+       ① 每一种牌在**全场**最多 4 张（万条筒 1-9 ×4 + 东南西北中發白 ×4）
+       ② 全场总数恒 = 136（INCLUDE_HONORS=false 时 = 108）
+     本函数把场上每一张牌在**哪个容器**里数一遍，是审计的唯一口径
+     （单测 / 探针 / 浏览器断言共用同一份实现 —— 绝不各写一套口径）。
+     遍历的位置（一个不落）：
+       · 牌墙     E.wall                  —— 含未摸的墩（摸牌 shift / 杠后补摸 pop，两者都真的移走）
+       · 四家暗手 E.P[i].hand
+       · 四家副露 E.P[i].melds[].tiles    —— 碰 3 / 明杠 4 / 暗杠 4 / 补杠 4，按数组长度实算
+       · 四家牌河 E.P[i].discards
+       · 当前摸到的牌 E.P[i].drawn         —— **链接位**：它就是 hand 的最后那张，单独计数会重复，
+                                              所以只校验「hand 里确实存在这张」（否则是幽灵牌）
+       · 落河动画 G.anim.disc             —— 同样是链接位：必须 == 该家牌河最后一张
+       · 结算亮牌板 G.view                 —— 派生视图（快照）：只校验它与引擎逐张一致
+     返回：
+       { total, expect, ok, byType:{牌:张数}, violations:[{tile,count,where}],
+         places:{名:{count,tiles}}, marks:[{where,tile,ok}], max }
+       total      实际统计到的总张数（用户截图那一局看的就是这个数）
+       violations 每条 = 哪张牌 / 几张 / 分别在哪几个容器里（where 里带逐容器明细）
+     ok === false 就是硬不变量被破坏。 */
+  function tileAudit(engine) {
+    var E = engine || G.E;
+    var honors = (E && E.honors !== undefined) ? E.honors : INCLUDE_HONORS;
+    var expect = deckSize(honors);
+    var byType = {}, places = {}, marks = [], violations = [], total = 0, i, j, k, t;
+    var has = Object.prototype.hasOwnProperty;
+
+    function place(name, linked) {
+      var q = places[name];
+      if (!q) q = places[name] = { name: name, linked: !!linked, count: 0, tiles: {} };
+      return q;
+    }
+    /** 计数位：真的占一张牌 */
+    function add(tile, name) {
+      if (typeof tile !== "string" || !tile) {
+        violations.push({ tile: String(tile), count: 0,
+          where: name + "：空牌位（undefined / null / 空串）—— 有一张牌被凭空造出或凭空吞掉" });
+        return;
+      }
+      var q = place(name, false);
+      q.count++; q.tiles[tile] = (q.tiles[tile] || 0) + 1;
+      byType[tile] = (byType[tile] || 0) + 1;
+      total++;
+    }
+    /** 链接位：指向别处已数过的那一张，**不占总数**，但必须指得对 */
+    function link(tile, name, good, why) {
+      var q = place(name, true);
+      q.tiles[String(tile)] = (q.tiles[String(tile)] || 0) + 1;
+      marks.push({ where: name, tile: tile, ok: !!good });
+      if (!good) violations.push({ tile: String(tile), count: -1, where: name + "：" + why });
+    }
+    /** 结构性结论（没有单一牌面的判据） */
+    function note(name, good, why) {
+      marks.push({ where: name, tile: "", ok: !!good });
+      if (!good) violations.push({ tile: "", count: -1, where: name + "：" + why });
+    }
+    /** 这张牌「分别在哪几个容器里」——违规报告里最有用的一行 */
+    function whereOf(tile) {
+      var out = [], n, q;
+      for (n in places) if (has.call(places, n)) {
+        q = places[n];
+        if (q.linked) continue;
+        if (q.tiles[tile]) out.push(n + " " + q.tiles[tile] + " 张");
+      }
+      return out.length ? out.join(" + ") : "（没有任何容器持有 —— 被凭空吞掉）";
+    }
+
+    if (!E) return { total: 0, expect: expect, ok: false, byType: byType, places: places, marks: marks,
+      violations: [{ tile: "", count: 0, where: "没有牌局（G.E 为空）—— 无法审计" }], max: 0 };
+
+    /* ① 牌墙（含未摸的墩） */
+    for (i = 0; i < E.wall.length; i++) add(E.wall[i], "牌墙");
+
+    /* ②③④⑤ 四家：暗手 / 摸到的牌 / 副露 / 牌河 */
+    for (i = 0; i < E.P.length; i++) {
+      var p = E.P[i], who = "P" + i + "(" + (p.name || "?") + ")";
+      for (j = 0; j < p.hand.length; j++) add(p.hand[j], who + ".手牌");
+      if (p.drawn !== null && p.drawn !== undefined) {
+        link(p.drawn, who + ".drawn", countIn(p.hand, p.drawn) >= 1,
+          "drawn=" + p.drawn + " 不在手牌里（手牌里 0 张）—— 摸到的那张是幽灵牌");
+      }
+      for (j = 0; j < (p.melds || []).length; j++) {
+        var m = p.melds[j], mt = (m && m.tiles) || [];
+        var nm = who + ".副露" + j + "(" + ((m && m.type) || "?") + "/" + ((m && m.kind) || "?") + ")";
+        for (k = 0; k < mt.length; k++) add(mt[k], nm);
+        var want = (m && m.type === "peng") ? 3 : 4;                 // 暗杠 / 明杠 / 补杠都是 4 张
+        if (mt.length !== want) violations.push({ tile: String(mt[0] || ""), count: mt.length,
+          where: nm + "：副露张数 " + mt.length + " ≠ 应有 " + want + " 张（碰=3 / 杠=4，暗杠也是 4）" });
+      }
+      for (j = 0; j < p.discards.length; j++) add(p.discards[j], who + ".弃牌");
+    }
+
+    /* ⑥ 临时 / 动画容器：落河动画那张（链接位） */
+    var a = G.anim && G.anim.disc;
+    if (a && a.tile !== null && a.tile !== undefined) {
+      var dseat = (a.seat === undefined || a.seat === null) ? -1 : a.seat;
+      var dp = (E.P[dseat] && E.P[dseat].discards) || [];
+      var lastT = dp.length ? dp[dp.length - 1] : null;
+      link(a.tile, "动画.落河(P" + dseat + ")", a.tile === lastT,
+        "动画里的 " + a.tile + " ≠ 该家牌河最后一张 " + lastT + " —— 动画在画一张不存在的牌");
+    }
+
+    /* ⑦ 结算亮牌板（派生视图）：只许与引擎逐张一致，不能多出牌 */
+    if (G.view && G.view.seats && G.view.seats.length) {
+      for (i = 0; i < G.view.seats.length && i < E.P.length; i++) {
+        var sv = G.view.seats[i], ph = sortTiles((E.P[i] && E.P[i].hand) || []);
+        var sh = (sv && sv.hand) || [], okH = sh.length === ph.length;
+        if (okH) for (j = 0; j < ph.length; j++) if (sh[j] !== ph[j]) { okH = false; break; }
+        note("结算板.P" + i + ".手牌", okH, "亮牌板画了 " + sh.length + " 张 / 引擎手牌 " + ph.length + " 张（逐张不一致）");
+        var vmd = (sv && sv.melds) || [], pmd = (E.P[i] && E.P[i].melds) || [];
+        var okM = vmd.length === pmd.length;
+        if (okM) for (j = 0; j < pmd.length; j++) {
+          var vt = (vmd[j] && vmd[j].tiles) || [], pt = sortTiles(pmd[j].tiles || []);
+          if (vt.length !== pt.length) { okM = false; break; }
+          for (k = 0; k < pt.length; k++) if (vt[k] !== pt[k]) { okM = false; break; }
+          if (!okM) break;
+        }
+        note("结算板.P" + i + ".副露", okM, "亮牌板副露组数/张数与引擎不一致");
+      }
+    }
+
+    /* 判据①：每种牌 ≤ 4，且必须属于本局牌种 */
+    var kinds = kindsFor(honors), allowed = {};
+    for (i = 0; i < kinds.length; i++) allowed[kinds[i]] = 1;
+    for (t in byType) if (has.call(byType, t)) {
+      if (!allowed[t]) {
+        violations.push({ tile: t, count: byType[t],
+          where: "本局不该出现的牌种（honors=" + !!honors + " → " + expect + " 张牌组）" });
+        continue;
+      }
+      if (byType[t] > 4) violations.push({ tile: t, count: byType[t], where: whereOf(t) });
+    }
+
+    /* 判据②：全场总数恒 = 136 / 108 */
+    if (total !== expect) violations.push({ tile: "", count: total,
+      where: "全场总数 " + total + " ≠ 应有 " + expect + " 张（差 " + (total - expect) + "）" });
+
+    var max = 0;
+    for (t in byType) if (has.call(byType, t) && byType[t] > max) max = byType[t];
+    return {
+      total: total, expect: expect, ok: violations.length === 0, byType: byType,
+      violations: violations, places: places, marks: marks, max: max,
+      honors: !!honors, wall: E.wall.length, turnNo: E.turnNo, phase: E.phase
+    };
+  }
+
+  /** 单行摘要（探针 / 日志里等宽对齐的一行） */
+  function tileAuditLine(a) {
+    a = a || tileAudit();
+    return "total=" + a.total + "/" + a.expect + " max=" + a.max + (a.ok ? " ok" : " ✖" + a.violations.length);
+  }
+  /** 逐容器计数摘要（探针打印「动作前后各位置计数」用；链接位标 * 不计数） */
+  function tileAuditPlaces(a) {
+    a = a || tileAudit();
+    var out = [], n, q;
+    for (n in a.places) if (Object.prototype.hasOwnProperty.call(a.places, n)) {
+      q = a.places[n];
+      out.push(n + (q.linked ? "*" : "") + "=" + q.count);
+    }
+    return out.join(" ");
+  }
+
+  /* 渲染层守恒（审计第二步 d）：drawTileFace 是**所有牌面绘制的唯一出口**
+     （手牌 / 副露 / 牌河 / 落河动画 / 结算亮牌板 / 牌面总览），它在 G.stat.faceTiles
+     里逐张记账；本函数只做统计，绝不猜像素 —— 与容器审计是两个独立口径，两边都要绿。
+     若「容器审计 ok 但画面仍多出牌」→ 就是这里报出来。 */
+  function renderAudit() {
+    var led = (G.stat && G.stat.faceTiles) || [], byType = {}, over = [], i, t, max = 0;
+    for (i = 0; i < led.length; i++) { t = led[i]; byType[t] = (byType[t] || 0) + 1; }
+    for (t in byType) if (Object.prototype.hasOwnProperty.call(byType, t)) {
+      if (byType[t] > max) max = byType[t];
+      if (byType[t] > 4) over.push({ tile: t, count: byType[t] });
+    }
+    var mode = G.sheet ? "sheet" : (G.demo ? "demo" : ((G.E && G.E.phase === "over") ? "result" : "table"));
+    return { ok: over.length === 0, mode: mode, debugView: (mode === "sheet" || mode === "demo"),
+             total: led.length, max: max, byType: byType, over: over,
+             frame: (G.stat && G.stat.frame) || 0, faces: (G.stat && G.stat.faces) || 0 };
+  }
+
+  /* ── 常驻断言开关（探针 / 单测打开，线上默认关）──────────────────────────────
+     打开后 Engine 的**每一个状态变更入口**都会自动审计一次（发牌 / 摸牌 / 出牌 / 碰 /
+     明杠 / 暗杠 / 补杠 / 抢杠 / 胡 / 流局），失败时把「触发它的那一次动作」记进
+     TILE_AUDIT.fail —— 不弹窗、不打扰用户。 */
+  var TILE_AUDIT = { on: false, n: 0, fail: [], hook: null, last: null, maxFail: 50 };
+  function tileAuditCheck(tag, seat, tile, engine) {
+    var a = tileAudit(engine);
+    TILE_AUDIT.n++;
+    var rec = { tag: String(tag || ""), seat: (seat === undefined || seat === null) ? -1 : seat,
+                tile: tile || "", turnNo: a.turnNo, phase: a.phase, audit: a, ok: a.ok };
+    TILE_AUDIT.last = rec;
+    if (!a.ok && TILE_AUDIT.fail.length < TILE_AUDIT.maxFail) TILE_AUDIT.fail.push(rec);
+    if (TILE_AUDIT.hook) { try { TILE_AUDIT.hook(rec); } catch (e) {} }
+    return a;
+  }
+  /** 审计开关：tileAuditOn(true, hook) 装上；tileAuditOn(false) 关掉 */
+  function tileAuditOn(on, hook) {
+    TILE_AUDIT.on = on !== false;
+    if (hook !== undefined) TILE_AUDIT.hook = hook || null;
+    TILE_AUDIT.n = 0; TILE_AUDIT.fail = []; TILE_AUDIT.last = null;
+    return TILE_AUDIT.on;
+  }
+  function tileAuditState() {
+    return { on: TILE_AUDIT.on, n: TILE_AUDIT.n, fails: TILE_AUDIT.fail.length, last: TILE_AUDIT.last };
+  }
+  /** 把 Engine 的每一个状态变更入口包一层审计（幂等：装过一次就不再装）。
+      包装体只在 TILE_AUDIT.on 为真时审计，所以**关掉开关就完全没有开销**。 */
+  function tileAuditInstall() {
+    var proto = Engine.prototype;
+    if (proto.__tileAudit) return true;
+    var wrap = function (name, tagOf) {
+      var orig = proto[name];
+      if (typeof orig !== "function") return;
+      proto[name] = function () {
+        var r = orig.apply(this, arguments);
+        if (TILE_AUDIT.on) {
+          var tag = tagOf.apply(null, arguments);
+          var mt = /([1-9][万条筒]|[东南西北中發白])/.exec(tag);
+          tileAuditCheck(tag, arguments[0], mt ? mt[1] : "", this);
+        }
+        return r;
+      };
+    };
+    /* 顺序即「状态变更入口」清单：发牌 / 摸牌 / 出牌 / 碰 / 明杠 / 暗杠 / 补杠 / 抢杠 / 胡 / 流局 */
+    wrap("deal",     function () { return "发牌 deal"; });
+    wrap("turn",     function (s) { return "摸牌 turn(P" + s + ")"; });
+    wrap("discard",  function (s, i) { return "出牌 discard(P" + s + ",#" + i + ")"; });
+    wrap("claim",    function (s, a) { return "响应 claim(P" + s + "," + a + ")"; });
+    wrap("turnGang", function (s, t, k) { return (k === "an" ? "暗杠" : "补杠") + " turnGang(P" + s + "," + t + ")"; });
+    wrap("rob",      function (s) { return "抢杠胡 rob(P" + s + ")"; });
+    wrap("passRob",  function (s) { return "让杠 passRob(P" + s + ")"; });
+    wrap("kongDraw", function (s) { return "杠后补摸 kongDraw(P" + s + ")"; });
+    wrap("drawGame", function () { return "流局 drawGame"; });
+    wrap("settle",   function (s) { return "成牌 settle(P" + s + ")"; });
+    proto.__tileAudit = 10;
+    return true;
+  }
+  /** 读/写审计内部状态（探针与单测报数用） */
+  function tileAuditReport() {
+    return {
+      on: TILE_AUDIT.on, n: TILE_AUDIT.n, fails: TILE_AUDIT.fail.length,
+      list: TILE_AUDIT.fail.map(function (r) {
+        return { tag: r.tag, seat: r.seat, tile: r.tile, turnNo: r.turnNo, phase: r.phase,
+                 total: r.audit.total, expect: r.audit.expect,
+                 violations: r.audit.violations.map(function (v) { return { tile: v.tile, count: v.count, where: v.where }; }),
+                 places: tileAuditPlaces(r.audit) };
+      })
+    };
+  }

@@ -1,0 +1,29 @@
+{
+  "jobs": [
+    {
+      "file": "mahjong.js",
+      "from": "  /** 整局纯 AI 自动跑（单测 / 回归用）；honors=true 可跑带字牌的 136 张 */\n  function autoPlay(maxSteps, honors) {\n    var e = new Engine(STAKE_DEFAULT, honors === undefined ? null : { honors: !!honors }), steps = 0;\n    e.deal();\n    while (e.phase !== \"over\" && steps < (maxSteps || 4000)) { e.aiStep(); steps++; }\n    return { result: e.result, steps: steps, engine: e };\n  }\n",
+      "textFile": "tools/dev/_tileaudit_sec.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  function drawTileFace(g, t, x, y, w, h, o) {\n    o = o || {};",
+      "text": "  function drawTileFace(g, t, x, y, w, h, o) {\n    /* 渲染层记账：本帧画出去的**每一张牌面**都进 G.stat.faceTiles。\n       这里是所有牌面绘制的唯一出口（手牌 / 副露 / 牌河 / 落河动画 / 结算亮牌板 / 牌面总览），\n       所以 renderAudit() 能给出「画面上每种牌各几张」，不必去猜像素。 */\n    if (G.stat && G.stat.faceTiles) G.stat.faceTiles.push(t);\n    o = o || {};"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "resHands: 0, resHandTiles: 0, meldRects: [] };",
+      "text": "resHands: 0, resHandTiles: 0, meldRects: [], faceTiles: [] };"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      renderStats: function () { return G.stat || null; },",
+      "text": "      renderStats: function () { return G.stat || null; },\n      /* ── 牌张守恒审计（硬不变量：每种牌 ≤4 · 全场 = 136 / 108）──\n         针对用户实测「桌上出现六张六条」：这一条用来定位「在哪里被复制」。\n         用法：Mahjong.debug.tileAudit() → { total, expect, ok, byType, violations, places, marks } */\n      tileAudit: function (engine) { return tileAudit(engine); },\n      tileAuditLine: tileAuditLine,\n      tileAuditPlaces: tileAuditPlaces,\n      tileAuditReport: tileAuditReport,\n      tileAuditOn: tileAuditOn,\n      tileAuditState: tileAuditState,\n      tileAuditInstall: tileAuditInstall,\n      /* 渲染层守恒（审计第二步 d）：本帧「画面上每种牌面各几张」——不猜像素 */\n      renderAudit: renderAudit,"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      Engine: Engine, autoPlay: autoPlay, STAKE: STAKE_DEFAULT,",
+      "text": "      Engine: Engine, autoPlay: autoPlay, STAKE: STAKE_DEFAULT,\n      /* 牌张守恒审计（单测 / 探针 / 浏览器断言共用同一份实现） */\n      tileAudit: tileAudit, tileAuditLine: tileAuditLine, tileAuditPlaces: tileAuditPlaces,\n      tileAuditReport: tileAuditReport, tileAuditOn: tileAuditOn, tileAuditState: tileAuditState,\n      tileAuditInstall: tileAuditInstall,\n      renderAudit: renderAudit,"
+    }
+  ]
+}

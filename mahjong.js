@@ -1970,6 +1970,297 @@
     return { result: e.result, steps: steps, engine: e };
   }
 
+  /* ═══════════════ 3c. 牌张守恒审计（硬不变量 · 唯一口径） ═══════════════════════════
+     用户实测「桌上出现六张六条」→ 牌墙 / 暗手 / 副露 / 牌河之间发生了「凭空复制」。
+     麻将的硬不变量只有两条，简单到可以**每一拍都验**：
+       ① 每一种牌在**全场**最多 4 张（万条筒 1-9 ×4 + 东南西北中發白 ×4）
+       ② 全场总数恒 = 136（INCLUDE_HONORS=false 时 = 108）
+     本函数把场上每一张牌在**哪个容器**里数一遍，是审计的唯一口径
+     （单测 / 探针 / 浏览器断言共用同一份实现 —— 绝不各写一套口径）。
+     遍历的位置（一个不落）：
+       · 牌墙     E.wall                  —— 含未摸的墩（摸牌 shift / 杠后补摸 pop，两者都真的移走）
+       · 四家暗手 E.P[i].hand
+       · 四家副露 E.P[i].melds[].tiles    —— 碰 3 / 明杠 4 / 暗杠 4 / 补杠 4，按数组长度实算
+       · 四家牌河 E.P[i].discards
+       · 当前摸到的牌 E.P[i].drawn         —— **链接位**：它就是 hand 的最后那张，单独计数会重复，
+                                              所以只校验「hand 里确实存在这张」（否则是幽灵牌）
+       · 落河动画 G.anim.disc             —— 同样是链接位：渲染层只拿它算动画进度，
+                                              从不按 anim.disc.tile 画牌（只在动画进行中校验）
+       · 结算亮牌板 G.view                 —— 派生视图（快照）：只校验它与引擎逐张一致
+     返回：
+       { total, expect, ok, byType:{牌:张数}, violations:[{tile,count,where}],
+         places:{名:{count,tiles}}, marks:[{where,tile,ok}], max }
+       total      实际统计到的总张数（用户截图那一局看的就是这个数）
+       violations 每条 = 哪张牌 / 几张 / 分别在哪几个容器里（where 里带逐容器明细）
+     ok === false 就是硬不变量被破坏。 */
+  function tileAudit(engine) {
+    var E = engine || G.E;
+    var honors = (E && E.honors !== undefined) ? E.honors : INCLUDE_HONORS;
+    var expect = deckSize(honors);
+    var byType = {}, places = {}, marks = [], violations = [], total = 0, i, j, k, t;
+    var linkTiles = {};                    // 链接位指向过的牌（要校验它们都是本局合法牌种）
+    var has = Object.prototype.hasOwnProperty;
+
+    function place(name, linked) {
+      var q = places[name];
+      if (!q) q = places[name] = { name: name, linked: !!linked, count: 0, tiles: {} };
+      return q;
+    }
+    /** 计数位：真的占一张牌 */
+    function add(tile, name) {
+      if (typeof tile !== "string" || !tile) {
+        violations.push({ tile: String(tile), count: 0,
+          where: name + "：空牌位（undefined / null / 空串）—— 有一张牌被凭空造出或凭空吞掉" });
+        return;
+      }
+      var q = place(name, false);
+      q.count++; q.tiles[tile] = (q.tiles[tile] || 0) + 1;
+      byType[tile] = (byType[tile] || 0) + 1;
+      total++;
+    }
+    /** 链接位：指向别处已数过的那一张，**不占总数**，但必须指得对 */
+    function link(tile, name, good, why) {
+      var q = place(name, true);
+      q.tiles[String(tile)] = (q.tiles[String(tile)] || 0) + 1;
+      linkTiles[String(tile)] = 1;
+      marks.push({ where: name, tile: tile, ok: !!good });
+      if (!good) violations.push({ tile: String(tile), count: -1, where: name + "：" + why });
+    }
+    /** 只登记不判定（临时 / 动画记录：持有的是引用，不是第二张牌） */
+    function info(tile, name, note) {
+      var q = place(name, true);
+      q.tiles[String(tile)] = (q.tiles[String(tile)] || 0) + 1;
+      linkTiles[String(tile)] = 1;
+      marks.push({ where: name, tile: tile, ok: true, note: note || "" });
+    }
+    /** 结构性结论（没有单一牌面的判据） */
+    function note(name, good, why) {
+      marks.push({ where: name, tile: "", ok: !!good });
+      if (!good) violations.push({ tile: "", count: -1, where: name + "：" + why });
+    }
+    /** 这张牌「分别在哪几个容器里」——违规报告里最有用的一行 */
+    function whereOf(tile) {
+      var out = [], n, q;
+      for (n in places) if (has.call(places, n)) {
+        q = places[n];
+        if (q.linked) continue;
+        if (q.tiles[tile]) out.push(n + " " + q.tiles[tile] + " 张");
+      }
+      return out.length ? out.join(" + ") : "（没有任何容器持有 —— 被凭空吞掉）";
+    }
+
+    if (!E) return { total: 0, expect: expect, ok: false, byType: byType, places: places, marks: marks,
+      violations: [{ tile: "", count: 0, where: "没有牌局（G.E 为空）—— 无法审计" }], max: 0 };
+
+    /* ① 牌墙（含未摸的墩） */
+    for (i = 0; i < E.wall.length; i++) add(E.wall[i], "牌墙");
+
+    /* ②③④⑤ 四家：暗手 / 摸到的牌 / 副露 / 牌河 */
+    for (i = 0; i < E.P.length; i++) {
+      var p = E.P[i], who = "P" + i + "(" + (p.name || "?") + ")";
+      for (j = 0; j < p.hand.length; j++) add(p.hand[j], who + ".手牌");
+      if (p.drawn !== null && p.drawn !== undefined) {
+        link(p.drawn, who + ".drawn", countIn(p.hand, p.drawn) >= 1,
+          "drawn=" + p.drawn + " 不在手牌里（手牌里 0 张）—— 摸到的那张是幽灵牌");
+      }
+      for (j = 0; j < (p.melds || []).length; j++) {
+        var m = p.melds[j], mt = (m && m.tiles) || [];
+        var nm = who + ".副露" + j + "(" + ((m && m.type) || "?") + "/" + ((m && m.kind) || "?") + ")";
+        for (k = 0; k < mt.length; k++) add(mt[k], nm);
+        var want = (m && m.type === "peng") ? 3 : 4;                 // 暗杠 / 明杠 / 补杠都是 4 张
+        if (mt.length !== want) violations.push({ tile: String(mt[0] || ""), count: mt.length,
+          where: nm + "：副露张数 " + mt.length + " ≠ 应有 " + want + " 张（碰=3 / 杠=4，暗杠也是 4）" });
+      }
+      for (j = 0; j < p.discards.length; j++) add(p.discards[j], who + ".弃牌");
+    }
+
+    /* ⑥ 临时 / 动画容器：落河动画（链接位，不占总数）
+       语义（见 discardLanded）：G.anim.disc = { seat, tile, at } 是**落河动画的起点记录**：
+         · tile 取自那一刻的牌河最后一张（唯一数据源 = 牌河）→ 它是**引用**，不是第二张牌；
+         · 渲染层只拿它算动画进度 k（drawDiscards 里 `a.seat === seat` → 滑入位移），
+           **从不按 anim.disc.tile 画牌**（牌面永远来自 p.discards[i]）；
+         · 它按真实时钟过期（DISCARD_ANIM_MS），而快进测试里牌局是"瞬间"推进的 ——
+           若拿「现在还在不在动画中」去比牌河最后一张，会把快进节奏误判成违规（实测踩过）。
+       所以这里把它登记进 places（linked，人能看到"动画指向哪张"）+ 校验牌面合法（见判据①的 linkTiles），
+       但不参与总数、不产生违规。渲染侧真正的守恒口径是 renderAudit（每帧逐张牌面记账）。 */
+    var a = G.anim && G.anim.disc;
+    if (a && a.tile !== null && a.tile !== undefined) {
+      var dseat = (a.seat === undefined || a.seat === null) ? -1 : a.seat;
+      var dp = (E.P[dseat] && E.P[dseat].discards) || [];
+      info(a.tile, "动画.落河(P" + dseat + "·链接)",
+        "落河动画起点记录（引用牌河那张 " + (dp.length ? dp[dp.length - 1] : "—") + "，不参与计数）");
+    }
+
+    /* ⑦ 结算亮牌板（派生视图）：只许与引擎逐张一致，不能多出牌 */
+    if (G.view && G.view.seats && G.view.seats.length) {
+      for (i = 0; i < G.view.seats.length && i < E.P.length; i++) {
+        var sv = G.view.seats[i], ph = sortTiles((E.P[i] && E.P[i].hand) || []);
+        var sh = (sv && sv.hand) || [], okH = sh.length === ph.length;
+        if (okH) for (j = 0; j < ph.length; j++) if (sh[j] !== ph[j]) { okH = false; break; }
+        note("结算板.P" + i + ".手牌", okH, "亮牌板画了 " + sh.length + " 张 / 引擎手牌 " + ph.length + " 张（逐张不一致）");
+        var vmd = (sv && sv.melds) || [], pmd = (E.P[i] && E.P[i].melds) || [];
+        var okM = vmd.length === pmd.length;
+        if (okM) for (j = 0; j < pmd.length; j++) {
+          var vt = (vmd[j] && vmd[j].tiles) || [], pt = sortTiles(pmd[j].tiles || []);
+          if (vt.length !== pt.length) { okM = false; break; }
+          for (k = 0; k < pt.length; k++) if (vt[k] !== pt[k]) { okM = false; break; }
+          if (!okM) break;
+        }
+        note("结算板.P" + i + ".副露", okM, "亮牌板副露组数/张数与引擎不一致");
+      }
+    }
+
+    /* 判据③：容器之间不许共用同一个数组对象（浅拷贝 / 共享引用 → 同一张牌同时存在于两处） */
+    var arrs = [{ n: "牌墙", a: E.wall }], shared = [];
+    for (i = 0; i < E.P.length; i++) {
+      var pp = E.P[i];
+      arrs.push({ n: "P" + i + ".手牌", a: pp.hand });
+      arrs.push({ n: "P" + i + ".弃牌", a: pp.discards });
+      arrs.push({ n: "P" + i + ".副露表", a: pp.melds });
+      for (j = 0; j < (pp.melds || []).length; j++) {
+        if (pp.melds[j]) arrs.push({ n: "P" + i + ".副露" + j + ".tiles", a: pp.melds[j].tiles });
+      }
+    }
+    for (i = 0; i < arrs.length; i++) for (j = i + 1; j < arrs.length; j++) {
+      if (arrs[i].a && arrs[i].a === arrs[j].a) shared.push(arrs[i].n + " ↔ " + arrs[j].n);
+    }
+    note("容器引用独立", shared.length === 0,
+      shared.join(" / ") + " 是**同一个数组对象** —— 同一张牌会同时存在于两处（浅拷贝 / 共享引用）");
+
+    /* 判据①：每种牌 ≤ 4，且必须属于本局牌种 */
+    var kinds = kindsFor(honors), allowed = {};
+    for (i = 0; i < kinds.length; i++) allowed[kinds[i]] = 1;
+    for (t in byType) if (has.call(byType, t)) {
+      if (!allowed[t]) {
+        violations.push({ tile: t, count: byType[t],
+          where: "本局不该出现的牌种（honors=" + !!honors + " → " + expect + " 张牌组）" });
+        continue;
+      }
+      if (byType[t] > 4) violations.push({ tile: t, count: byType[t], where: whereOf(t) });
+    }
+
+    /* 判据②：全场总数恒 = 136 / 108 */
+    if (total !== expect) violations.push({ tile: "", count: total,
+      where: "全场总数 " + total + " ≠ 应有 " + expect + " 张（差 " + (total - expect) + "）" });
+
+    /* 判据④：链接位（drawn / 落河动画）指向的牌也必须是本局合法牌种 —— 防"动画/标记里冒出假牌" */
+    for (t in linkTiles) if (has.call(linkTiles, t)) {
+      if (!allowed[t]) violations.push({ tile: t, count: 0,
+        where: "链接位指向了本局不存在的牌种（honors=" + !!honors + "）—— 标记里冒出一张假牌" });
+    }
+
+    var max = 0;
+    for (t in byType) if (has.call(byType, t) && byType[t] > max) max = byType[t];
+    return {
+      total: total, expect: expect, ok: violations.length === 0, byType: byType,
+      violations: violations, places: places, marks: marks, max: max,
+      honors: !!honors, wall: E.wall.length, turnNo: E.turnNo, phase: E.phase
+    };
+  }
+
+  /** 单行摘要（探针 / 日志里等宽对齐的一行） */
+  function tileAuditLine(a) {
+    a = a || tileAudit();
+    return "total=" + a.total + "/" + a.expect + " max=" + a.max + (a.ok ? " ok" : " ✖" + a.violations.length);
+  }
+  /** 逐容器计数摘要（探针打印「动作前后各位置计数」用；链接位标 * 不计数） */
+  function tileAuditPlaces(a) {
+    a = a || tileAudit();
+    var out = [], n, q;
+    for (n in a.places) if (Object.prototype.hasOwnProperty.call(a.places, n)) {
+      q = a.places[n];
+      out.push(n + (q.linked ? "*" : "") + "=" + q.count);
+    }
+    return out.join(" ");
+  }
+
+  /* 渲染层守恒（审计第二步 d）：drawTileFace 是**所有牌面绘制的唯一出口**
+     （手牌 / 副露 / 牌河 / 落河动画 / 结算亮牌板 / 牌面总览），它在 G.stat.faceTiles
+     里逐张记账；本函数只做统计，绝不猜像素 —— 与容器审计是两个独立口径，两边都要绿。
+     若「容器审计 ok 但画面仍多出牌」→ 就是这里报出来。 */
+  function renderAudit() {
+    var led = (G.stat && G.stat.faceTiles) || [], byType = {}, over = [], i, t, max = 0;
+    for (i = 0; i < led.length; i++) { t = led[i]; byType[t] = (byType[t] || 0) + 1; }
+    for (t in byType) if (Object.prototype.hasOwnProperty.call(byType, t)) {
+      if (byType[t] > max) max = byType[t];
+      if (byType[t] > 4) over.push({ tile: t, count: byType[t] });
+    }
+    var mode = G.sheet ? "sheet" : (G.demo ? "demo" : ((G.E && G.E.phase === "over") ? "result" : "table"));
+    return { ok: over.length === 0, mode: mode, debugView: (mode === "sheet" || mode === "demo"),
+             total: led.length, max: max, byType: byType, over: over,
+             frame: (G.stat && G.stat.frame) || 0, faces: (G.stat && G.stat.faces) || 0 };
+  }
+
+  /* ── 常驻断言开关（探针 / 单测打开，线上默认关）──────────────────────────────
+     打开后 Engine 的**每一个状态变更入口**都会自动审计一次（发牌 / 摸牌 / 出牌 / 碰 /
+     明杠 / 暗杠 / 补杠 / 抢杠 / 胡 / 流局），失败时把「触发它的那一次动作」记进
+     TILE_AUDIT.fail —— 不弹窗、不打扰用户。 */
+  var TILE_AUDIT = { on: false, n: 0, fail: [], hook: null, last: null, maxFail: 50 };
+  function tileAuditCheck(tag, seat, tile, engine) {
+    var a = tileAudit(engine);
+    TILE_AUDIT.n++;
+    var rec = { tag: String(tag || ""), seat: (seat === undefined || seat === null) ? -1 : seat,
+                tile: tile || "", turnNo: a.turnNo, phase: a.phase, audit: a, ok: a.ok };
+    TILE_AUDIT.last = rec;
+    if (!a.ok && TILE_AUDIT.fail.length < TILE_AUDIT.maxFail) TILE_AUDIT.fail.push(rec);
+    if (TILE_AUDIT.hook) { try { TILE_AUDIT.hook(rec); } catch (e) {} }
+    return a;
+  }
+  /** 审计开关：tileAuditOn(true, hook) 装上；tileAuditOn(false) 关掉 */
+  function tileAuditOn(on, hook) {
+    TILE_AUDIT.on = on !== false;
+    if (hook !== undefined) TILE_AUDIT.hook = hook || null;
+    TILE_AUDIT.n = 0; TILE_AUDIT.fail = []; TILE_AUDIT.last = null;
+    return TILE_AUDIT.on;
+  }
+  function tileAuditState() {
+    return { on: TILE_AUDIT.on, n: TILE_AUDIT.n, fails: TILE_AUDIT.fail.length, last: TILE_AUDIT.last };
+  }
+  /** 把 Engine 的每一个状态变更入口包一层审计（幂等：装过一次就不再装）。
+      包装体只在 TILE_AUDIT.on 为真时审计，所以**关掉开关就完全没有开销**。 */
+  function tileAuditInstall() {
+    var proto = Engine.prototype;
+    if (proto.__tileAudit) return true;
+    var wrap = function (name, tagOf) {
+      var orig = proto[name];
+      if (typeof orig !== "function") return;
+      proto[name] = function () {
+        var r = orig.apply(this, arguments);
+        if (TILE_AUDIT.on) {
+          var tag = tagOf.apply(null, arguments);
+          var mt = /([1-9][万条筒]|[东南西北中發白])/.exec(tag);
+          tileAuditCheck(tag, arguments[0], mt ? mt[1] : "", this);
+        }
+        return r;
+      };
+    };
+    /* 顺序即「状态变更入口」清单：发牌 / 摸牌 / 出牌 / 碰 / 明杠 / 暗杠 / 补杠 / 抢杠 / 胡 / 流局 */
+    wrap("deal",     function () { return "发牌 deal"; });
+    wrap("turn",     function (s) { return "摸牌 turn(P" + s + ")"; });
+    wrap("discard",  function (s, i) { return "出牌 discard(P" + s + ",#" + i + ")"; });
+    wrap("claim",    function (s, a) { return "响应 claim(P" + s + "," + a + ")"; });
+    wrap("turnGang", function (s, t, k) { return (k === "an" ? "暗杠" : "补杠") + " turnGang(P" + s + "," + t + ")"; });
+    wrap("rob",      function (s) { return "抢杠胡 rob(P" + s + ")"; });
+    wrap("passRob",  function (s) { return "让杠 passRob(P" + s + ")"; });
+    wrap("kongDraw", function (s) { return "杠后补摸 kongDraw(P" + s + ")"; });
+    wrap("drawGame", function () { return "流局 drawGame"; });
+    wrap("settle",   function (s) { return "成牌 settle(P" + s + ")"; });
+    proto.__tileAudit = 10;
+    return true;
+  }
+  /** 读/写审计内部状态（探针与单测报数用） */
+  function tileAuditReport() {
+    return {
+      on: TILE_AUDIT.on, n: TILE_AUDIT.n, fails: TILE_AUDIT.fail.length,
+      list: TILE_AUDIT.fail.map(function (r) {
+        return { tag: r.tag, seat: r.seat, tile: r.tile, turnNo: r.turnNo, phase: r.phase,
+                 total: r.audit.total, expect: r.audit.expect,
+                 violations: r.audit.violations.map(function (v) { return { tile: v.tile, count: v.count, where: v.where }; }),
+                 places: tileAuditPlaces(r.audit) };
+      })
+    };
+  }
+
   /* ═══════════════ 4. 渲染层（canvas · 真牌面 / 真牌桌） ═══════════════ */
 
   var W = 1240, H = 860;
@@ -2338,6 +2629,10 @@
    * o: { hl:金描边, alpha, gw:牌面绘制宽度, tilt:顶部内收像素(0=不倾斜，默认 0) }
    */
   function drawTileFace(g, t, x, y, w, h, o) {
+    /* 渲染层记账：本帧画出去的**每一张牌面**都进 G.stat.faceTiles。
+       这里是所有牌面绘制的唯一出口（手牌 / 副露 / 牌河 / 落河动画 / 结算亮牌板 / 牌面总览），
+       所以 renderAudit() 能给出「画面上每种牌各几张」，不必去猜像素。 */
+    if (G.stat && G.stat.faceTiles) G.stat.faceTiles.push(t);
     o = o || {};
     var m = Math.min(w, h);
     var r = Math.max(2, w * .08);                                 // 圆角半径 ≈ 牌宽 8%
@@ -3355,7 +3650,7 @@
       g.lineCap = "round"; g.lineJoin = "round";
     } catch (e) {}
     g.clearRect(0, 0, W, H);
-    G.stat = { faces: 0, backs: 0, discards: 0, meldTiles: 0, wallStacks: 0, wallTiles: 0, wallDrawnStacks: 0, backSolid: 0, backGreen: 0, backIvory: 0, resHands: 0, resHandTiles: 0, meldRects: [] };
+    G.stat = { faces: 0, backs: 0, discards: 0, meldTiles: 0, wallStacks: 0, wallTiles: 0, wallDrawnStacks: 0, backSolid: 0, backGreen: 0, backIvory: 0, resHands: 0, resHandTiles: 0, meldRects: [], faceTiles: [] };
     G.decor = { dice: 0, chips: 0, ruler: 0, ashtray: 0, vecDice: 0, vecChip: 0, skipped: 0 };
     if (G.sheet) { G.sheetTiles = []; drawFaceSheet(g, G.sheet); G.stat.sheetTiles = G.sheetTiles.length; G.stat.frame = (G.stat.frame || 0) + 1; return G.stat; }
     updateHint();                                            // 先算提示 → drawMyHand 用的 G.hintIdx 与金框一致
@@ -4767,7 +5062,120 @@
     return true;
   }
 
+  /**
+   * 调试摆牌的**守恒版**（修掉「凭空复制」的根因）。
+   *
+   * 旧实现（= 用户实测「桌上出现六张六条」的来源）：
+   *   `dbgSetHand` / `dbgForceWin` 直接 `p.hand = want.slice()`、`p.melds = []` ——
+   *   **只加不减**：旧手牌 / 旧副露的牌凭空消失，want 里的牌凭空出现。
+   *   实测（tools/dev/_mj-ui-audit-probe.js --repro）：
+   *     真打 82 拍 · 容器审计 ok（136/136，6条 4 张）
+   *     → setHand(含 3 张 6条 的 14 张) → **6条 6 张 · 总数 137/136**
+   *   也就是说：只要走了这条路径，牌桌/结算亮牌板上就会出现「六张六条」。
+   *
+   * 新实现只做一件事：**搬牌，绝不造牌**。
+   *   · 想留的牌优先从「自己现有手牌 + 副露」里留用（不折腾牌墙）；
+   *   · 缺的那些从「牌墙 → 别家暗手 → 别家牌河 → 别家副露」依次取，
+   *     每取走一张就等量回填一张旧牌（别家容器张数不变；副露被取则整组拆掉、其余牌回牌墙）；
+   *   · 最后剩下的旧牌全部回牌墙。
+   * 因为整副牌只是被重新分配，「每种牌 ≤4 · 全场 = 136/108」在摆牌后**自动成立** ——
+   * 不可能再摆出第 5 张同名牌。请求里某种牌超过 4 张（物理上不存在）→ 返回 false。
+   *
+   * @returns {boolean} true = 已落位且守恒；false = 请求不合法（没改任何状态）
+   */
+  function rigPlayerPreserving(E, seat, wantHand, wantMelds) {
+    if (!E || !E.P || !E.P[seat]) return false;
+    var p = E.P[seat], i, j, k, t, q;
+    var want = [], melds = [], need = {};
+    for (i = 0; i < (wantHand || []).length; i++) {
+      t = wantHand[i];
+      if (typeof t !== "string" || !t) return false;
+      want.push(t);
+      need[t] = (need[t] || 0) + 1;
+    }
+    for (i = 0; i < (wantMelds || []).length; i++) {
+      var m = wantMelds[i];
+      if (!m || !m.tiles) return false;
+      var mt = [];
+      for (j = 0; j < m.tiles.length; j++) {
+        t = m.tiles[j];
+        if (typeof t !== "string" || !t) return false;
+        mt.push(t); want.push(t);
+        need[t] = (need[t] || 0) + 1;
+      }
+      melds.push({ type: m.type || (mt.length === 4 ? "gang" : "peng"), tiles: mt,
+                   from: (m.from === undefined || m.from === null) ? -1 : m.from,
+                   an: !!m.an, kind: m.kind || (m.an ? "an" : "ming") });
+    }
+    for (t in need) if (Object.prototype.hasOwnProperty.call(need, t) && need[t] > 4) return false;   // 一种牌只有 4 张
+
+    /* ① 能留用的旧牌（自己手牌 + 副露）先留用，其余进「待回填池」 */
+    var pool = p.hand.slice();
+    for (i = 0; i < (p.melds || []).length; i++) {
+      if (!p.melds[i] || !p.melds[i].tiles) continue;
+      for (j = 0; j < p.melds[i].tiles.length; j++) pool.push(p.melds[i].tiles[j]);
+    }
+    var take = [];
+    for (i = 0; i < want.length; i++) {
+      t = want[i];
+      k = pool.indexOf(t);
+      if (k >= 0) pool.splice(k, 1); else take.push(t);
+    }
+    /* ② 缺的牌按优先级从外面取；每取一张等量回填一张旧牌（池空则只取不回填该位置） */
+    function fill(arr) {
+      if (!take.length) return;
+      for (var x = arr.length - 1; x >= 0 && take.length; x--) {
+        var w = take.indexOf(arr[x]);
+        if (w < 0) continue;
+        var give = pool.length ? pool.shift() : null;
+        arr.splice(x, 1);
+        if (give !== null) arr.push(give);
+        take.splice(w, 1);
+      }
+    }
+    fill(E.wall);
+    for (i = 0; i < E.P.length; i++) {
+      if (i === seat || !take.length) continue;
+      fill(E.P[i].hand);
+      fill(E.P[i].discards);
+      /* 从别家手牌里取走了一张之后，那家的 p.drawn 可能正好指向被取走的那张 ——
+         必须重新整理，否则 p.drawn 变成「手牌里没有的幽灵牌」（审计会当场报出来）。 */
+      normalizeHand(E.P[i]);
+    }
+    /* ③ 兜底：别家副露（整组拆掉，其余牌回牌墙）—— 保证不会因为「牌都压在别人杠里」而失败 */
+    for (i = 0; i < E.P.length && take.length; i++) {
+      if (i === seat) continue;
+      var ms = E.P[i].melds || [];
+      for (j = ms.length - 1; j >= 0 && take.length; j--) {
+        var md = ms[j];
+        if (!md || !md.tiles) continue;
+        var hit = false;
+        for (k = md.tiles.length - 1; k >= 0 && take.length; k--) {
+          var w2 = take.indexOf(md.tiles[k]);
+          if (w2 < 0) continue;
+          take.splice(w2, 1);
+          md.tiles.splice(k, 1);
+          hit = true;
+        }
+        if (hit) {
+          for (k = 0; k < md.tiles.length; k++) E.wall.push(md.tiles[k]);      // 拆掉的副露其余牌回牌墙
+          ms.splice(j, 1);
+          if (ms.length) normalizeHand(E.P[i]);
+        }
+      }
+    }
+    if (take.length) return false;                                     // 仍然凑不齐 → 拒绝（绝不伪造）
+    /* ④ 剩余的旧牌全部回牌墙，然后落位 */
+    for (i = 0; i < pool.length; i++) E.wall.push(pool[i]);
+    p.hand = wantHand ? wantHand.slice() : [];
+    p.melds = melds;
+    p.drawn = null;
+    normalizeHand(p);
+    return true;
+  }
+
   /* ═══════════════ 6. 调试 API（自动化测试用） ═══════════════ */
+
 
   function dbgHand() { return G.E ? G.E.P[0].hand.slice() : []; }
   function dbgWall() { var n = G.E ? G.E.wall.length : 0; return { count: n, length: n, tiles: G.E ? G.E.wall.slice() : [] }; }
@@ -4922,16 +5330,23 @@
   function dbgSetHand(hand, melds, drawn) {
     var E = G.E; if (!E) return false;
     var p = E.P[0];
-    p.hand = (hand || []).slice();
-    if (melds !== undefined && melds !== null) p.melds = melds.slice();
-    if (hand && hand.length) p.drawn = drawn === undefined ? null : drawn;
-    normalizeHand(p);
+    /* 守恒摆牌（根因修复）：只搬牌不造牌 —— 旧实现 p.hand = hand.slice() 会把新牌
+       「凭空加上去」，实测能摆出 6 张 6条（见 rigPlayerPreserving 注释）。
+       这里把「期望的手牌 / 副露」交给守恒版；请求不合法（同名牌 >4 张）→ 返回 false 且不改任何状态。 */
+    var wantHand = (hand === undefined || hand === null) ? p.hand.slice() : hand.slice();
+    var wantMelds = (melds === undefined || melds === null) ? p.melds : melds;
+    if (!rigPlayerPreserving(E, 0, wantHand, wantMelds)) return false;
+    if (hand && hand.length && drawn !== undefined) { p.drawn = drawn; normalizeHand(p); }
     /* 调试摆牌 = 回到可玩局面：清掉上一局的结算态（含 phase="over"），否则提示 / 出牌都会被「已结算」挡住 */
     E.result = null;
     E.phase = "turn";
     E.cur = 0;
     E.pending = { type: "turn", seat: 0, anGangs: [], addGangs: [] };
     if (G.result || G.resultShown) { G.result = null; G.resultShown = false; G.overAt = 0; }
+    /* 派生视图必须一起失效：G.view 是「结算亮牌板」的快照，摆牌后它就和引擎对不上了 ——
+       留着它会让亮牌板画出**上一手牌**（审计会当场报「亮牌板 N 张 / 引擎手牌 M 张 逐张不一致」）。
+       置空后下一次 renderTable 会用新状态重建。 */
+    G.view = null;
     var rbox = byId("mjmRes");
     if (rbox) rbox.style.display = "none";
     G.hintKey = "";
@@ -4997,9 +5412,10 @@
 
     var p = E.P[seat];
     var hand = ["1万", "2万", "3万", "4万", "5万", "6万", "7万", "8万", "9万", "1条", "2条", "3条", "9条", "9条"];
-    var oldCount = p.hand.length;
-    p.hand = hand.slice();
-    p.melds = [];
+    /* 守恒摆牌（根因修复）：旧实现 p.hand = hand.slice() + p.melds = [] 是「只加不减」——
+       旧手牌凭空消失、新 14 张凭空出现，结算亮牌板上就会出现「六张六条」。
+       改走守恒版：缺的牌从牌墙 / 别家手里换过来，等量旧牌回填。 */
+    if (!rigPlayerPreserving(E, seat, hand, [])) return false;
     p.drawn = hand[hand.length - 1];
     normalizeHand(p);
     E.cur = seat; E.phase = "turn";
@@ -5041,6 +5457,18 @@
       hand: dbgHand, wall: dbgWall, seats: dbgSeats, act: dbgAct,
       state: dbgState, log: dbgLog, handRects: dbgHandRects,
       renderStats: function () { return G.stat || null; },
+      /* ── 牌张守恒审计（硬不变量：每种牌 ≤4 · 全场 = 136 / 108）──
+         针对用户实测「桌上出现六张六条」：这一条用来定位「在哪里被复制」。
+         用法：Mahjong.debug.tileAudit() → { total, expect, ok, byType, violations, places, marks } */
+      tileAudit: function (engine) { return tileAudit(engine); },
+      tileAuditLine: tileAuditLine,
+      tileAuditPlaces: tileAuditPlaces,
+      tileAuditReport: tileAuditReport,
+      tileAuditOn: tileAuditOn,
+      tileAuditState: tileAuditState,
+      tileAuditInstall: tileAuditInstall,
+      /* 渲染层守恒（审计第二步 d）：本帧「画面上每种牌面各几张」——不猜像素 */
+      renderAudit: renderAudit,
       faceSheet: dbgFaceSheet,
       faceSheetRows: function () { return faceSheetRows().map(function (rr) { return { label: rr.label, suit: rr.suit, tiles: rr.tiles.slice() }; }); },
       faceTiles: function () { return (G.sheetTiles || []).map(function (s) { return { tile: s.tile, x: s.x, y: s.y, w: s.w, h: s.h }; }); },
@@ -5203,6 +5631,13 @@
       buildResultView: buildResultView, resultHtml: resultHtml,
       /* 引擎 */
       Engine: Engine, autoPlay: autoPlay, STAKE: STAKE_DEFAULT,
+      /* 牌张守恒审计（单测 / 探针 / 浏览器断言共用同一份实现） */
+      tileAudit: tileAudit, tileAuditLine: tileAuditLine, tileAuditPlaces: tileAuditPlaces,
+      tileAuditReport: tileAuditReport, tileAuditOn: tileAuditOn, tileAuditState: tileAuditState,
+      tileAuditInstall: tileAuditInstall,
+      renderAudit: renderAudit,
+      /* 守恒摆牌（调试 API 的底层实现；单测直接用它验「只搬牌不造牌」） */
+      rigPlayer: rigPlayerPreserving,
       /* 赌注系统（纯逻辑，单测用） */
       STAKE_TIERS: STAKE_TIERS, STYLE_DEF: STYLE_DEF, INVITE_DEF: INVITE_DEF, INVITES: INVITE_DEF, REP_INIT: REP_INIT,
       stakeTierList: stakeTierList, inviteList: inviteList, pickInvite: pickInvite, inviteDef: inviteDef,

@@ -2443,6 +2443,480 @@ group("17. 结算亮牌数据结构");
 
 
 
+
+  /* ═══════════════ 22. 牌张守恒审计（硬不变量：每种牌 ≤4 · 全场 = 136/108） ═══════════════
+     背景：用户实测「桌上出现六张六条？？？每张牌型有且只能有四张啊」。
+     这一节把审计变成**常驻断言**：发牌 / 摸牌 / 打牌 / 碰 / 明杠 / 暗杠 / 补杠 / 抢杠 / 胡 / 流局
+     每一次状态变更后都审计一次，任何一次违规即失败。
+     审计口径与浏览器断言、探针**同一份实现**（Mahjong.test.tileAudit），不各写一套。 */
+  group("22. 牌张守恒审计（每一拍 · 硬不变量）");
+  {
+    /* ── 22.0 出口形状 ── */
+    eq(typeof T.tileAudit, "function", "22.0 审计函数存在（Mahjong.test.tileAudit）");
+    eq(typeof T.renderAudit, "function", "22.0 渲染层审计存在（按本帧逐张牌面记账）");
+    eq(typeof T.tileAuditInstall, "function", "22.0 常驻断言：tileAuditInstall（包住每个状态变更入口）");
+    eq(typeof T.tileAuditOn, "function", "22.0 常驻断言开关：tileAuditOn");
+    eq(typeof MJ.debug.tileAudit, "function", "22.0 debug 出口同源（Mahjong.debug.tileAudit）");
+
+    /* ── 22.1 造牌后立刻审计：136 张 / 每种 4 张 / ok ── */
+    {
+      const E = new T.Engine(10, { honors: true });
+      const a = T.tileAudit(E);
+      eq(a.total, 136, "22.1 未发牌时牌墙 = 136 张");
+      eq(a.expect, 136, "22.1 应有张数 = 136（含字牌）");
+      eq(a.ok, true, "22.1 未发牌时审计 ok" + (a.ok ? "" : " → " + JSON.stringify(a.violations)));
+      eq(a.max, 4, "22.1 单种最多 4 张");
+      eq(Object.keys(a.byType).length, 34, "22.1 34 种牌");
+      E.deal();
+      const b = T.tileAudit(E);
+      eq(b.total, 136, "22.1 发牌后仍 136 张（13×4 + 庄家 1 + 牌墙 83）");
+      eq(b.ok, true, "22.1 发牌后审计 ok" + (b.ok ? "" : " → " + JSON.stringify(b.violations)));
+      eq(b.max, 4, "22.1 发牌后单种仍 ≤ 4");
+      const c8 = T.tileAudit(new T.Engine(10, { honors: false }));
+      eq(c8.expect, 108, "22.1 honors=false → 应有 108 张");
+      eq(c8.total, 108, "22.1 honors=false → 实际 108 张");
+      ok(Object.keys(c8.byType).every(t => T.HONORS.indexOf(t) < 0), "22.1 honors=false 时场上没有字牌");
+    }
+
+    /* ── 22.2 AI 整局（≥3 局）：**每一拍**都审计，任何一拍违规即失败 ── */
+    {
+      let beats = 0, fails = 0, games = 0, firstBad = ""; console.log("    · 22.2 开始（3 局整局逐拍审计）");
+      for (let g = 0; g < 3; g++) {
+        const E = new T.Engine(10, { honors: true });
+        T.tileAuditInstall();
+        T.tileAuditOn(true, null);
+        E.deal();
+        let step = 0;
+        while (E.phase !== "over" && step < 500) { E.aiStep(); step++; }
+        const st = T.tileAuditState();
+        beats += st.n; fails += st.fails; games++;
+        if (st.fails && !firstBad) firstBad = JSON.stringify(T.tileAuditReport().list[0]);
+        T.tileAuditOn(false);
+        const a = T.tileAudit(E);
+        ok(a.ok, "22.2 第 " + (g + 1) + " 局整局每一拍守恒（" + st.n + " 拍）" +
+          (a.ok ? "" : " → " + JSON.stringify(a.violations)));
+      }
+      ok(beats > 200, "22.2 三局共审计 " + beats + " 拍（每拍一次，不是只审首尾）");
+      eq(fails, 0, "22.2 三局里没有任何一拍违规" + (fails ? " → " + firstBad : ""));
+      ok(games === 3, "22.2 跑满 3 局");
+    }
+
+    /* ── 22.3 边界用例：每一种都必须审计（并发场景靠固定牌墙夹具钉死，夹具本身守恒） ── */
+    {
+      /* 夹具：把想要的牌精确放到 deal() 的取牌位置，其余原样入墙（整副牌的一个排列） */
+      const craft = (seed, honors, spec) => {
+        const full = T.createWall(honors), need = {}, hasC = {};
+        for (const t of full) hasC[t] = (hasC[t] || 0) + 1;
+        for (const i of Object.keys(spec)) {
+          if (i === "draw") continue;
+          for (const t of spec[i]) need[t] = (need[t] || 0) + 1;
+        }
+        if (spec.draw) need[spec.draw] = (need[spec.draw] || 0) + 1;
+        for (const t of Object.keys(need)) if (need[t] > hasC[t]) throw new Error("夹具要 " + t + " × " + need[t]);
+        const rest = [];
+        for (const t of Object.keys(hasC)) for (let k = 0; k < hasC[t] - (need[t] || 0); k++) rest.push(t);
+        T.shuffle(rest);
+        const wall = [];
+        let rp = 0;
+        for (let k = 0; k < 13; k++) for (let i = 0; i < 4; i++) {
+          wall.push(spec[i] && spec[i][k] !== undefined ? spec[i][k] : rest[rp++]);
+        }
+        if (spec.draw) wall[52] = spec.draw; else wall.push(rest[rp++]);
+        for (let p = 53; p < full.length; p++) wall.push(rest[rp++]);
+        if (wall.length !== full.length) throw new Error("夹具牌墙长度 " + wall.length);
+        const E = new T.Engine(10, { honors });
+        E.wall = wall;
+        E.deal();
+        return E;
+      };
+      /* 只把「手牌里已有的」牌搬进副露组（守恒） */
+      const makeMeld = (E, seat, tile, type) => {
+        const p = E.P[seat], n = type === "peng" ? 3 : 4, idx = [];
+        for (let i = p.hand.length - 1; i >= 0 && idx.length < n; i--) if (p.hand[i] === tile) idx.push(i);
+        if (idx.length < n) throw new Error("手牌里没有 " + n + " 张 " + tile);
+        for (const i of idx) p.hand.splice(i, 1);
+        const tiles = []; for (let k = 0; k < n; k++) tiles.push(tile);
+        p.melds.push({ type, tiles, from: (seat + 1) % 4, an: false, kind: "ming" });
+        T.normalizeHand(p);
+        return p;
+      };
+      const runOut = (E, cap) => {
+        let n = 0, stuck = 0, prev = "";
+        const lim = cap || 220;
+        while (E.phase !== "over" && n < lim) {
+          if (E.phase === "turn") E.aiStep();
+          else if (E.phase === "claim" && E.pending && E.pending.seat !== undefined) E.claim(E.pending.seat, "pass");
+          else if (E.phase === "rob" && E.pending && E.pending.seats && E.pending.seats.length) E.passRob(E.pending.seats[0]);
+          else break;
+          n++;
+          const sig = E.phase + "|" + E.wall.length + "|" + E.P[0].hand.length + "|" + E.cur;
+          if (sig === prev) { if (++stuck > 4) break; } else { stuck = 0; prev = sig; }
+        }
+        return n;
+      };
+      let T22 = Date.now();
+      const mark22 = (s) => console.log("    · 22 进度 " + s + "（+" + (Date.now() - T22) + "ms）");
+      const caseAudit = (label, fn) => {
+        mark22("开始 " + label);
+        T.tileAuditInstall(); T.tileAuditOn(true, null);
+        let err = "", info = "";
+        try { info = fn() || ""; } catch (e) { err = String((e && e.message) || e); }
+        const st = T.tileAuditState(), rep = T.tileAuditReport();
+        T.tileAuditOn(false);
+        ok(!err, "22.3 " + label + "（夹具/流程异常）" + (err ? " → " + err : ""));
+        mark22("完成 " + label + "（" + st.n + " 拍）");
+        eq(st.fails, 0, "22.3 " + label + "：每一拍审计通过（" + st.n + " 拍）" +
+          (st.fails ? " → " + JSON.stringify(rep.list[0].violations) : "") + (info ? " · " + info : ""));
+      };
+
+      /* ① 补杠（回头杠）→ 被抢杠胡（唯一会把 3 张 concat 回手牌的路径） */
+      caseAudit("补杠 → 被抢杠胡", () => {
+        const E = craft(101, true, {
+          0: ["9筒", "9筒", "9筒", "9筒", "1万", "2万", "3万", "4万", "5万", "6万", "7万", "8万", "9万"],
+          1: ["1筒", "2筒", "3筒", "4筒", "5筒", "6筒", "7筒", "8筒", "9条", "9条", "1条", "1条", "1条"],
+          2: ["1万", "1万", "2条", "2条", "3条", "3条", "4条", "4条", "5条", "5条", "6条", "6条", "7条"],
+          3: ["东", "东", "南", "南", "西", "西", "北", "北", "中", "中", "發", "發", "白"]
+        });
+        makeMeld(E, 0, "9筒", "peng");
+        E.cur = 0; E.phase = "turn";
+        E.pending = { type: "turn", seat: 0, anGangs: [], addGangs: ["9筒"] };
+        if (!E.turnGang(0, "9筒", "bu")) throw new Error("补杠失败");
+        if (E.phase !== "rob") throw new Error("没触发抢杠窗口");
+        E.rob(E.pending.seats[0]);
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        return "9筒全场 " + a.byType["9筒"] + " 张（应 4）· 总数 " + a.total;
+      });
+
+      /* ② 直杠（大明杠）→ 被抢杠胡 */
+      caseAudit("直杠 → 被抢杠胡", () => {
+        const E = craft(102, true, {
+          0: ["9筒", "9筒", "9筒", "1万", "2万", "3万", "4万", "5万", "6万", "7万", "8万", "东", "南"],
+          1: ["1筒", "2筒", "3筒", "4筒", "5筒", "6筒", "7筒", "8筒", "9条", "9条", "1条", "1条", "1条"],
+          2: ["9筒", "2条", "3条", "4条", "5条", "6条", "7条", "8条", "西", "西", "北", "北", "發"],
+          3: ["东", "东", "南", "南", "西", "西", "北", "北", "中", "中", "發", "發", "白"]
+        });
+        E.cur = 2; E.phase = "turn"; E.turn(2);
+        if (E.phase === "over") throw new Error("2 家摸牌就胡了");
+        if (!E.discard(2, E.P[2].hand.indexOf("9筒"))) throw new Error("2 家打不出 9筒");
+        if (E.phase !== "claim" || E.pending.seat !== 0) throw new Error("0 家没拿到杠窗口");
+        if (!E.claim(0, "gang")) throw new Error("直杠失败");
+        if (E.phase !== "rob") throw new Error("没触发抢杠窗口");
+        E.rob(E.pending.seats[0]);
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        return "9筒全场 " + a.byType["9筒"] + " 张（应 4）· 总数 " + a.total;
+      });
+
+      /* ③ 暗杠 → 杠后补摸 → 打到结束 */
+      caseAudit("暗杠 → 杠后补摸 → 打到结束", () => {
+        const E = craft(104, true, {
+          0: ["5筒", "5筒", "5筒", "5筒", "1万", "3万", "5万", "7万", "9万", "1条", "4条", "7条", "东"],
+          1: ["1筒", "3筒", "6筒", "7筒", "8筒", "2条", "5条", "8条", "西", "西", "北", "北", "白"],
+          2: ["2筒", "4筒", "9筒", "1条", "2条", "3条", "6条", "9条", "南", "南", "中", "中", "發"],
+          3: ["东", "东", "南", "南", "西", "西", "北", "北", "中", "發", "白", "白", "9筒"]
+        });
+        E.cur = 0; E.phase = "turn";
+        E.pending = { type: "turn", seat: 0, anGangs: ["5筒"], addGangs: [] };
+        if (!E.turnGang(0, "5筒", "an")) throw new Error("暗杠失败");
+        eq(E.P[0].melds[0].tiles.length, 4, "22.3 暗杠副露 = 4 张（不是 3 张）");
+        const n = runOut(E);
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        return "副露 4 张 · 续跑 " + n + " 拍 · 5筒 " + a.byType["5筒"] + " 张 · 总数 " + a.total;
+      });
+
+      /* ④ 连续碰 2 次 → 暗杠 → 补杠（同一家一拍内连做） */
+      caseAudit("连续碰 → 暗杠 → 补杠（同家连续改手牌）", () => {
+        const E = craft(105, true, {
+          0: ["1筒", "1筒", "1筒", "1筒", "3筒", "3筒", "3筒", "4筒", "4筒", "4筒", "4筒", "1万", "2万"],
+          1: ["2万", "3万", "4万", "5万", "6万", "7万", "8万", "9万", "1条", "3条", "5条", "7条", "9条"],
+          2: ["5筒", "6筒", "7筒", "8筒", "9筒", "2条", "4条", "6条", "8条", "东", "南", "西", "北"],
+          3: ["东", "东", "南", "南", "西", "西", "北", "北", "中", "中", "發", "發", "白"]
+        });
+        makeMeld(E, 0, "3筒", "peng");
+        makeMeld(E, 0, "4筒", "peng");
+        E.cur = 0; E.phase = "turn";
+        E.pending = { type: "turn", seat: 0, anGangs: ["1筒"], addGangs: ["4筒"] };
+        if (!E.turnGang(0, "1筒", "an")) throw new Error("暗杠 1筒 失败");
+        E.cur = 0; E.phase = "turn";
+        E.pending = { type: "turn", seat: 0, anGangs: [], addGangs: ["4筒"] };
+        if (!E.turnGang(0, "4筒", "bu")) throw new Error("补杠 4筒 失败");
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        const n = runOut(E);
+        const b = T.tileAudit(E);
+        if (!b.ok) throw new Error(JSON.stringify(b.violations));
+        return "副露 " + E.P[0].melds.length + " 组（3+3+4+4=14 张）· 1筒 " + b.byType["1筒"] +
+          " / 3筒 " + b.byType["3筒"] + " / 4筒 " + b.byType["4筒"] + " · 续跑 " + n + " 拍";
+      });
+
+      /* ⑤ 四副露大吊车（4 碰 + 单吊对子）→ 真实结算 */
+      caseAudit("四副露大吊车（4 碰 + 单吊 9筒）", () => {
+        const E = craft(106, true, {
+          draw: "9筒",
+          0: ["1万", "1万", "1万", "2条", "2条", "2条", "3筒", "3筒", "3筒", "6万", "6万", "6万", "9筒"],
+          1: ["1筒", "3筒", "5筒", "7筒", "9条", "4条", "6条", "8条", "东", "南", "西", "北", "白"],
+          2: ["2万", "4万", "6万", "8万", "2条", "4条", "6条", "8条", "中", "中", "發", "發", "白"],
+          3: ["东", "东", "南", "南", "西", "西", "北", "北", "中", "發", "白", "白", "9条"]
+        });
+        makeMeld(E, 0, "1万", "peng");
+        makeMeld(E, 0, "2条", "peng");
+        makeMeld(E, 0, "3筒", "peng");
+        makeMeld(E, 0, "6万", "peng");
+        eq(E.P[0].hand.length, 2, "22.3 大吊车手牌剩 2 张（单吊对子）");
+        const ev = T.evaluate(E.P[0].hand, E.P[0].melds);
+        ok(!!ev, "22.3 四副露 + 9筒对子 = 成牌");
+        E.settle(0, { selfDraw: true }, ev);
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        return ev.name + " · 9筒 " + a.byType["9筒"] + " 张 · 总数 " + a.total + " · 结算 " + E.result.fanName;
+      });
+
+      /* ⑥ 流局（牌墙摸完） */
+      caseAudit("流局（牌墙摸完 · 四家都不胡）", () => {
+        const E = craft(107, true, {
+          0: ["1万", "4万", "7万", "1条", "4条", "7条", "1筒", "4筒", "7筒", "东", "南", "西", "北"],
+          1: ["2万", "5万", "8万", "2条", "5条", "8条", "2筒", "5筒", "8筒", "东", "南", "西", "北"],
+          2: ["3万", "6万", "9万", "3条", "6条", "9条", "3筒", "6筒", "9筒", "东", "南", "西", "北"],
+          3: ["1万", "2万", "3万", "4万", "5万", "6万", "7万", "8万", "9万", "1条", "2条", "3条", "5条"]
+        });
+        const n = runOut(E);
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        return "续跑 " + n + " 拍 · " + (E.result && E.result.draw ? "流局" : "分出胜负") + " · 总数 " + a.total + "/" + a.expect;
+      });
+
+      /* ⑦ 108 张牌组整局 */
+      caseAudit("108 张牌组（无字牌）整局", () => {
+        const E = craft(108, false, {});
+        const n = runOut(E);
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        eq(a.expect, 108, "22.3 无字牌局应有 108 张");
+        return "续跑 " + n + " 拍 · 总数 " + a.total + "/" + a.expect;
+      });
+
+      /* ⑧ 连开 3 局（重开不清旧容器 → 立刻现形） */
+      caseAudit("连开 3 局（重开不清旧容器）", () => {
+        let s = "";
+        for (let g = 0; g < 3; g++) {
+          const E = craft(109 + g, true, {});
+          runOut(E);
+          const a = T.tileAudit(E);
+          if (!a.ok) throw new Error("第 " + (g + 1) + " 局：" + JSON.stringify(a.violations));
+          s += "[" + (g + 1) + "] " + a.total + " 张 ";
+        }
+        return s;
+      });
+
+      /* ⑨ 手牌 3 张 + 别家打出第 4 张 → 碰（用户截图那一手：副露 3 / 手牌 1 / 全场 4）
+         夹具纪律：除 6条 外，四家手牌一律摆成「同花色两两相隔 ≥2、无对子」的死牌 ——
+         保证任何一种摸牌都成不了牌（否则随机摸到一张就胡了，用例会不稳定）。 */
+      caseAudit("碰：手牌 3 张 + 别家打出第 4 张", () => {
+        const E = craft(110, true, {
+          0: ["6条", "6条", "6条", "1万", "4万", "7万", "1筒", "4筒", "7筒", "东", "南", "西", "北"],
+          1: ["1条", "4条", "7条", "2万", "5万", "8万", "2筒", "5筒", "8筒", "东", "南", "西", "北"],
+          2: ["6条", "2条", "5条", "8条", "3万", "6万", "9万", "3筒", "6筒", "9筒", "中", "發", "白"],
+          3: ["9条", "3条", "2筒", "5筒", "8筒", "2万", "5万", "8万", "东", "南", "西", "北", "中"]
+        });
+        E.cur = 2; E.phase = "turn"; E.turn(2);
+        if (E.phase === "over") throw new Error("2 家摸牌就胡了（夹具不是死牌）");
+        if (!E.discard(2, E.P[2].hand.indexOf("6条"))) throw new Error("2 家打不出 6条");
+        if (E.phase !== "claim" || E.pending.seat !== 0) throw new Error("0 家没拿到碰窗口");
+        if (!E.claim(0, "peng")) throw new Error("碰失败");
+        const a = T.tileAudit(E);
+        if (!a.ok) throw new Error(JSON.stringify(a.violations));
+        eq(a.byType["6条"], 4, "22.3 碰完 6条 全场仍是 4 张（不是 5/6 张）");
+        eq(T.countIn(E.P[0].hand, "6条"), 1, "22.3 碰完手牌里只剩 1 张 6条（不是 3 张）");
+        eq(E.P[0].melds[0].tiles.length, 3, "22.3 副露 = 3 张");
+        return "全场 6条 " + a.byType["6条"] + " 张 · 手牌 " + T.countIn(E.P[0].hand, "6条") + " 张";
+      });
+    }
+
+    /* ── 22.4 渲染层：每一帧「画面上每种牌各几张」≤ 4（审计第二步 d） ── */
+    {
+      console.log("    · 22.4 开始（整局逐帧渲染审计）");
+      eq(MJ.start(makeElement("div"), {}), true, "22.4 开局（渲染层审计）");
+      eq(MJ.isBusy(), true, "22.4 开局后 isBusy=true（渲染层断言的前提）");
+      eq(MJ.debug.render() !== null, true, "22.4 强制渲染一帧");
+      const r0 = MJ.debug.renderAudit();
+      ok(r0 && r0.ok, "22.4 首帧渲染审计 ok（单种最大 " + (r0 && r0.max) + "）");
+      eq(r0.mode, "table", "22.4 首帧类型 = table");
+      ok(r0.total > 10, "22.4 首帧真的画了牌面（" + r0.total + " 张 —— 防止引擎没跑起来时空过）");
+      ok(r0.max <= 4, "22.4 首帧画面单种 ≤ 4（实际 " + r0.max + "）");
+      /* 逐帧循环里把智脑提示关掉：它跟「画面张数」无关（金框只描边、不画牌面），
+         但它每次摸牌都要重算一遍（实测最坏数百毫秒）—— 开着跑 200 帧会把自测拖成十几分钟。 */
+      MJ.debug.hintToggle(false);
+      /* 真打一整局，每一拍都渲染 + 审计画面张数 */
+      MJ.debug.tileAuditInstall(); MJ.debug.tileAuditOn(true, null);
+      let frames = 0, worst = 0, over = [], guard = 0, wait22 = 0;
+      const oneFrame = () => {
+        const tf = Date.now();
+        try { MJ.debug.render(); } catch (e) {}
+        if (frames % 10 === 0) console.log("    · 22.4 帧 " + frames + " 单帧渲染 " + (Date.now() - tf) + "ms");
+        frames++;
+        const ra = MJ.debug.renderAudit();
+        if (ra) {
+          if (ra.max > worst) worst = ra.max;
+          if (!ra.ok && !ra.debugView && over.length < 4) over.push(ra);
+        }
+      };
+      oneFrame();
+      /* 逐帧审计的口径是"跑过的每一帧"，不是"必须跑到结算" ——
+         封顶 70 拍是为了让自测时长可控（整局逐帧的重口径由浏览器探针承担：
+         tools/dev/_mj-ui-audit-probe.js 一次跑 4480 帧 / e2e 自走整局）。 */
+      while (guard++ < 70) {
+        const st = MJ.debug.state();
+        if (!st || st.phase === "over" || st.result) break;
+        let act = "";
+        if (st.phase === "claim" && st.pending && st.pending.seat === 0) act = "pass";
+        else if (st.phase === "rob" && st.pending && st.pending.seat === 0) act = "pass";
+        else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 1) act = "draw";
+        else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 2) act = "discard";
+        if (act) { if (!MJ.debug.act(act)) { if (++wait22 > 3) break; } else wait22 = 0; }
+        else {
+          const rr22 = MJ.debug.step();
+          if (rr22 === "off" || rr22 === "over") break;
+          if (rr22 === "wait") { if (++wait22 > 3) break; } else wait22 = 0;
+        }
+        oneFrame();
+      }
+      const st22 = MJ.debug.tileAuditState();
+      eq(st22.fails, 0, "22.4 整局（人 + AI 混打）每一拍容器审计通过（" + st22.n + " 拍）" +
+        (st22.fails ? " → " + JSON.stringify(T.tileAuditReport().list[0].violations) : ""));
+      ok(frames > 12, "22.4 逐帧审计 " + frames + " 帧（牌局可能很早就分出胜负，所以只要求真的画了很多帧）");
+      eq(over.length, 0, "22.4 没有任何一帧画面单种 > 4" + (over.length ? " → " + JSON.stringify(over[0].over) : ""));
+      ok(worst <= 4, "22.4 画面单种最大 = " + worst + "（上限 4）");
+      ok(st22.n > 12, "22.4 整局真的推进了 " + st22.n + " 拍（不是开局就断）");
+      MJ.debug.hintToggle(true);
+      /* 结算亮牌板也审计（四家手牌全亮 —— 最容易看出"多出一张"的画面） */
+      MJ.debug.render();
+      const rEnd = MJ.debug.renderAudit();
+      ok(rEnd && rEnd.max <= 4, "22.4 结算/末帧画面单种 ≤ 4（实际 " + (rEnd && rEnd.max) + " · 模式 " + (rEnd && rEnd.mode) + "）");
+      T.tileAuditOn(false);
+      MJ.dispose();
+    }
+
+    /* ── 22.5 调试摆牌守恒（根因修复的回归断言）──
+       旧实现 setHand/forceWin 直接 `p.hand = want` + `p.melds = []` = 只加不减，
+       实测能摆出「6条 × 6 张 · 总数 137/136」——用户截图里的「六张六条」就是这个机理。
+       修复后摆牌只搬牌不造牌：同名牌永远 ≤4、总数永远 136。 */
+    {
+      console.log("    · 22.5 开始（摆牌守恒 · 引擎级）");
+      /* 直接用守恒摆牌的实现（Mahjong.test.rigPlayer）跑，不依赖 UI 生命周期 ——
+         这样这条断言在任何环境下都稳定复现「只搬牌不造牌」。 */
+      eq(typeof T.rigPlayer, "function", "22.5 摆牌实现可见（Mahjong.test.rigPlayer —— setHand/forceWin 的底层）");
+      const E = new T.Engine(10, { honors: true });
+      E.deal();
+      for (let i = 0; i < 30 && E.phase !== "over"; i++) E.aiStep();     /* 真打若干拍，让牌散到四个容器里 */
+      const before = T.tileAudit(E);
+      eq(before.ok, true, "22.5 摆牌前审计 ok（总数 " + before.total + "/" + before.expect + "）");
+      /* 找一张「自己手里没有、别处有」的牌 —— 摆 3 张进去一定是合法请求（≤4 张） */
+      const P0 = E.P[0], mineOf = (k) => T.countIn(P0.hand, k);
+      let T2 = null, bestE = 0;
+      for (const k of Object.keys(before.byType)) {
+        const e = before.byType[k] - mineOf(k);
+        if (mineOf(k) === 0 && e > bestE) { bestE = e; T2 = k; }
+      }
+      ok(!!T2, "22.5 找到「自己手里 0 张、别处 " + bestE + " 张」的牌：" + T2);
+      const hand = [T2, T2, T2];
+      for (const h of P0.hand) hand.push(h);           /* 原手牌全带上（不封顶）：请求里 T2 恰好 3 张 → 永远合法 */
+      const wantN = 3;
+      eq(T.rigPlayer(E, 0, hand, []), true, "22.5 摆牌成功（合法请求）");
+      const after = T.tileAudit(E);
+      eq(after.ok, true, "22.5 摆牌后审计仍 ok" + (after.ok ? "" : " → " + JSON.stringify(after.violations)));
+      eq(after.total, 136, "22.5 摆牌后总数仍 = 136（旧实现是 137）");
+      eq(after.byType[T2], 4, "22.5 摆牌后「" + T2 + "」全场仍是 4 张（旧实现能摆到 5~6 张）");
+      eq(T.countIn(P0.hand, T2), wantN, "22.5 手牌里确实是 " + wantN + " 张 " + T2);
+      eq(P0.hand.length, hand.length, "22.5 手牌张数 = 摆牌请求的张数（" + hand.length + " 张）");
+      ok(hand.length >= 8, "22.5 摆牌请求是一手真牌（" + hand.length + " 张）");
+      /* 物理上不存在的请求（同名牌 5 张）→ 必须拒绝，且不改任何状态 */
+      const snap = after.total + "|" + after.byType[T2] + "|" + T.countIn(P0.hand, T2) + "|" + E.wall.length;
+      eq(T.rigPlayer(E, 0, [T2, T2, T2, T2, T2], []), false, "22.5 摆 5 张同名牌被拒绝（物理上只有 4 张）");
+      const refused = T.tileAudit(E);
+      eq(refused.ok, true, "22.5 被拒绝后审计仍 ok（状态没被改坏）");
+      eq(refused.total + "|" + refused.byType[T2] + "|" + T.countIn(P0.hand, T2) + "|" + E.wall.length, snap,
+        "22.5 被拒绝后状态与摆牌前**逐项一致**（含牌墙长度）");
+      /* 别家的牌也不能被凭空吞掉 / 复制：摆牌前后「全局容器张数」逐项守恒 */
+      const cnt = (X) => { let n = X.wall.length; for (const p of X.P) { n += p.hand.length + p.discards.length; for (const m of p.melds) n += m.tiles.length; } return n; };
+      eq(cnt(E), 136, "22.5 摆牌后全局容器张数仍是 136");
+    }
+
+    /* ── 22.5b UI 摆牌出口（Mahjong.debug.setHand / forceWin）也必须守恒 ──
+       这一节依赖 UI 生命周期，所以只在开局成功时断言；开局失败会单独报出来（不静默跳过）。 */
+    {
+      const started = MJ.start(makeElement("div"), {});
+      eq(started, true, "22.5b 开局成功（UI 摆牌出口）");
+      const E = MJ.debug.engine();
+      ok(!!E, "22.5b 开局后引擎可读（G.E 非空）");
+      if (E) {
+        for (let i = 0; i < 26; i++) {
+          const st = MJ.debug.state();
+          if (!st || st.phase === "over") break;
+          if (st.phase === "claim" && st.pending && st.pending.seat === 0) MJ.debug.act("pass");
+          else if (st.phase === "turn" && st.cur === 0 && st.handCount % 3 === 2) MJ.debug.act("discard");
+          else if (MJ.debug.step() === "off") break;
+        }
+        const b2 = MJ.debug.tileAudit();
+        eq(b2.ok, true, "22.5b 摆牌前审计 ok（总数 " + b2.total + "）");
+        let U = null, be = 0;
+        for (const k of Object.keys(b2.byType)) {
+          const m = T.countIn(E.P[0].hand, k), e = b2.byType[k] - m;
+          if (m === 0 && e > be) { be = e; U = k; }
+        }
+        ok(!!U, "22.5b 找到「自己手里 0 张、别处 " + be + " 张」的牌：" + U);
+        const h2 = [U, U, U];
+        for (const h of E.P[0].hand) h2.push(h);        /* 原手牌全带上：请求里 U 恰好 3 张 → 永远合法 */
+        eq(MJ.debug.setHand(h2, [], null), true, "22.5b debug.setHand 成功");
+        const a2 = MJ.debug.tileAudit();
+        eq(a2.ok, true, "22.5b setHand 后审计仍 ok" + (a2.ok ? "" : " → " + JSON.stringify(a2.violations)));
+        eq(a2.total, 136, "22.5b setHand 后总数仍 = 136");
+        eq(a2.byType[U], 4, "22.5b setHand 后「" + U + "」全场仍 4 张（旧实现摆出 6 张）");
+        eq(MJ.debug.setHand([U, U, U, U, U], [], null), false, "22.5b 摆 5 张同名牌被拒绝");
+        eq(MJ.debug.forceWin(0), true, "22.5b forceWin 成功（守恒版）");
+        const fw = MJ.debug.tileAudit();
+        eq(fw.ok, true, "22.5b forceWin 后审计仍 ok" + (fw.ok ? "" : " → " + JSON.stringify(fw.violations)));
+        eq(fw.total, 136, "22.5b forceWin 后总数仍 = 136");
+        ok(fw.max <= 4, "22.5b forceWin 后单种 ≤ 4（实际 " + fw.max + "）");
+      }
+      T.tileAuditOn(false);
+      MJ.dispose();
+    }
+
+    /* ── 22.6 审计自身的口径检查（防止审计被"写松"而假绿） ── */
+    {
+      const E = new T.Engine(10, { honors: true });
+      E.deal();
+      const a = T.tileAudit(E);
+      const names = Object.keys(a.places);
+      ok(names.indexOf("牌墙") >= 0, "22.6 审计覆盖牌墙");
+      ok(names.some(n => /^P0\(.*\)\.手牌$/.test(n)), "22.6 审计覆盖四家暗手");
+      ok(names.some(n => /副露/.test(n)) || E.P.every(p => !p.melds.length), "22.6 审计覆盖副露（碰/明杠/暗杠/补杠）");
+      ok(names.some(n => /弃牌$/.test(n)) || E.P.every(p => !p.discards.length), "22.6 审计覆盖四家牌河");
+      /* 主动造一次「同名牌 5 张」：审计必须抓住（否则这一节的绿灯没有意义） */
+      const E2 = new T.Engine(10, { honors: true });
+      E2.deal();
+      const had5 = T.countIn(E2.P[0].hand, "5万");          /* 起手可能已经有几张 5万（随机） */
+      E2.P[0].hand.push("5万", "5万", "5万", "5万", "5万");
+      const bad = T.tileAudit(E2);
+      eq(bad.ok, false, "22.6 人为塞第 5 张 5万 → 审计必须判违规（not ok）");
+      const v5 = bad.violations.filter(v => v.tile === "5万");
+      eq(v5.length, 1, "22.6 正好报出一条 5万 违规");
+      eq(v5[0].count, 9, "22.6 违规条目指名道姓：5万 × 9（整副牌本来 4 张 + 人为塞 5 张）");
+      eq(T.countIn(E2.P[0].hand, "5万"), had5 + 5, "22.6 手牌里 5万 = 起手 " + had5 + " + 人为塞 5");
+      eq(v5[0].where.indexOf("P0(你).手牌 " + T.countIn(E2.P[0].hand, "5万") + " 张") >= 0, true,
+        "22.6 违规条目给出「在哪个容器」：→ " + v5[0].where);
+      /* 总数被破坏也要抓 */
+      const E3 = new T.Engine(10, { honors: true });
+      E3.deal();
+      E3.wall.pop();
+      const bad2 = T.tileAudit(E3);
+      eq(bad2.ok, false, "22.6 牌墙少一张（总数 135）→ 审计必须判违规");
+      ok(bad2.violations.some(v => v.count === 135 && /全场总数/.test(v.where)), "22.6 违规条目报出总数 135 ≠ 136");
+    }
+  }
   console.log("通过 " + pass + " / 共 " + (pass + fail) + (fail ? "，失败 " + fail : "，全部通过 ✔"));
+
   if (fail) { console.log("失败项：\n - " + fails.join("\n - ")); process.exit(1); }
 })();

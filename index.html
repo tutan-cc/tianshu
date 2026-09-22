@@ -570,19 +570,29 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
         <div id="fight2Tell" style="display:none;position:absolute;left:50%;top:38%;transform:translateX(-50%);font-size:20px;letter-spacing:3px;padding:10px 22px;border:1px solid var(--red);background:rgba(26,13,18,.9);pointer-events:none;white-space:nowrap"></div>
       </div>
       <!-- 判定条与按钮留在 DOM 里：它们是交互入口，做成 canvas 会牺牲可点性与可测性 -->
+      <!-- 判定条图例：必须在**打的时候**看得见。规则原文在面板顶部的 #fight2Sub 里，
+           一滚就没了 —— 实测玩家因此完全不知道游标进绿带才有效、金色块是完美区。 -->
+      <div id="fight2Legend" style="display:none;font-size:11px;color:var(--dim);margin-bottom:5px;line-height:1.5">
+        游标扫进 <b style="color:var(--green)">绿带</b> 时<b>点一下</b>（点条子任意位置都行，按 <b>空格 / 回车</b> 也算）：
+        <b style="color:var(--gold)">金色块</b>=完美 ×1.9 ·
+        <b style="color:var(--green)">绿带其余</b>=良好 ×1.3 ·
+        <b style="color:var(--dim)">扫过去没点</b>=偏出 ×0.7（空挥）
+      </div>
       <div id="fight2Bar" style="display:none;position:relative;height:28px;background:#12101c;border:1px solid var(--line);margin-bottom:8px;overflow:hidden;cursor:pointer">
         <div id="fight2Zone" style="position:absolute;top:0;bottom:0;background:rgba(93,255,160,.35);border-left:1px solid var(--green);border-right:1px solid var(--green)">
           <i id="fight2ZonePerfect" style="position:absolute;top:0;bottom:0;left:35%;width:30%;background:rgba(255,215,110,.55);border-left:1px solid var(--gold);border-right:1px solid var(--gold)"></i>
         </div>
         <div id="fight2Cur" style="position:absolute;top:-2px;bottom:-2px;width:3px;background:#fff;box-shadow:0 0 10px #fff"></div>
       </div>
+      <!-- 按钮上把"这一招要不要推条 / 是不是确定命中 / 能不能回体干"标出来：
+           原来只写「精准」二字，玩家读不出"精准 = 要推判定条"。 -->
       <div id="fight2Btns" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-        <button class="mbtn" data-act="jab">直 拳<b>2 行动力 · 12 · 精准</b></button>
-        <button class="mbtn" data-act="combo">组合拳<b>2 行动力 · 8 + 连打</b></button>
-        <button class="mbtn" data-act="low">低 扫<b>2 行动力 · 17</b></button>
-        <button class="mbtn" data-act="guard">抱 架<b>1 行动力 · 格挡 +20</b></button>
-        <button class="mbtn" data-act="read">读 招<b>1 行动力 · 公示意图</b></button>
-        <button class="mbtn" data-act="skip" style="opacity:.75">跳过战斗<b>按当前属性判胜负</b></button>
+        <button class="mbtn" data-act="jab">直 拳<i style="color:var(--gold);font-style:normal">需推条</i><b>2 行动力 · 12 · 完美 ×1.9</b><small>三档判定 · 反击窗口×2.2 可叠乘</small></button>
+        <button class="mbtn" data-act="combo">组合拳<i style="color:var(--gold);font-style:normal">需推条</i><b>2 行动力 · 8 + 连打</b><small>一段命中后再快速连点</small></button>
+        <button class="mbtn" data-act="low">低 扫<i style="color:var(--green);font-style:normal">确定伤害</i><b>2 行动力 · 17</b><small>不吃判定、也不吃反击加成</small></button>
+        <button class="mbtn" data-act="guard">抱 架<i style="color:var(--cyan);font-style:normal">回体干</i><b>1 行动力 · 格挡 +20</b><small>体干 +12（唯一的回体干手段之一）</small></button>
+        <button class="mbtn" data-act="read">读 招<i style="color:var(--purple);font-style:normal">看意图</i><b>1 行动力 · 公示意图</b><small>两回合公示对手招式 · 受伤 −25%</small></button>
+        <button class="mbtn" data-act="skip" style="opacity:.75">跳过战斗<i style="color:var(--dim);font-style:normal">不打了</i><b>按当前属性判胜负</b><small>给纯剧情流玩家</small></button>
       </div>
       <div id="fight2Num" style="font-size:11.5px;color:var(--dim);margin-top:8px"></div>
       <div id="fight2Log" style="max-height:110px;overflow-y:auto;margin-top:6px;font-size:11.5px;line-height:1.7;color:var(--dim)"></div>
@@ -1928,11 +1938,23 @@ function judgeBar(o){
 
   let pos = 0, dir = 1, done = false;
   const t0 = performance.now();
+  /* 输入缓冲：判定条**刚出现的那一小会儿**也收输入，并把它按"还没开始动"（pos=0）判定。
+     为什么必须有：出招后玩家往往**提前**就点下去了（手比眼快），而原来点击只在
+     游标移动期间有效 —— 提前点击被当成"已经那个位置"或者干脆落空，
+     表现出来就是"我点了，可是什么都没发生"。
+     ⚠ 默认 0（只在调用方显式传 inputGrace 时生效）：拳击馆那场和旧版打斗都不该受影响，
+       它们各有自己的节奏；这个旋钮目前只有 fight2 用。 */
+  const INPUT_GRACE = o.inputGrace || 0;                   // 毫秒
   const release = InputBus.setOwner(o.owner || "judgeBar", {
     keydown(e){
       /* 有 keys 映射（预判防守）时：方向键 = 带着方向落判，空格不再直接落判 */
       if(keys && keys[e.code]){ e.preventDefault(); click(keys[e.code]); return; }
-      if(!keys && (e.code === "Space" || e.code === "Enter")){ e.preventDefault(); click(); }
+      /* 没 keys（判定条）：空格/回车都算落判。
+         ⚠ 原来只在 `!keys` 时收 —— 这条其实是对的，但玩家根本不知道能按键盘，
+           而且**点击**走的是另一条路径。现在两条都给，并在界面上写明。 */
+      if(!keys && (e.code === "Space" || e.code === "Enter" || e.code === "NumpadEnter")){
+        e.preventDefault(); click(); return;
+      }
     },
   });
   const onClick = (e)=>{ if(e && e.stopPropagation) e.stopPropagation(); click(); };
@@ -1944,7 +1966,13 @@ function judgeBar(o){
     if(bar){ bar.onclick = null; if(o.show) bar.style.display = "none"; }
     if(o.onDone) o.onDone(grade, dir2);
   }
-  function click(d){ if(done) return; finish(gradeAt(pos), d); }
+  /** 落判。缓冲窗口内算"还没开始动"：位置取 0（游标初始点）
+      —— 宁可判偏出，也不要"点了没反应"。 */
+  function click(d){
+    if(done) return;
+    const early = (performance.now() - t0) < INPUT_GRACE;
+    finish(early ? gradeAt(0) : gradeAt(pos), d);
+  }
   function tick(now){
     if(done) return;
     if(duration && (now - t0)/1000 > duration){ finish(gradeAt(pos)); return; }   // 到点就按当前位置算
@@ -1955,7 +1983,8 @@ function judgeBar(o){
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
-  return { click: click, get pos(){ return pos; }, get done(){ return done; }, finish: finish };
+  return { click: click, early: () => (performance.now() - t0) < INPUT_GRACE,
+           get pos(){ return pos; }, get done(){ return done; }, finish: finish };
 }
 
 /* ── QTE（timing / mash 双模式） ── */
@@ -2702,6 +2731,27 @@ const FIGHT2_TUNE = {
   STUN_TAKEN_MULT: 2.5,  // 硬直期受伤倍率
   COUNTER_MULT:  2.2,    // 反击窗口伤害倍率
   TELL_MS:       450,    // 红闪预警时长（给玩家的反应窗口）
+  /* ── 判定条（推条那两招的瞄准难度，玩家实测后调的）──────────────────────
+     BAR_SPEED 是**每帧**移动的百分比（60fps 下 100 就是 1 秒扫完一整条）。
+     为什么从 2.2 降到 1.1：完美区 = 绿带(14%)的中央 30% ≈ 全长的 4.2%，
+     2.2%/帧时游标只花 2 帧就穿过去了 —— 那不是"偏难"，是根本没法瞄。
+     实测反馈原话："盯着游标进绿带点了，可是直接跳过了根本没反应"。
+     降到 1.1 → 完美区 ≈ 4 帧（66ms 级），绿带 ≈ 13 帧，配合下面的 INPUT_GRACE
+     才算"眼手能跟上"。这个数字是手感旋钮：调快 = 硬核，调慢 = 休闲。 */
+  BAR_SPEED:     1.1,
+  /* 输入缓冲（毫秒）：判定条出现后的这段时间里点击也算数，按"还没开始动"判。
+     手比眼快是常态，没有它就会出现"我点了，可是什么都没发生"。 */
+  INPUT_GRACE:   120,
+  /* ── 组合拳连打尾段（"连按很多下"的意义就在这里）────────────────────────
+     二段伤害 = clamp(-4 + 3×⌊连打数/2⌋, 0, COMBO_BONUS_CAP)。
+     为什么是这个形状：两头都得有取舍，否则这招要么没用、要么无脑最优 ——
+       0~1 下 → 0  ⇒ 合计 15，**不如**直拳完美 23（手残就吃亏）
+       3 下   → 5  ⇒ 合计 20
+       6 下   → 14 ⇒ 合计 29
+       8+ 下  → 18 ⇒ 合计 33，**明显优于**直拳（那 4 秒花得值）
+     旧值是 `min(4, ⌊c/3⌋)`：连打 10 下总共只有 19，比直拳还低 —— 玩家直接问
+     "蓄力连按很多下的意义是什么"。改这个数请同时跑 tools/dev/play.js 看回合数。 */
+  COMBO_BONUS_CAP: 18,
 };
 /* 玩家招式：stam 是自己掉的体干（低消耗招式能"养体干"） */
 const FIGHT2_MOVES = {
@@ -2889,7 +2939,6 @@ const Fight2Stage = {
 
   /** 战斗状态同步（render() 每次都会调）—— 这里只存，绘制在 frame() 里做 */
   sync(st){ this.S = st || null; },
-
   /** 摆姿势：who = "me"|"foe"，name ∈ idle/strike/hit/stun/ko
       具体取哪套值由该角色的 who 决定（见 POSES）—— 同一个"出拳"，两个人幅度不同。 */
   pose(who, name, ms){
@@ -3574,6 +3623,25 @@ const Fight2Stage = {
       g.fillStyle = c; g.textAlign = "center";
       g.fillText(t, W/2, top + barH + 70 + i * 20);
     });
+    /* ── 身份标签：谁是玩家、谁是对手 ──────────────────────────────────────
+       为什么必须有：玩家实测原话"我本体是哪个，是男是女我都不知道"。
+       原来两条血条只有颜色（粉/紫），没有任何名字或"你/他"的标注 ——
+       而打斗是自动演出的，玩家很容易把自己认成正在挨打的那一边。
+       ⚠ 画在**血条内部**（贴左/右边缘）：世界最顶端就在屏幕边界上，
+         往上加一行会被 clip 掉（实测 y<10 的内容在机内模式看不见）。 */
+    const tag = (cx, y, txt, color) => {
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.font = "bold 13px ui-monospace,Consolas,monospace";
+      const tw = txt.length * 9 + 14;
+      g.fillStyle = "rgba(8,6,14,.62)";
+      g.fillRect(cx - tw / 2, y - 9, tw, 18);
+      g.fillStyle = color;
+      g.fillText(txt, cx, y);
+    };
+    /* 各自画在自己血条的中央 —— 一眼看出"左边这个是我、右边那个是他" */
+    tag(pad + barW / 2, top + barH / 2, "你 · " + (st.meName || "我方"), "#ffd76e");
+    tag(W - pad - barW / 2, top + barH / 2, (st.foeName || "对手") + " · 对手", "#ff9bb0");
+    g.textBaseline = "alphabetic";
   },
 
   /** 测试/调试用快照 */
@@ -3654,12 +3722,30 @@ function startFight2(it){
   Fight2Stage.startArcade();
 
   function push(s){ log.push(s); }
+  /** 「现在该干什么」—— 一句话常驻在底部状态行。
+      为什么必须有：规则原文写在面板顶部的 #fight2Sub 里，打起来一滚就看不见，
+      实测玩家因此完全不知道"该点绿框""对手出招要按方向闪"。这里按当前阶段给唯一动作。 */
+  function hintNow(){
+    if(!alive) return "本场已结束";
+    if(phase === "defend") return "他出招了 —— 看红闪提示按 ← / ↓ / ↑ 闪开（不按就是硬吃）";
+    if(stunMine) return "体干崩了：这回合动不了，点任意招式键把回合让给他";
+    if(ap <= 0) return "行动力用完了 —— 自动进入他的回合";
+    const can = FIGHT2_TUNE.AP - ap;                       // 已花掉的行动力
+    if(counter) return "反击窗口开着（伤害 ×2.2）—— 出一手重的（直拳/组合拳）";
+    if(ap >= 2) return can === 0
+      ? "该你出招：按「直 拳」等带【需推条】的招，游标进绿带时点一下"
+      : "还能再出一手（2 点）—— 低扫是确定伤害，不赌判定";
+    return "只剩 1 点：抱架格挡/回体干，读招看穿他的下一手，或直接结束回合";
+  }
   function render(){
     /* 血条 / 体干条 / 回合数不再用 DOM 进度条，改由 canvas 舞台按街机格斗的样式画
        （见 Fight2Stage.drawHud）。这里只把状态同步过去。 */
     try{ Fight2Stage.sync({ hp:hp, maxHp:maxHp, foeHp:foeHp, foeMax:foeMax,
       stamMine:stamMine, stamFoe:stamFoe, turn:turn, ap:ap, counter:counter,
-      stunMine:stunMine, foeStun:foeStun, phase:phase, guard:guard, read:read, alive:alive }); }catch(e){}
+      stunMine:stunMine, foeStun:foeStun, phase:phase, guard:guard, read:read, alive:alive,
+      /* 身份标签：玩家实测"不知道自己是哪个"，所以把名字送上 HUD。
+         玩家侧叫「陈默」（主角），对手侧用章节里的称呼。 */
+      meName:"陈默", foeName:(it && it.foeName) || "花衬衫" }); }catch(e){}
     const badges = [];
     if(guard > 0)   badges.push(`格挡 ${guard}`);
     if(read > 0)    badges.push(`<span style="color:#b07dff">读招 ${read}</span>`);
@@ -3667,7 +3753,10 @@ function startFight2(it){
     if(stunMine)    badges.push(`<span style="color:#ff4d6d">体干崩了 · 本回合动不了</span>`);
     if(foeStun)     badges.push(`<span style="color:#5dffa0">对手硬直</span>`);
     $("fight2Num").innerHTML = `你 <b>${Math.max(0,hp)}</b> / 对手 <b>${Math.max(0,foeHp)}</b> · 第 <b>${turn}</b> 回合 · 行动力 ` +
-      "●".repeat(Math.max(0,ap)) + "○".repeat(Math.max(0,FIGHT2_TUNE.AP-ap)) + (badges.length ? " · " + badges.join(" · ") : "");
+      "●".repeat(Math.max(0,ap)) + "○".repeat(Math.max(0,FIGHT2_TUNE.AP-ap)) + (badges.length ? " · " + badges.join(" · ") : "") +
+      ` <span style="color:#ffd76e">▸ ${hintNow()}</span>`;
+    /* 判定条图例只在推条时出现（平时不占地方） */
+    $("fight2Legend").style.display = (phase === "defend") ? "none" : "";
     if(phase === "defend"){
       $("fight2Foe").innerHTML = `<span style="color:#ff4d6d">他出手了！</span> 按 <b>← / ↓ / ↑</b> 闪开` +
         `<span style="color:#8a87a3">（不按就是硬吃）</span>`;
@@ -3843,7 +3932,8 @@ function startFight2(it){
     const left = 8 + Math.random()*(84-zonesW);
     $("fight2ZonePerfect").style.display = "";   // 防守时被藏起来过，这里恢复
     judgeBar({
-      owner:"fight2-precision", speed:2.2, duration:1.4, width:zonesW, left:left, show:"block",
+      owner:"fight2-precision", speed:FIGHT2_TUNE.BAR_SPEED, duration:1.4, width:zonesW, left:left, show:"block",
+      inputGrace:FIGHT2_TUNE.INPUT_GRACE,
       els:{ bar:$("fight2Bar"), zone:$("fight2Zone"), cursor:$("fight2Cur"), perfect:$("fight2ZonePerfect") },
       // 两条区间缺一不可：完美区（中央 30%）+ 良好区（整条绿区）
       zones:[ {pct:[0.35,0.65], grade:"perfect", relTo:"zone"}, {pct:[0,1], grade:"good", relTo:"zone"} ],
@@ -3891,6 +3981,17 @@ function startFight2(it){
     if(precise) precision(g=>apply(FIGHT_GRADE_MULT[g]||1, g));
     else apply(1);
   }
+  /* 组合拳尾段：连打次数决定二段伤害。
+     ⚠ 数值被玩家实测推翻过一次，记下来免得再调回去：
+       原来是"一段 8（吃三档×1.9=15）+ 二段最多 4" = **19**，而直拳完美是 **23** ——
+       连按 10 下换来的是**比一拳还少**的伤害，这个招式的存在意义是负的。
+       玩家原话："蓄力连按很多下的意义是什么"。
+       现在改成"用连打换上限"，并保证两头都有取舍：
+         连打  0~1 下 → 二段 0  ⇒ 合计 15（**不如**直拳 23，手残就吃亏）
+         连打  3 下   → 二段 5  ⇒ 合计 20
+         连打  6 下   → 二段 14 ⇒ 合计 29
+         连打  8+ 下  → 二段 18（上限）⇒ 合计 33（**明显优于**直拳）
+       两条边界都写成了断言（见 tests/fight2.test.cjs 的"招式经济"一组）。 */
   function comboMash(cb){
     mashLoop({SECS:4, NEED:10, OK:6}, c=>{
       try{
@@ -3898,7 +3999,7 @@ function startFight2(it){
         else if(c>=6){ if(!AudioSys.play("sfx-fight-hit")) AudioSys.ding(); }
         else { if(!AudioSys.play("sfx-fight-whiff")) AudioSys.bad(); }
       }catch(e){}
-      cb({ count:c, bonus:Math.min(4, Math.floor(c/3)), hit:c>=6 });
+      cb({ count:c, bonus: Math.min(FIGHT2_TUNE.COMBO_BONUS_CAP, Math.max(0, -4 + 3 * Math.floor(c / 2))), hit:c>=6 });
     });
   }
   /* ── 过场：点「开始战斗」= 化身进街机 ──
@@ -4592,11 +4693,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260922-1015" data-fp="2bfb34"
-     title="构建版本戳 · build 20260922-1015 · 内容指纹 2bfb34（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260922-1417" data-fp="3d3a29"
+     title="构建版本戳 · build 20260922-1417 · 内容指纹 3d3a29（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260922-1015 · ch 2bfb34 · bf 211K · mj 295K · idx 284K · map 68K</div>
-<script>window.__BUILD={"build":"20260922-1015","fingerprint":"2bfb34","sizes":{"idx":284,"mj":295,"bf":211,"map":68},"files":{"index.html":290671,"mahjong.js":302028,"breakfast.js":216155,"map3d.js":69967},"mtimes":{"mahjong.js":1790043339267,"breakfast.js":1789964551633,"map3d.js":1789789317181},"idxContentHash":"deeb1e4d83e14ea713516ec0db658c647b784f67","idxContentBytes":289374,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260922-1417 · ch 3d3a29 · bf 211K · mj 320K · idx 292K · map 68K</div>
+<script>window.__BUILD={"build":"20260922-1417","fingerprint":"3d3a29","sizes":{"idx":292,"mj":320,"bf":211,"map":68},"files":{"index.html":298660,"mahjong.js":327444,"breakfast.js":216155,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1789964551633,"map3d.js":1789789317181},"idxContentHash":"dc169b5fb182c3c25083640086d9f582bec47b81","idxContentBytes":297363,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
