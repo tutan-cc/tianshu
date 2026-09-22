@@ -1,0 +1,413 @@
+{
+ "note": "bf-12 仓库清理：这些是「当前池子/通道没有引用」的旧件，从 audio/bf/ 下划线归档。文件一个都没删；_ 前缀目录被 .gitignore 的 audio/**/_* 排除（不入库、不分发），与 audio/mj/_bak_pre_wopeng/ 同一做法。",
+ "movedAt": "2026-09-21T04:29:57.119Z",
+ "keptInPlace": [
+  "cook_bacon.mp3",
+  "cook_bun.mp3",
+  "cook_congee.mp3",
+  "cook_egg.mp3",
+  "cook_juice.mp3",
+  "cook_milk.mp3",
+  "cook_salad.mp3",
+  "cook_sandwich.mp3",
+  "cook_soup.mp3",
+  "happy_finally2.mp3",
+  "happy_i45.mp3",
+  "happy_v1.mp3",
+  "happy_v3.mp3",
+  "slow.mp3",
+  "tick.mp3"
+ ],
+ "moved": [
+  {
+   "from": "audio/bf/happy.mp3",
+   "to": "audio/bf/_unused/happy.mp3",
+   "bytes": 15405
+  },
+  {
+   "from": "audio/bf/happy2.mp3",
+   "to": "audio/bf/_unused/happy2.mp3",
+   "bytes": 25389
+  },
+  {
+   "from": "audio/bf/happy3.mp3",
+   "to": "audio/bf/_unused/happy3.mp3",
+   "bytes": 23085
+  },
+  {
+   "from": "audio/bf/happy_alt1.mp3",
+   "to": "audio/bf/_unused/happy_alt1.mp3",
+   "bytes": 11949
+  },
+  {
+   "from": "audio/bf/happy_alt2.mp3",
+   "to": "audio/bf/_unused/happy_alt2.mp3",
+   "bytes": 28077
+  },
+  {
+   "from": "audio/bf/happy_alt3.mp3",
+   "to": "audio/bf/_unused/happy_alt3.mp3",
+   "bytes": 12717
+  },
+  {
+   "from": "audio/bf/happy_alt4.mp3",
+   "to": "audio/bf/_unused/happy_alt4.mp3",
+   "bytes": 11565
+  },
+  {
+   "from": "audio/bf/happy_alt5.mp3",
+   "to": "audio/bf/_unused/happy_alt5.mp3",
+   "bytes": 5421
+  },
+  {
+   "from": "audio/bf/happy_alt6.mp3",
+   "to": "audio/bf/_unused/happy_alt6.mp3",
+   "bytes": 14253
+  },
+  {
+   "from": "audio/bf/happy_finally3.mp3",
+   "to": "audio/bf/_unused/happy_finally3.mp3",
+   "bytes": 23085
+  },
+  {
+   "from": "audio/bf/happy_i10.mp3",
+   "to": "audio/bf/_unused/happy_i10.mp3",
+   "bytes": 15021
+  },
+  {
+   "from": "audio/bf/happy_i26.mp3",
+   "to": "audio/bf/_unused/happy_i26.mp3",
+   "bytes": 32301
+  },
+  {
+   "from": "audio/bf/happy_i38.mp3",
+   "to": "audio/bf/_unused/happy_i38.mp3",
+   "bytes": 15789
+  },
+  {
+   "from": "audio/bf/happy_i47.mp3",
+   "to": "audio/bf/_unused/happy_i47.mp3",
+   "bytes": 10413
+  },
+  {
+   "from": "audio/bf/happy_i55.mp3",
+   "to": "audio/bf/_unused/happy_i55.mp3",
+   "bytes": 7341
+  },
+  {
+   "from": "audio/bf/happy_n1.mp3",
+   "to": "audio/bf/_unused/happy_n1.mp3",
+   "bytes": 26157
+  },
+  {
+   "from": "audio/bf/happy_n10.mp3",
+   "to": "audio/bf/_unused/happy_n10.mp3",
+   "bytes": 25389
+  },
+  {
+   "from": "audio/bf/happy_n11.mp3",
+   "to": "audio/bf/_unused/happy_n11.mp3",
+   "bytes": 22317
+  },
+  {
+   "from": "audio/bf/happy_n12.mp3",
+   "to": "audio/bf/_unused/happy_n12.mp3",
+   "bytes": 20397
+  },
+  {
+   "from": "audio/bf/happy_n13.mp3",
+   "to": "audio/bf/_unused/happy_n13.mp3",
+   "bytes": 27693
+  },
+  {
+   "from": "audio/bf/happy_n14.mp3",
+   "to": "audio/bf/_unused/happy_n14.mp3",
+   "bytes": 23853
+  },
+  {
+   "from": "audio/bf/happy_n15.mp3",
+   "to": "audio/bf/_unused/happy_n15.mp3",
+   "bytes": 25773
+  },
+  {
+   "from": "audio/bf/happy_n16.mp3",
+   "to": "audio/bf/_unused/happy_n16.mp3",
+   "bytes": 21165
+  },
+  {
+   "from": "audio/bf/happy_n17.mp3",
+   "to": "audio/bf/_unused/happy_n17.mp3",
+   "bytes": 20397
+  },
+  {
+   "from": "audio/bf/happy_n18.mp3",
+   "to": "audio/bf/_unused/happy_n18.mp3",
+   "bytes": 28461
+  },
+  {
+   "from": "audio/bf/happy_n19.mp3",
+   "to": "audio/bf/_unused/happy_n19.mp3",
+   "bytes": 27309
+  },
+  {
+   "from": "audio/bf/happy_n2.mp3",
+   "to": "audio/bf/_unused/happy_n2.mp3",
+   "bytes": 26925
+  },
+  {
+   "from": "audio/bf/happy_n20.mp3",
+   "to": "audio/bf/_unused/happy_n20.mp3",
+   "bytes": 25773
+  },
+  {
+   "from": "audio/bf/happy_n21.mp3",
+   "to": "audio/bf/_unused/happy_n21.mp3",
+   "bytes": 40749
+  },
+  {
+   "from": "audio/bf/happy_n22.mp3",
+   "to": "audio/bf/_unused/happy_n22.mp3",
+   "bytes": 28077
+  },
+  {
+   "from": "audio/bf/happy_n23.mp3",
+   "to": "audio/bf/_unused/happy_n23.mp3",
+   "bytes": 26157
+  },
+  {
+   "from": "audio/bf/happy_n24.mp3",
+   "to": "audio/bf/_unused/happy_n24.mp3",
+   "bytes": 37677
+  },
+  {
+   "from": "audio/bf/happy_n25.mp3",
+   "to": "audio/bf/_unused/happy_n25.mp3",
+   "bytes": 29613
+  },
+  {
+   "from": "audio/bf/happy_n26.mp3",
+   "to": "audio/bf/_unused/happy_n26.mp3",
+   "bytes": 38829
+  },
+  {
+   "from": "audio/bf/happy_n27.mp3",
+   "to": "audio/bf/_unused/happy_n27.mp3",
+   "bytes": 32685
+  },
+  {
+   "from": "audio/bf/happy_n28.mp3",
+   "to": "audio/bf/_unused/happy_n28.mp3",
+   "bytes": 27309
+  },
+  {
+   "from": "audio/bf/happy_n29.mp3",
+   "to": "audio/bf/_unused/happy_n29.mp3",
+   "bytes": 21165
+  },
+  {
+   "from": "audio/bf/happy_n3.mp3",
+   "to": "audio/bf/_unused/happy_n3.mp3",
+   "bytes": 36525
+  },
+  {
+   "from": "audio/bf/happy_n30.mp3",
+   "to": "audio/bf/_unused/happy_n30.mp3",
+   "bytes": 18093
+  },
+  {
+   "from": "audio/bf/happy_n31.mp3",
+   "to": "audio/bf/_unused/happy_n31.mp3",
+   "bytes": 23085
+  },
+  {
+   "from": "audio/bf/happy_n32.mp3",
+   "to": "audio/bf/_unused/happy_n32.mp3",
+   "bytes": 21549
+  },
+  {
+   "from": "audio/bf/happy_n33.mp3",
+   "to": "audio/bf/_unused/happy_n33.mp3",
+   "bytes": 21165
+  },
+  {
+   "from": "audio/bf/happy_n34.mp3",
+   "to": "audio/bf/_unused/happy_n34.mp3",
+   "bytes": 24621
+  },
+  {
+   "from": "audio/bf/happy_n35.mp3",
+   "to": "audio/bf/_unused/happy_n35.mp3",
+   "bytes": 21933
+  },
+  {
+   "from": "audio/bf/happy_n36.mp3",
+   "to": "audio/bf/_unused/happy_n36.mp3",
+   "bytes": 32685
+  },
+  {
+   "from": "audio/bf/happy_n37.mp3",
+   "to": "audio/bf/_unused/happy_n37.mp3",
+   "bytes": 30765
+  },
+  {
+   "from": "audio/bf/happy_n38.mp3",
+   "to": "audio/bf/_unused/happy_n38.mp3",
+   "bytes": 28077
+  },
+  {
+   "from": "audio/bf/happy_n39.mp3",
+   "to": "audio/bf/_unused/happy_n39.mp3",
+   "bytes": 37293
+  },
+  {
+   "from": "audio/bf/happy_n4.mp3",
+   "to": "audio/bf/_unused/happy_n4.mp3",
+   "bytes": 38829
+  },
+  {
+   "from": "audio/bf/happy_n40.mp3",
+   "to": "audio/bf/_unused/happy_n40.mp3",
+   "bytes": 15021
+  },
+  {
+   "from": "audio/bf/happy_n41.mp3",
+   "to": "audio/bf/_unused/happy_n41.mp3",
+   "bytes": 42669
+  },
+  {
+   "from": "audio/bf/happy_n42.mp3",
+   "to": "audio/bf/_unused/happy_n42.mp3",
+   "bytes": 31533
+  },
+  {
+   "from": "audio/bf/happy_n43.mp3",
+   "to": "audio/bf/_unused/happy_n43.mp3",
+   "bytes": 29229
+  },
+  {
+   "from": "audio/bf/happy_n44.mp3",
+   "to": "audio/bf/_unused/happy_n44.mp3",
+   "bytes": 23085
+  },
+  {
+   "from": "audio/bf/happy_n45.mp3",
+   "to": "audio/bf/_unused/happy_n45.mp3",
+   "bytes": 26157
+  },
+  {
+   "from": "audio/bf/happy_n46.mp3",
+   "to": "audio/bf/_unused/happy_n46.mp3",
+   "bytes": 23085
+  },
+  {
+   "from": "audio/bf/happy_n47.mp3",
+   "to": "audio/bf/_unused/happy_n47.mp3",
+   "bytes": 41901
+  },
+  {
+   "from": "audio/bf/happy_n48.mp3",
+   "to": "audio/bf/_unused/happy_n48.mp3",
+   "bytes": 30765
+  },
+  {
+   "from": "audio/bf/happy_n49.mp3",
+   "to": "audio/bf/_unused/happy_n49.mp3",
+   "bytes": 35757
+  },
+  {
+   "from": "audio/bf/happy_n5.mp3",
+   "to": "audio/bf/_unused/happy_n5.mp3",
+   "bytes": 31917
+  },
+  {
+   "from": "audio/bf/happy_n50.mp3",
+   "to": "audio/bf/_unused/happy_n50.mp3",
+   "bytes": 29613
+  },
+  {
+   "from": "audio/bf/happy_n51.mp3",
+   "to": "audio/bf/_unused/happy_n51.mp3",
+   "bytes": 29229
+  },
+  {
+   "from": "audio/bf/happy_n52.mp3",
+   "to": "audio/bf/_unused/happy_n52.mp3",
+   "bytes": 23085
+  },
+  {
+   "from": "audio/bf/happy_n53.mp3",
+   "to": "audio/bf/_unused/happy_n53.mp3",
+   "bytes": 40365
+  },
+  {
+   "from": "audio/bf/happy_n54.mp3",
+   "to": "audio/bf/_unused/happy_n54.mp3",
+   "bytes": 28077
+  },
+  {
+   "from": "audio/bf/happy_n55.mp3",
+   "to": "audio/bf/_unused/happy_n55.mp3",
+   "bytes": 32685
+  },
+  {
+   "from": "audio/bf/happy_n56.mp3",
+   "to": "audio/bf/_unused/happy_n56.mp3",
+   "bytes": 33069
+  },
+  {
+   "from": "audio/bf/happy_n57.mp3",
+   "to": "audio/bf/_unused/happy_n57.mp3",
+   "bytes": 25389
+  },
+  {
+   "from": "audio/bf/happy_n58.mp3",
+   "to": "audio/bf/_unused/happy_n58.mp3",
+   "bytes": 20781
+  },
+  {
+   "from": "audio/bf/happy_n59.mp3",
+   "to": "audio/bf/_unused/happy_n59.mp3",
+   "bytes": 35373
+  },
+  {
+   "from": "audio/bf/happy_n6.mp3",
+   "to": "audio/bf/_unused/happy_n6.mp3",
+   "bytes": 23085
+  },
+  {
+   "from": "audio/bf/happy_n7.mp3",
+   "to": "audio/bf/_unused/happy_n7.mp3",
+   "bytes": 30381
+  },
+  {
+   "from": "audio/bf/happy_n8.mp3",
+   "to": "audio/bf/_unused/happy_n8.mp3",
+   "bytes": 31149
+  },
+  {
+   "from": "audio/bf/happy_n9.mp3",
+   "to": "audio/bf/_unused/happy_n9.mp3",
+   "bytes": 28077
+  },
+  {
+   "from": "audio/bf/happy_v2.mp3",
+   "to": "audio/bf/_unused/happy_v2.mp3",
+   "bytes": 47661
+  },
+  {
+   "from": "audio/bf/happy_v4.mp3",
+   "to": "audio/bf/_unused/happy_v4.mp3",
+   "bytes": 29229
+  },
+  {
+   "from": "audio/bf/happy_v5.mp3",
+   "to": "audio/bf/_unused/happy_v5.mp3",
+   "bytes": 28461
+  },
+  {
+   "from": "audio/bf/happy_v6.mp3",
+   "to": "audio/bf/_unused/happy_v6.mp3",
+   "bytes": 25005
+  }
+ ]
+}
