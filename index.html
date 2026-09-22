@@ -397,6 +397,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       <button class="btn-m" id="bfBtn" style="border-color:#ff9ec7;color:#ffd76e"><img class="gm-ico" src="art/icons/game/breakfast.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🍳</span> 做份早餐</button>
       <div id="bfNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <div id="mjRec" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:6px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
+      <button class="btn-m" id="jadeBtn" style="border-color:#c9a24a;color:#ffd76e"><img class="gm-ico" src="art/icons/game/jade.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🪨</span> 开窗（赌石）</button>
+      <div id="jadeNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="saveBtn">▣ 保存进度</button>
       <button class="btn-m" id="exportBtn">⇪ 导出存档</button>
       <button class="btn-m" id="importBtn">⇩ 导入存档</button>
@@ -618,6 +620,13 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="lotteryClose" style="flex:1">关 闭</button></div>
     </div></div>
 
+    <!-- 开窗 · 赌石（玩法与绘制都在 jade.js，这里只给容器） -->
+    <div class="overlay" id="jade"><div class="panel" style="width:min(760px,96%)">
+      <h3>开 窗</h3><div class="sub2">老城区 · 夜市地摊 —— 拖放大镜在皮壳上找茬，出价，一刀切开见分晓</div>
+      <div id="jadeHost"></div>
+      <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="jadeClose" style="flex:1">收 摊</button></div>
+    </div></div>
+
     <!-- 早餐店 · 选对象面板（面板本身由 breakfast.js 渲染） -->
     <div class="overlay bf-overlay" id="bfPick"><div class="panel bf-panel" id="bfPickHost"></div></div>
 
@@ -654,6 +663,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 <script src="mahjong.js"></script>
 <script src="map3d.js"></script>
 <script src="breakfast.js"></script>
+<script src="jade.js"></script>
 <script>
 "use strict";
 /* ═══════════════ 数据层 ═══════════════ */
@@ -977,6 +987,7 @@ const ACHV = {
   mjPayer:{n:"包赔三家", d:"杠被抢胡，包赔三家"},
   mjRival:{n:"冤家", d:"单局输光所选注码"},
   bfWin:{n:"早餐店老板", d:"在早餐店拼手速过关"},
+  onedaofu:{n:"一刀富", d:"赌石单块净赚 ≥ ¥3000（要蟒带+松花的高货）"},
 };
 
 /* ═══════════════ 音频层 ═══════════════
@@ -1354,6 +1365,8 @@ function newState(){ return {version:SAVE_VER, done:[], stats:{cash:10, cha:5, p
   mjWins:0, mjLosses:0, mjNet:0, mjRep:50, mjStreak:0, mjInvites:{},
   /* ── 早餐店 · 拼手速：每日一次 / 战绩 / 结果 ── */
   breakfastDay:{day:0, sent:[]}, bfWin:false, bfLast:null,
+  /* ── 开窗 · 赌石：局数 / 累计净收支 / 单块最好 / 是否开出过一刀富 ── */
+  jadeRuns:0, jadeNet:0, jadeBest:0, jadeJackpot:false,
   rpg:{xp:0, owned:[], equipped:{hand:null,outfit:null,accessory:null}, bag:{}}, buffs:{time:0,window:0,hp:0,capital:0}}; }
 function save(){ try{ localStorage.setItem("cs2_save", JSON.stringify(S)); }catch(e){} }
 /* 唯一入口：量纲 → 引用白名单 → 状态机边界 → 子系统缺省补齐；坏档一律返回 null */
@@ -1447,6 +1460,11 @@ function restore(raw){
         score:num0(bl.score,0,-9999999,99999999), delta:num0(bl.delta,0,-10,10),
         day:num0(bl.day,out.day,0,99), t:Number.isFinite(Number(bl.t))? Number(bl.t):0 };
     } else out.bfLast = null;
+    // ── 开窗 · 赌石字段：旧档缺 jade* 一律补默认值（与 mj*/bf* 同策略，绝不因此判坏档）──
+    out.jadeRuns    = num0(s.jadeRuns, 0, 0, 99999);
+    out.jadeNet     = num0(s.jadeNet, 0, -99999999, 99999999);
+    out.jadeBest    = num0(s.jadeBest, 0, 0, 99999999);
+    out.jadeJackpot = s.jadeJackpot === true;
     return out;
   }catch(e){ return null; }
 }
@@ -1486,6 +1504,7 @@ function checkAchv(){
   if(S.fightWon) got("brawlWin");
   if(S.mjWin) got("mjWin");
   if(S.bfWin) got("bfWin");
+  if(S.jadeJackpot) got("onedaofu");
   if(S.rpg && Object.values(S.rpg.equipped).filter(Boolean).length>=3) got("gear");
 }
 function hudTitle(){ const s=S.stats; const m=Object.entries(s).sort((a,b)=>b[1]-a[1])[0];
@@ -1500,6 +1519,7 @@ function render(){
   $("clockDay").textContent="Day "+S.day; $("clockPer").textContent=PER[S.per];
   const recEl=$("mjRec"); if(recEl) recEl.innerHTML=mjRecordHtml();
   const bfEl=$("bfNote"); if(bfEl){ try{ bfEl.innerHTML=bfNoteHtml()+bfSinceLast(); }catch(e){ bfEl.textContent="🍳 做份早餐"; } }
+  const jdEl=$("jadeNote"); if(jdEl){ try{ jdEl.innerHTML=jadeNoteHtml(); }catch(e){ jdEl.textContent="🪨 开窗（赌石）"; } }
   const bd=$("bonds"); bd.innerHTML="";
   for(const k in BONDS){ const v=S.bonds[k]; bd.innerHTML+=`<div class="bond"><div class="face">${BONDS[k].f}</div>
     <div style="flex:1"><div class="nm">${BONDS[k].n} <span class="rl">${BONDS[k].r}</span></div>
@@ -4503,6 +4523,53 @@ function scratchLottery(){
   $("lotteryClose").onclick=()=>{ $("lottery").classList.remove("on"); };
 }
 
+/* ═══════════════ 开窗 · 赌石（玩法与绘制都在 jade.js，这里只负责接 S / toast） ═══════════════
+   ⚠ 现金结算口径：模块内部只**记账**（出价时累加 spend，并据此禁用买不起的档位），
+   真正的钱是每块切开时按「净收益 = 真实价值 − 出价」一次性落账（onSettle）。
+   所以中途点「收摊」不吃本金、也不白送 —— 与刮刮乐的即时结算口径一致。 */
+const JADE_ACHV_LINE = 3000;              // 成就【一刀富】的门槛（jade.js 的 jackpot 同值）
+function jadeNoteHtml(){
+  const r = S.jadeRuns || 0;
+  const min = (window.Jade && Jade.TUNE) ? Jade.TUNE.PRICES[0] : 250;
+  if(!r) return `🪨 开窗 · 夜市地摊赌石（3 块一局）<br><span style="color:var(--dim)">最低 ¥${min} 起 · 拖放大镜找裂、找松花</span>`;
+  const net = S.jadeNet || 0;
+  const col = net>0 ? "var(--green)" : (net<0 ? "var(--red)" : "var(--dim)");
+  return `🪨 开窗：<b>${r}</b> 局 · 累计 <b style="color:${col}">${net>0?"+":""}¥${net}</b><br>`+
+    `<span style="color:var(--dim)">单块最好 ${S.jadeBest>0?"+¥"+S.jadeBest:"—"}${S.jadeJackpot?" · ✦ 出过一刀富":""}</span>`;
+}
+function openJade(){
+  if(!window.Jade){ toast("赌石模块未加载（缺 jade.js）"); return false; }
+  AudioSys.init(); AudioSys.click();
+  if(Jade.isBusy()){ $("jade").classList.add("on"); return true; }
+  const min = Jade.TUNE.PRICES[0];
+  if(S.stats.cash < min){ AudioSys.bad(); toast(`财富不足（开窗最低要 ¥${min}，当前 ¥${S.stats.cash}）`); return false; }
+  $("jade").classList.add("on");
+  const ok = Jade.start($("jadeHost"), {
+    cash:  ()=>S.stats.cash,
+    intel: ()=>S.stats.int,
+    onSettle: (net, info)=>{
+      S.stats.cash = Math.max(0, S.stats.cash + net);
+      if(info && info.jackpot){ S.jadeJackpot = true; checkAchv(); }
+      if(net>0) toast(`🪨 开窗涨了 <b>+¥${net}</b>`);
+      else if(net<0) toast(`🪨 开窗垮了 <b>−¥${-net}</b>`);
+      save(); render();
+    },
+    onFinish: (sum)=>{
+      S.jadeRuns = (S.jadeRuns||0) + 1;
+      S.jadeNet  = (S.jadeNet||0) + sum.net;
+      if(sum.best > (S.jadeBest||0)) S.jadeBest = sum.best;
+      save(); render(); checkAchv();
+      toast(`🪨 收摊：本局 <b>${sum.net>0?"+":""}¥${sum.net}</b> · 涨 ${sum.ups} / 垮 ${sum.downs}`);
+    }
+  });
+  if(!ok){ $("jade").classList.remove("on"); toast("赌石模块启动失败（详见控制台）"); }
+  return ok;
+}
+$("jadeBtn").addEventListener("click", ()=>{ openJade(); });
+$("jadeClose").addEventListener("click", ()=>{ AudioSys.click();
+  if(window.Jade && Jade.isBusy()) Jade.dispose();     // 中途收摊：不结算、不吃本金
+  $("jade").classList.remove("on"); render(); });
+
 /* ── 章末卡 ── */
 const CHN=["序章","第一章","第二章","第三章"];
 function showEndcard(){
@@ -4616,6 +4683,21 @@ window.__cs2 = {
   bfGlue: ()=>({ running:bfRunning, story:bfNode, node:(typeof curNode!=="undefined"&&curNode)?curNode.id:null, last:bfLastResult }),
   askInvite: mjMaybeInvite,
   hideInvite: hideMjInvite,
+  /* 开窗 · 赌石钩子（浏览器验收脚本用）—— 直接转发 Jade.debug，不另存一份状态 */
+  get jade(){ return (window.Jade && Jade.debug) ? Jade.debug : null; },
+  get jadeState(){ return (window.Jade && Jade.debug) ? Jade.debug.state() : null; },
+  get jadeStone(){ return (window.Jade && Jade.debug) ? Jade.debug.stone() : null; },
+  get jadeFound(){ return (window.Jade && Jade.debug) ? Jade.debug.found() : null; },
+  jadeLens: (x,y)=> (window.Jade ? Jade.debug.lens(x,y) : false),
+  jadeTap: (x,y)=> (window.Jade ? Jade.debug.tap(x,y) : null),
+  jadeHint: ()=> (window.Jade ? Jade.debug.hint() : false),
+  jadeBid: (i)=> (window.Jade ? Jade.debug.bid(i) : false),
+  jadeWalk: ()=> (window.Jade ? Jade.debug.walk() : false),
+  jadeSkipSearch: ()=> (window.Jade ? Jade.debug.skipSearch() : false),
+  jadeCutNow: ()=> (window.Jade ? Jade.debug.cutNow() : false),
+  jadeNext: ()=> (window.Jade ? Jade.debug.next() : false),
+  jadeFinish: ()=> (window.Jade ? Jade.debug.finishNow() : false),
+  openJade: openJade,
 };
 
 /* ═══════════════ 启动 ═══════════════ */
@@ -4693,11 +4775,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260922-1417" data-fp="3d3a29"
-     title="构建版本戳 · build 20260922-1417 · 内容指纹 3d3a29（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260922-1846" data-fp="63141e"
+     title="构建版本戳 · build 20260922-1846 · 内容指纹 63141e（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260922-1417 · ch 3d3a29 · bf 211K · mj 320K · idx 292K · map 68K</div>
-<script>window.__BUILD={"build":"20260922-1417","fingerprint":"3d3a29","sizes":{"idx":292,"mj":320,"bf":211,"map":68},"files":{"index.html":298660,"mahjong.js":327444,"breakfast.js":216155,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1789964551633,"map3d.js":1789789317181},"idxContentHash":"dc169b5fb182c3c25083640086d9f582bec47b81","idxContentBytes":297363,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260922-1846 · ch 63141e · bf 211K · mj 320K · jd 51K · idx 298K · map 68K</div>
+<script>window.__BUILD={"build":"20260922-1846","fingerprint":"63141e","sizes":{"idx":298,"mj":320,"bf":211,"jd":51,"map":68},"files":{"index.html":305289,"mahjong.js":327444,"breakfast.js":216215,"jade.js":51765,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790073969008,"map3d.js":1790070275672},"idxContentHash":"71b9277f574b7f8b6033a5408c3ecb6bf4b127ca","idxContentBytes":303941,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
