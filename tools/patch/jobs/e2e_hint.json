@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  '    A(\"hint_fast\", k.stats.lastMs < 300 && k.stats.worstMs < 300, k.stats.lastMs + \"/\" + k.stats.worstMs);',\n",
+      "text": "  '    A(\"hint_fast\", k.stats.lastMs < 300 && k.stats.worstMs < 300, k.stats.lastMs + \"/\" + k.stats.worstMs);',\n@@E2EHINT@@"
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  '  setTimeout(stepResult, 0);',\n  '}',\n  'function stepResult() {'",
+      "text": "  '  setTimeout(stepHintTenpai, 0);',\n  '}',\n  'function stepResult() {'"
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  hint_pref_saved: \"开关状态持久化到 localStorage\",",
+      "text": "  hint_pref_saved: \"开关状态持久化到 localStorage\",\n  hint_tile_eq_panel: \"🎯 面板文案里的牌名 == debug.hint().tile（逐字比对，不是只比下标）\",\n  hint_tile_eq_mark: \"🎯 金框那一格的牌 == debug.hint().tile（逐字比对）\",\n  hint_reason_same: \"🎯 建议理由里说的就是这张牌\",\n  hint_deterministic: \"同一手牌连读 5 次结果完全一致（不跳动）\",\n  hint_draw_fresh: \"🎯 真摸牌后立刻读提示：算的是摸牌后的手牌（hint.drawn == 引擎 p.drawn，金框也落在建议那张）\",\n  hint_tenpai_ready: \"🎯 摆到听牌状态：建议的是一张「打完仍听」的牌\",\n  hint_tenpai_click_tile: \"🎯 端到端：点金框那一格 → 打出的正是被建议的那张\",\n  hint_tenpai_kept: \"🎯 端到端：点完仍处于听牌（未退向听）\",\n  stepHintTenpai_throw: \"端到端（摸牌 → 点金框）整段无异常\","
+    }
+  ]
+}

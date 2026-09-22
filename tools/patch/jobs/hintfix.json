@@ -1,0 +1,67 @@
+{
+  "jobs": [
+    {
+      "file": "mahjong.js",
+      "from": "    if (evaluate(a, []) || (mc > 0 && stdShanten(a, mc) <= 0)) best = -1;   // 13/14 张已成牌",
+      "text": "    /* 已成牌 = -1：无副露看 evaluate；有副露时 stdShanten 必须**严格 < 0**（= 面子+将全齐）。\n       老实现写的是 <= 0，而 3k+2 张的 stdShanten = 0 表示的是「再补一张就成牌（听牌）」——\n       于是副露手的听牌被当成「已成牌」，有效进张整批被吞掉（ukeireSet 要求 s2 === base-1）。 */\n    if (evaluate(a, []) || (mc > 0 && stdShanten(a, mc) < 0)) best = -1;   // 已成牌"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  var HINT_CACHE = Object.create(null), HINT_CACHE_N = 0;",
+      "to": "  function listTiles(a) { return (a || []).join(\"/\"); }",
+      "textFile": "tools/patch/text/hint_core_new.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  /** 每回合刷新一次（同手牌不重算）：返回当前提示 */\n  function updateHint() {",
+      "to": "    G.hintIdx = G.hint && typeof G.hint.discardIdx === \"number\" ? G.hint.discardIdx : -1;\n    return G.hint;\n  }",
+      "textFile": "tools/patch/text/hint_update_new.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  /** 更新「被建议的牌」的金框位置（CSS 像素，盖在画布同一张牌上） */\n  function updateHintMark() {",
+      "to": "    m.style.height = ((t.h + 6) * sy).toFixed(1) + \"px\";\n  }",
+      "textFile": "tools/patch/text/hint_mark_new.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      h = hintCalc({ hand: p.hand, melds: p.melds, seen: hintSeen(0), honors: G.E.honors });",
+      "text": "      h = hintCalc({ hand: p.hand, melds: p.melds, drawn: p.drawn, seen: hintSeen(0), honors: G.E.honors });"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      if (i === G.hintIdx && G.hintOn) {              // 智脑建议打出的那张：金色脉动边框",
+      "text": "      if (i === markIdx && G.hintOn) {                // 智脑建议打出的那张：金色脉动边框（与 DOM 金框同一套定位规则）"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    var p = G.E.P[0], rects = layoutHand(p), now = Date.now(), i, r, lift;\n    G.handRects = rects;",
+      "text": "    var p = G.E.P[0], rects = layoutHand(p), now = Date.now(), i, r, lift;\n    var markIdx = hintMarkIdx(rects);\n    G.handRects = rects;\n    G.handRectsSig = p.hand.join(\"|\");            // 这份摆放对应的手牌；金框只在「摆放过期」前用它定位"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    hover: -1, handRects: [], wallSlots: null, noise: null, stat: null, tickTimer: 0, frames: 0,",
+      "text": "    hover: -1, handRects: [], handRectsSig: \"\", wallSlots: null, noise: null, stat: null, tickTimer: 0, frames: 0,"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "  function dbgHint() {\n    var h = updateHint();\n    renderBrain(); updateHintMark();\n    return h ? { discard: h.discard, discardIdx: h.discardIdx, shanten: h.shanten, tenpaiNow: h.tenpaiNow, tenpaiAfter: h.tenpaiAfter, waits: h.waits.slice(), waitsLeft: h.waitsLeft, ukeire: h.ukeire, improve: h.improve.slice(), improveKinds: h.improveKinds } : null;\n  }",
+      "textFile": "tools/patch/text/hint_dbg_new.txt"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    var r = E.aiStep();\n    playNewSfx(); updateHud();\n    if (r === \"wait\") { showHumanUI(); return; }",
+      "text": "    var r = E.aiStep();\n    playNewSfx(); updateHud();\n    refreshHint();            // 手牌一有变化（摸牌 / 碰 / 杠 / 补摸）立刻重算并渲染 —— 轮到自己时提示一定是最新的\n    if (r === \"wait\") { showHumanUI(); return; }"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "      hintCalc: hintCalc, hintLines: hintLines, hintCacheClear: hintCacheClear, hintCacheStats: hintCacheStats,",
+      "text": "      hintCalc: hintCalc, hintLines: hintLines, hintReason: hintReason, hintKeyOf: hintKeyOf,\n      hintCacheClear: hintCacheClear, hintCacheClearAll: hintCacheClearAll, hintCacheStats: hintCacheStats,\n      cmpHintOpt: cmpHintOpt, cmpHintUke: cmpHintUke, HINT_UKEIRE_MAX: HINT_UKEIRE_MAX,"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    if (h.discard) l3 = \"有效进张 \" + h.ukeire + \" 张 · 共 \" + h.options.length + \" 种打法\";\n    else if (h.tenpaiNow) l3 = \"已听牌 · 共 \" + h.waits.length + \" 种听牌\";\n    else l3 = \"可改善 \" + h.improveKinds + \" 种\";",
+      "text": "    if (h.discard) l3 = \"有效进张 \" + h.ukeire + \" 张 · 共 \" + h.options.length + \" 种打法\";\n    else if (h.tenpaiNow) l3 = \"已听牌 · 共 \" + h.waits.length + \" 种听牌\";\n    else l3 = \"可改善 \" + h.improveKinds + \" 种\";\n    if (h.noBetter) l3 = \"⚠ 无更好选择（所有打法都会破听）· \" + l3;   // 破听允许发生，但绝不静默"
+    }
+  ]
+}

@@ -18,7 +18,7 @@
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
-const { readHtml, grabFn, grabConst, grab } = require("./lib/extract.cjs");
+const { readHtml, grabFn, grabConst, grab, evalConstIn, serialize } = require("./lib/extract.cjs");
 
 const html = readHtml();
 let pass = 0;
@@ -36,6 +36,9 @@ const prelude = `
   ${grabFn(html, "judgeGrade")}
   ${grabFn(html, "mashLoop")}
   ${grabFn(html, "judgeBar")}
+  /* 真实的侧视舞台（P3）。必须用 evalConstIn 而不是 JSON.parse(grabConst(...))：
+     它是个含方法的对象字面量，序列化会丢掉方法。 */
+  const Fight2Stage = ${serialize(evalConstIn(html, "Fight2Stage"))};
 
   var SFX = [], AFTER = [], LOG = [], RNG = 0.5;
   var CLOCK = 0, FRAME_MS = 1000 / 60, PENDING = [];
@@ -92,12 +95,63 @@ const prelude = `
   function requestAnimationFrame(cb){ PENDING.push(cb); return 0; }
   var performance = { now:function(){ return CLOCK; } };
   var setTimeout = function(){ return 0; };
+
+  /* ── 记账用的桩 canvas 2D ──────────────────────────────────────────────
+     为什么需要：P3 的断言全是"机制是否驱动了画面"。真浏览器里没法自动断言，
+     无头环境又没有 canvas，所以这里放一个**只记账不画画**的 2D 上下文：
+       · PIX  = 被写过的像素包围盒（用来问"到底画了东西没有"）
+       · IMGS = 每次 drawImage 的目标矩形（用来钉住立绘的缩放/贴地/居中几何）
+     舞台里所有绘制调用都被 try/catch 包着（拿不到 2D 上下文就只跑状态机），
+     所以桩不需要画得对，只要存在且能被调用。 */
+  var PIX = { minX: 1e9, maxX: -1, minY: 1e9, maxY: -1, n: 0 };
+  var IMGS = [];
+  function px(x, y){ if(x<PIX.minX)PIX.minX=x; if(x>PIX.maxX)PIX.maxX=x;
+                     if(y<PIX.minY)PIX.minY=y; if(y>PIX.maxY)PIX.maxY=y; PIX.n++; }
+  var FAKE_CTX = (function(){
+    var M = [1,0,0,1,0,0], st = [];
+    var tf = function(x,y){ return [M[0]*x+M[2]*y+M[4], M[1]*x+M[3]*y+M[5]]; };
+    var grad = { addColorStop:function(){} };
+    return {
+      globalAlpha:1, fillStyle:"#000", strokeStyle:"#000", lineWidth:1, font:"12px x",
+      lineCap:"butt", lineJoin:"miter", textAlign:"left", textBaseline:"alphabetic",
+      save:function(){ st.push([M.slice(), this.globalAlpha]); },
+      restore:function(){ var s=st.pop(); if(s){ M=s[0]; this.globalAlpha=s[1]; } },
+      setTransform:function(a,b,c,d,e,f){ M=[a,b,c,d,e,f]; },
+      translate:function(x,y){ M=[M[0],M[1],M[2],M[3],M[4]+M[0]*x+M[2]*y,M[5]+M[1]*x+M[3]*y]; },
+      scale:function(x,y){ M=[M[0]*x,M[1]*x,M[2]*y,M[3]*y,M[4],M[5]]; },
+      clearRect:function(){}, beginPath:function(){}, moveTo:function(){}, lineTo:function(){},
+      closePath:function(){}, arc:function(){}, ellipse:function(){}, rect:function(){},
+      createLinearGradient:function(){ return grad; }, createRadialGradient:function(){ return grad; },
+      measureText:function(t){ return { width:String(t).length*8 }; },
+      fillRect:function(x,y){ var p=tf(x,y); px(p[0],p[1]); },
+      strokeRect:function(x,y){ var p=tf(x,y); px(p[0],p[1]); },
+      fill:function(){}, stroke:function(){},
+      fillText:function(t,x,y){ var p=tf(x,y); px(p[0],p[1]); },
+      strokeText:function(t,x,y){ var p=tf(x,y); px(p[0],p[1]); },
+      drawImage:function(img,dx,dy,dw,dh){
+        var a=tf(dx,dy), b=tf(dx+dw,dy+dh);
+        IMGS.push({ img:img, dw:dw, dh:dh, x0:Math.min(a[0],b[0]), x1:Math.max(a[0],b[0]),
+                    y0:Math.min(a[1],b[1]), y1:Math.max(a[1],b[1]) });
+        px(a[0],a[1]); px(b[0],b[1]);
+      },
+    };
+  })();
+  /* 桩画布要**够高**：陈默缩放后身高 445px，而舞台默认 GROUND=700、H=900 ——
+     立绘头顶会跑到画布外（真浏览器里同样偏上，但这里会让几何断言更难读）。
+     把地面线放到 720、画布放到 1080，人物完整落进来，量出来的数字才可信。 */
+  var FAKE_CV = { width:1680, height:1080, style:{}, getContext:function(){ return FAKE_CTX; },
+    addEventListener:function(){}, removeEventListener:function(){} };
+  /* 假立绘：真浏览器里这是 Image.onload 之后才 ready 的东西。
+     默认**不装**（保住"无头环境没有真 Image → 走骨骼回落"这条真实路径），
+     要测立绘分支时显式装。 */
+  function fakeSprite(w, h){ return { width:w, height:h, naturalWidth:w, naturalHeight:h }; }
 `;
 
 let api = null, err = "";
 try {
   api = new vm.Script("(function(){\n" + prelude + "\n" + grabFn(html, "startFight2") + "\n" +
     "return { startFight2:startFight2, EL:EL, SFX:SFX, AFTER:AFTER, BOUND:BOUND, S:S, WIN:window,\n" +
+    "  Stage:Fight2Stage, PIX:PIX, IMGS:IMGS, FAKE_CV:FAKE_CV, fakeSprite:fakeSprite,\n" +
     "  step:function(){ var q=PENDING; PENDING=[]; CLOCK+=FRAME_MS;\n" +
     "    for(var i=0;i<q.length;i++) q[i](CLOCK); return q.length; },\n" +
     "  clear:function(){ PENDING.length = 0; SFX.length = 0; },\n" +
@@ -108,7 +162,7 @@ try {
 A(!!api && typeof api.startFight2 === "function", "能从 index.html 抽出真实的 startFight2()", err || "");
 if (!api) { console.log("\n[结果] 通过 " + pass + "，失败 " + fails.length + " —— 抽取失败"); process.exit(1); }
 
-const { EL, SFX, AFTER } = api;
+const { EL, SFX, AFTER, fakeSprite } = api;
 const F = () => api.cs2().fight2;
 const fightSfx = () => SFX.filter((s) => /^sfx-fight-/.test(s));
 const plain = (s) => String(s).replace(/<[^>]+>/g, "");
@@ -125,6 +179,9 @@ const newFight = (it) => {
   /* 兜底血量与 brawl2 节点保持一致（调平后是 320）；单个用例要特例时传 it 覆盖 */
   api.startFight2(Object.assign({ type: "fight2", title: "一打二", hp: 320,
     perfect: { phy: 14 }, ok: { phy: 8 }, miss: { phy: 4 } }, it || {}));
+  /* 跳过"化身进街机"的片头：测试是手动推帧的，片头期间出招会被**设计性**地挡掉，
+     不跳过的话所有出招类断言都会被静默挡掉（片头本身另有专项用例）。 */
+  api.Stage.arcadeOn = false; api.Stage.arcade = 0;
 };
 const cursorPos = () => { const v = parseFloat(EL.fight2Cur.style.left); return isNaN(v) ? 0 : v; };
 /** 按红闪提示的 tell 文案决定该按哪个方向（与战斗里那套映射一致） */
@@ -410,8 +467,16 @@ function settle() {
   strike("jab", wantPerfect);
   A(F().state().stamFoe < 1, "命中推掉对手体干", "stamFoe=" + F().state().stamFoe);
   A(F().state().stamMine <= 1, "自己出招也付一点体干（不能超过上限）", "stamMine=" + F().state().stamMine);
-  A(String(EL.fight2StamMine.style.width).indexOf("%") > 0, "体干条宽度已渲染",
-    "我的 " + EL.fight2StamMine.style.width + " / 对手 " + EL.fight2StamFoe.style.width);
+  /* 体干条不再用 DOM 进度条了（P3 改成 canvas HUD，见 Fight2Stage.drawHud）：
+     这里验的是"状态同步进舞台了"，画面本身另有无头舞台用例负责。 */
+  api.Stage.begin(api.FAKE_CV); api.Stage.running = false;
+  api.Stage.sync({ hp: F().state().hp, maxHp: F().state().hp, foeHp: F().state().foeHp, foeMax: 320,
+    stamMine: F().state().stamMine, stamFoe: F().state().stamFoe, turn: F().state().turn,
+    ap: F().state().ap, phase: "act" });
+  const hud = api.Stage.debugState();
+  A(hud.stamMine !== null && hud.stamFoe !== null && hud.stamFoe < 1,
+    "体干已同步进 canvas HUD（不再是 DOM 进度条）",
+    "我的 " + hud.stamMine + " / 对手 " + hud.stamFoe);
 }
 {
   /* 抱架 / 读招是"养体干"的招 */
@@ -668,6 +733,297 @@ function settle() {
   A(noDodge.lost > ideal.lost + 20,
     "从不防守的代价足够大（明显比闪对疼）",
     "不防守 " + noDodge.lost + " vs 闪对 " + ideal.lost);
+}
+
+/* ── P3：侧视舞台（造型 / 姿势表 / 立绘 / 街机过场）──────────────────────
+   一条元断言先钉住"能力存在"：本会话发生过一次测试文件被编码事故毁掉、恢复成旧版的事，
+   旧版里根本没有 Fight2Stage 导出，后面这些用例会整段静默消失而测试仍然"全绿"。
+   所以先显式要求舞台 API 在，缺了就报出来。 */
+A(!!api.Stage && typeof api.Stage.frameOnce === "function" && typeof api.Stage.debugState === "function",
+  "舞台 API 已导出（frameOnce / debugState）—— 缺少它说明这批 P3 用例被整段丢掉了",
+  api.Stage ? Object.keys(api.Stage).length + " 个键" : "api.Stage 不存在");
+
+/** 手动推帧（测试环境没有 rAF 循环；帧定时器靠 step() 模拟出的 PENDING 队列） */
+function stageStep(n) { for (let i = 0; i < n; i++) { api.step(); api.Stage.frameOnce(); } }
+
+
+{
+  newFight();
+  const s0 = F().stage();
+  A(s0.running === true && s0.frame >= 1, "舞台跟着战斗一起跑（begin 后至少画过一帧）",
+    "running=" + s0.running + " frame=" + s0.frame);
+}
+{
+  /* 命中 → 火花 + 顿帧 + 对手受击姿势 */
+  newFight();
+  strike("jab", wantPerfect);
+  /* ⚠ 推帧数要**卡在火花寿命之内**：打击的顿帧（12 帧）会冻结 step()，火花是顿帧之后才诞生的；
+     而火花寿命只有 14~24 帧。推 30 帧 = 先冻结 12 帧、再让火花烧完，于是读到 fx=0 ——
+     那不是"没有特效"，是"特效已经演完了"（实测 fxCount=1 而 fx=0）。推 8 帧刚好。 */
+  stageStep(8);
+  const s1 = F().stage();
+  A(s1.fx > 0, "命中产生命中特效（火花/扩散环）",
+    "fx=" + s1.fx + " fxCount=" + s1.fxCount + " hitstop=" + s1.hitstop);
+  A(s1.mePose && s1.mePose.armF > 0.5, "出招时前手伸出（姿势被驱动了）", JSON.stringify(s1.mePose));
+}
+{
+  /* 偏出 → 不该有火花 */
+  newFight();
+  strike("jab", wantMiss);
+  const s2 = F().stage();
+  A(s2.fx === 0, "偏出没有命中特效（空挥就是空挥）", "fx=" + s2.fx);
+  A(s2.hitstop === 0, "偏出没有顿帧", "hitstop=" + s2.hitstop);
+}
+{
+  /* 挨打 → 玩家侧也有火花与受击姿势。
+     ⚠ 用**单调累加器** fxCount 判断，不要比较 fx 数组长度：粒子有生命周期，
+       before/after 之间老粒子会被回收，实测出现过 25 → 25 的假失败。 */
+  newFight();
+  advanceToDefend();
+  api.Stage.after.length = 0;
+  api.Stage.pose("foe", "strike");
+  api.Stage.fx.length = 0;
+  const before = F().stage().fxCount, beforeLive = F().stage().fx;
+  let g = 0;
+  while (F().state().phase === "defend" && g++ < 200) api.step();   // 不按方向 → 硬吃
+  const s3 = F().stage();
+  A(s3.fxCount > before, "挨打也会产生命中特效", "fxCount " + before + " → " + s3.fxCount);
+  A(s3.fx > beforeLive, "挨打这一击的火花还活在场上", "fx " + beforeLive + " → " + s3.fx);
+  A(s3.hitstop > 0, "挨打也有顿帧", "hitstop=" + s3.hitstop);
+  A(s3.mePoseName === "hit" || s3.mePoseName === "idle", "受击后玩家姿势切到了受击/待机档",
+    "mePoseName=" + s3.mePoseName);
+}
+{
+  /* 结算 → KO 横幅 + 输家倒地 + 相机推近 + 演完自停 */
+  newFight();
+  let g = 0;
+  while (F().alive && g++ < 400) actAndSettle("jab", wantPerfect);
+  const s4 = F().stage();
+  A(s4.ko > 0 && s4.koText === "K.O.", "打赢 → 舞台打出 K.O. 横幅", JSON.stringify({ ko: s4.ko, text: s4.koText }));
+  A(s4.zoom > 1, "结算时相机推近", "zoom=" + s4.zoom);
+  stageStep(180);
+  A(api.Stage.running === false, "演出结束后舞台停止（不留 rAF 循环）", "running=" + api.Stage.running);
+}
+{
+  /* 两个角色的造型与体型/姿势表都要**分开**，否则"一打二"的两个人会长得一样 */
+  const B = evalConstIn(html, "Fight2Stage");
+  const bodies = B.BODIES || {}, poses = B.POSES || {};
+  A(!!(bodies.player && bodies.brawler && bodies.player.hi > bodies.brawler.hi
+      && bodies.brawler.torso > bodies.player.torso && bodies.brawler.arm > bodies.player.arm
+      && bodies.brawler.spread > bodies.player.spread && bodies.brawler.shoulder > bodies.player.shoulder),
+    "体型参数按角色分开且方向正确（高瘦 vs 矮壮）",
+    JSON.stringify({ player: bodies.player, brawler: bodies.brawler }).slice(0, 130));
+  A(!!(poses.player && poses.brawler && poses.player.strike && poses.brawler.strike),
+    "姿势表按角色分开（player / brawler 各 5 套）",
+    Object.keys(poses).map((k) => k + ":" + Object.keys(poses[k]).length).join(" "));
+  A(poses.brawler.strike.step > poses.player.strike.step && poses.brawler.strike.lean > poses.player.strike.lean,
+    "同一个「出拳」两人幅度不同：莽夫冲得更远、倾得更多",
+    "step " + poses.player.strike.step + " vs " + poses.brawler.strike.step);
+  A(poses.brawler.ko.crouch > poses.player.ko.crouch, "倒地幅度也不同：莽夫躺得更平",
+    poses.player.ko.crouch + " vs " + poses.brawler.ko.crouch);
+  A(B.SPRITE_META && B.SPRITE_META.puncher && B.SPRITE_META.brawler
+      && B.SPRITE_META.puncher.standH > 0 && B.SPRITE_META.brawler.standH > 0,
+    "立绘元数据（standH / lowY）两套都在 —— 缺了就只能按各图拉高、倒地会被放大 3 倍",
+    JSON.stringify({ puncher: B.SPRITE_META.puncher.standH, brawler: B.SPRITE_META.brawler.standH }));
+
+  /* ── 配色也按角色分：莽夫暖红系、陈默冷蓝系，都保留轮廓光 ──
+     断言"两个色系真的不同"而不是写死具体色值：调色是策划的活，
+     但"红蓝不能撞成一样"和"轮廓光不能丢"是设计约束。 */
+  const pal = B.PALETTE || {};
+  A(!!(pal.player && pal.brawler && pal.player.near && pal.brawler.near),
+    "配色表按角色分开（player / brawler 各有远/近两档）",
+    Object.keys(pal).map((k) => k + ":" + (pal[k].label || "?")).join(" "));
+  if (pal.player && pal.brawler) {
+    /* 色相判据：暖色 R > B，冷色 B > R —— 用分量关系而不是具体色号，调色时不会误报 */
+    const hue = (hex) => {
+      const h = String(hex).replace("#", "");
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    };
+    const bEdge = hue(pal.brawler.near.edge), pEdge = hue(pal.player.near.edge);
+    A(bEdge[0] > bEdge[2] && pEdge[2] > pEdge[0],
+      "莽夫是暖色系（轮廓光 R>B）、陈默是冷色系（B>R）",
+      "莽夫 rgb(" + bEdge + ") vs 陈默 rgb(" + pEdge + ")");
+    A(pal.brawler.near.edge !== pal.player.near.edge,
+      "两人的轮廓光色值不同（一眼能分辨的关键）",
+      pal.brawler.near.edge + " vs " + pal.player.near.edge);
+    /* 远/近两档必须不同：两个人画在同一平面上，同色会糊成一坨 */
+    A(pal.brawler.far.main !== pal.brawler.near.main && pal.player.far.main !== pal.player.near.main,
+      "每个角色内部还分远/近两档明度（手臂叠一起不会糊）",
+      "莽夫 " + pal.brawler.far.main + "→" + pal.brawler.near.main);
+    A(typeof B.palOf === "function" && B.palOf("brawler").near.edge === pal.brawler.near.edge
+        && B.palOf("没这个角色").near.edge === pal.player.near.edge,
+      "palOf() 能按角色取色，未知角色回落到玩家那套",
+      typeof B.palOf === "function" ? "有 palOf" : "没有 palOf");
+  }
+}
+
+{
+  /* 运行时验证"姿势切换走的是**各自那套**" —— 不是"两张表存在"而已。
+     同一个「出拳」：莽夫的 lean/step 明显大于陈默（大开大合 vs 紧凑收敛）。
+     注意不能用骨骼像素去比（两人 x 不同、体型不同，数字没法直接比），
+     直接比**姿势值**才是这条设计约束本身。 */
+  newFight();
+  const S = api.Stage;
+  S.pose("me", "strike"); S.pose("foe", "strike");
+  S.frameOnce();
+  const st = S.debugState();
+  A(st.mePoseName === "strike" && st.foePoseName === "strike",
+    "双方都切到 strike 档", st.mePoseName + " / " + st.foePoseName);
+  const T = evalConstIn(html, "Fight2Stage").POSES;
+  /* 姿势是**插值**过去的（`pose()` 只设目标），所以要推够帧数才收敛到目标值 */
+  stageStep(90);
+  const s2 = S.debugState();
+  A(Math.abs(s2.foeLean - T.brawler.strike.lean) < 0.02 && Math.abs(s2.meLean - T.player.strike.lean) < 0.02,
+    "同一个出拳档，两人各自收敛到**自己表里**的 lean",
+    "莽夫 " + s2.foeLean + "（表 " + T.brawler.strike.lean + "）· 陈默 " + s2.meLean + "（表 " + T.player.strike.lean + "）");
+  A(s2.foeStep > s2.meStep, "莽夫冲得更远（各自表里的 step 不同）",
+    "step " + s2.foeStep + " vs " + s2.meStep);
+  /* 反差要够"一眼"：幅度差至少 1.5 倍，否则玩家分不出风格 */
+  A(T.brawler.strike.lean > T.player.strike.lean * 1.5 && T.brawler.strike.step > T.player.strike.step * 1.5,
+    "两个角色的动作幅度差 ≥1.5 倍（大开大合 vs 紧凑，不是微调）",
+    "lean " + T.player.strike.lean + "→" + T.brawler.strike.lean +
+    " · step " + T.player.strike.step + "→" + T.brawler.strike.step);
+}
+{
+  /* 运行时按事件切姿势档 */
+  newFight();
+  strike("jab", wantPerfect);
+  const s1 = F().stage();
+  A(s1.mePoseName === "strike" && s1.foePoseName === "hit",
+    "一次命中里：出招方 poseName=strike、挨打方=hit", s1.mePoseName + " / " + s1.foePoseName);
+  A(s1.spriteMe === false && s1.spriteFoe === false,
+    "测试环境没有真 Image → 立绘未就绪，绘制走骨骼回落（回落路径必须能跑）",
+    "spriteMe=" + s1.spriteMe + " spriteFoe=" + s1.spriteFoe);
+}
+{
+  /* ── 立绘分支的几何 ────────────────────────────────────────────────────
+     为什么必须专门测：测试环境没有真 Image，上面所有用例都走**骨骼回落**，
+     于是立绘分支整整一大段零覆盖 —— 实测就漏掉一个真 bug：
+       drawFighter 用 f.who（体型档位 "player"）去查立绘，而立绘 slug 在 f.sprite（"puncher"），
+       SPRITES.player 不存在 → 陈默永远回落骨骼；花衬衫只是恰好 who 与 sprite 同名（都是
+       "brawler"），所以只有一半角色被坑，看画面很容易误判成"两个都在用立绘"。
+     这里用记账桩把几何钉住：缩放基准、贴地锚点、镜像不跑位、倒地不放大。 */
+  const S = api.Stage;
+  const meta = S.SPRITE_META;
+  meta.puncher.standH = 400; meta.puncher.lowY = { idle:12, strike:12, hit:12, ko:12 };
+  meta.brawler.standH = 420; meta.brawler.lowY = { idle:30, strike:30, hit:30, ko:30 };
+  S.SPRITES.puncher = { ready:4, need:4, poses:{
+    idle:fakeSprite(220,400), strike:fakeSprite(240,395),
+    hit:fakeSprite(240,390),  ko:fakeSprite(300,150) } };
+  S.SPRITES.brawler = { ready:4, need:4, poses:{
+    idle:fakeSprite(200,420), strike:fakeSprite(210,415),
+    hit:fakeSprite(210,410),  ko:fakeSprite(280,200) } };
+  newFight();
+  api.Stage.begin(api.FAKE_CV);
+  api.Stage.running = false;
+  api.Stage.GROUND = 720;
+  /* ⚠ 必须关掉"机内模式"：机身常驻后整场都套着一次"世界 → CRT 屏"的等比缩放平移
+     （见 draw() 里的 screenRect），量出来的坐标就不再是**世界坐标**了。
+     这一组断言量的是立绘在世界里的几何（贴地/居中），所以要单独关掉它；
+     机内模式本身另有一组断言（见下面街机机身那两段）。 */
+  api.Stage.arcadeMode = false;
+  api.PIX.minX = 1e9; api.PIX.maxX = -1; api.PIX.minY = 1e9; api.PIX.maxY = -1; api.PIX.n = 0;
+  api.IMGS.length = 0;
+  api.Stage.pose("me", "idle"); api.Stage.pose("foe", "idle");
+  api.Stage.frameOnce();
+
+  const sd = api.Stage.debugState();
+  A(sd.spriteMe === true && sd.spriteFoe === true,
+    "立绘就绪时两个角色都取得到（查 f.sprite，不是 f.who）",
+    "spriteMe=" + sd.spriteMe + " spriteFoe=" + sd.spriteFoe + " ready=" + JSON.stringify(sd.spriteReady));
+  A(api.IMGS.length >= 2, "立绘分支真的调了 drawImage（不是静默回落骨骼）", "drawImage × " + api.IMGS.length);
+
+  /* 陈默：420×hi(1.06)=445.2 → k=445.2/400=1.113 → 220×400 画成 244.9×445.2。
+     ⚠ 一帧里同一张立绘会被 drawImage **两次**：先画地面倒影（scale(1,-0.42)、18% 透明），
+       再画本体。倒影底边 = GROUND + lowY*k + dh*0.42 ≈ 900，比本体（≈713）低得多，
+       所以"取 dh≈445.2 的第一个矩形"会抓到倒影 —— 这条断言第一版就是这么误报的。
+       判别方法：本体贴在地面线附近，倒影明显在下。 */
+  const drawn = api.IMGS.filter((r) => Math.abs(r.dh - 445.2) < 0.6);
+  const meIdle = drawn.find((r) => r.y1 - api.Stage.GROUND < 60);
+  const meRefl = drawn.find((r) => r.y1 - api.Stage.GROUND > 60);
+  A(!!meIdle, "陈默的立绘按**站姿身高**缩放（420×hi），不是按各图自身拉高",
+    meIdle ? "dh=" + meIdle.dh.toFixed(1) + " dw=" + meIdle.dw.toFixed(1) + " · 同尺寸矩形 ×" + drawn.length
+           : JSON.stringify(api.IMGS.map((r) => [Math.round(r.dw), Math.round(r.dh)])));
+  if (meIdle) {
+    A(Math.abs(meIdle.dw - 244.9) < 1.2, "宽度同比例（没有把窄图拉宽）", "dw=" + meIdle.dw.toFixed(1));
+    const expect = api.Stage.GROUND + 12 * (445.2 / 400);
+    /* 容差 6：桩 canvas 会把像素坐标取整（真 canvas 不取整），
+       所以"底边落在 GROUND + lowY*k 上"只能验到取整量级。
+       这条断言要挡的是**性质错误**（比如把图片底边当脚底 → 会差 lowY 本身或整张图高）。 */
+    A(Math.abs(meIdle.y1 - expect) < 6, "落地点按 lowY 贴地（不是把图片底边当脚底）",
+      "底边=" + meIdle.y1.toFixed(1) + " 期望≈" + expect.toFixed(1) + " GROUND=" + api.Stage.GROUND);
+    A(!!meRefl && meRefl.y1 > meIdle.y1 + 100, "同一张立绘另有一份地面倒影（在地面线下方）",
+      meRefl ? "本体底边=" + meIdle.y1.toFixed(1) + " 倒影底边=" + meRefl.y1.toFixed(1) : "没找到倒影");
+    A(Math.abs((meIdle.x0 + meIdle.x1) / 2 - api.Stage.me.x) < 1.5,
+      "立绘以贴地点为水平中心（镜像绕贴地点，不会把图甩到另一侧）",
+      "中心=" + ((meIdle.x0 + meIdle.x1) / 2).toFixed(1) + " 贴地点=" + api.Stage.me.x);
+  }
+  /* 倒地：300×150 的图 k=1.113 → 宽 333.9、高 166.9（远小于 445，说明没被拉到站姿高度） */
+  api.IMGS.length = 0;
+  api.Stage.pose("me", "ko");
+  api.Stage.frameOnce();
+  const ko = api.IMGS.filter((r) => Math.abs(r.dw - 333.9) < 2.5).pop();
+  A(!!ko, "倒地姿势按自身尺寸画（没被拉到站姿高度）",
+    ko ? "dw=" + ko.dw.toFixed(1) + " dh=" + ko.dh.toFixed(1)
+       : JSON.stringify(api.IMGS.map((r) => [Math.round(r.dw), Math.round(r.dh)])));
+
+  /* 收尾：撤掉假立绘，恢复"无头环境没有 Image"这个真实前提 */
+  S.SPRITES.puncher = null; S.SPRITES.brawler = null;
+  S.arcadeMode = true;                                   // 还回默认值，别污染后面的用例
+}
+{
+  /* ── 街机机身：打完一整局都待在机器里 ──────────────────────────────────
+     验收三件事：
+       ① 屏幕矩形在世界之内且留出了顶板与操作台（不然 LOGO / 摇杆会被挤出画布）；
+       ② 机身常驻时，世界被**等比**装进屏幕 —— 等比很重要，否则人物会被拉扁；
+       ③ 过场结束后 arcadeOn 归假但 arcadeMode 仍为真（机器不消失）。 */
+  const S = api.Stage;
+  const R = S.screenRect();
+  A(R.w > 0 && R.h > 0 && R.x >= 0 && R.y >= 0 && R.x + R.w <= S.W && R.y + R.h <= S.H,
+    "屏幕矩形在画布之内", JSON.stringify(R));
+  A(R.y >= 70 && (S.H - (R.y + R.h)) >= 70,
+    "上下留出了顶板与操作台（LOGO / 摇杆不会被挤掉）",
+    "上 " + R.y + "px · 下 " + (S.H - (R.y + R.h)) + "px");
+
+  api.clear(); AFTER.length = 0;
+  api.startFight2({ type: "fight2", title: "一打二", hp: 320, perfect: {}, ok: {}, miss: {} });
+  S.begin(api.FAKE_CV); S.running = false;
+  A(S.arcadeMode === true && S.arcadeOn === true, "开局：机身常驻 + 过场进行中",
+    "arcadeMode=" + S.arcadeMode + " arcadeOn=" + S.arcadeOn);
+  const k = R.w / S.W;
+  A(Math.abs(k - R.h / S.H) < 0.02,
+    "世界到屏幕是**等比**缩放（不等比会把人物拉扁）",
+    "kx=" + k.toFixed(4) + " ky=" + (R.h / S.H).toFixed(4));
+  A(k > 0.5 && k < 1, "缩放系数在合理区间（世界缩小后装进屏里）", "k=" + k.toFixed(4));
+  stageStep(160);                                        // 推完过场（约 2 秒 / 120 帧）
+  A(S.arcadeOn === false && S.arcadeMode === true,
+    "过场结束后机台**不消失**（玩家一直在机器里打）",
+    "arcadeOn=" + S.arcadeOn + " arcadeMode=" + S.arcadeMode);
+  /* 机内模式下画一帧：内容必须真的画在屏幕矩形内，而不是铺满整块画布 */
+  api.PIX.minX = 1e9; api.PIX.maxX = -1; api.PIX.minY = 1e9; api.PIX.maxY = -1;
+  S.frameOnce();
+  A(api.PIX.maxX <= R.x + R.w + 40 && api.PIX.maxY <= R.y + R.h + 40,
+    "机身常驻时游戏内容画在屏幕矩形内（不会溢出到机壳上）",
+    "内容右下 (" + api.PIX.maxX + "," + api.PIX.maxY + ") 屏幕右下 (" +
+    (R.x + R.w) + "," + (R.y + R.h) + ")");
+}
+{
+  /* 街机过场：点「开始战斗」先"化身进街机"，期间锁住出招。
+     ⚠ 这里刻意**不**用 newFight()（它会跳过片头），要的是刚 begin 的原始状态。 */
+  api.clear(); AFTER.length = 0;
+  api.startFight2({ type:"fight2", title:"一打二", hp:320, perfect:{}, ok:{}, miss:{} });
+  const s0 = F().stage();
+  A(s0.arcadeOn === true, "开局处于「化身进街机」过场中", "arcadeOn=" + s0.arcadeOn);
+  const ap0 = F().state().ap;
+  F().act("jab");
+  A(F().state().ap === ap0 && F().state().foeHp === 320, "过场期间出招被挡（不会把行动力打空）",
+    "ap " + ap0 + " → " + F().state().ap + " · foeHp " + F().state().foeHp);
+  stageStep(120);
+  A(F().stage().arcadeOn === false, "过场结束后自动收尾", "arcadeOn=" + F().stage().arcadeOn);
+  /* 伤害要等落判才结算，所以这里看的是"判定条开了没" */
+  F().act("jab");
+  A(EL.fight2Bar.style.display === "block", "过场结束后出招能打开判定条（出招不再被挡）",
+    "bar.display=" + EL.fight2Bar.style.display);
 }
 
 console.log("");

@@ -1,0 +1,10 @@
+{
+  "jobs": [
+    {
+      "file": "tools/test/mahjong-logic.js",
+      "from": "  MJ.dispose();\n  eq(MJ.isBusy(), false, \"语音段收尾：dispose 后 isBusy=false\");",
+      "to": "  MJ.dispose();\n  eq(MJ.isBusy(), false, \"语音段收尾：dispose 后 isBusy=false\");",
+      "textFile": "tools/patch/text/tests_21_full.txt"
+    }
+  ]
+}

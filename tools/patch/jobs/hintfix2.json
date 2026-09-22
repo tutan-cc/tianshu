@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "file": "mahjong.js",
+      "from": "    var shBase = totalShanten(base, mk);\n    var tenpaiNow = waitsFor(base, melds, honor);\n    var guardOn = tenpaiNow.length > 0 || shBase <= 0;       // 已听牌（或已成型）→ 绝不许建议破听\n    var opt = [], i, t, rest, u;",
+      "text": "    var shBase = totalShanten(base, mk);\n    var tenpaiNow = waitsFor(base, melds, honor);\n    var opt = [], i, t, rest, u;"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    var shMin = 9, c;\n    for (i = 0; i < opt.length; i++) if (opt[i].shanten < shMin) shMin = opt[i].shanten;\n    /* 听牌 / 听口张数只算「可能被选中」的候选。已听牌时收在 min(最小向听, 摸牌前向听)（两者都是 0），\n       其余情况就是「向听最小」那一批 —— 没意义的 34 张枚举一张都不算。 */\n    var shBar = guardOn ? (shMin > shBase ? shMin : shBase) : shMin;\n    for (i = 0; i < opt.length; i++) {\n      c = opt[i];\n      if (c.shanten > shBar) continue;\n      c.waits = waitsFor(c.hand, melds, honor);\n      c.waitsLeft = sumLeft(c.waits, c.hand, seen);\n    }\n    var cands = [];\n    for (i = 0; i < opt.length; i++) if (opt[i].shanten === shMin) cands.push(opt[i]);\n    /* 听牌保护：已听 → 只留「打完仍真听（waitsFor 非空）」的牌 */\n    var noBetter = false, pool = cands;\n    if (guardOn) {\n      var keep = [];\n      for (i = 0; i < opt.length; i++) if (opt[i].shanten <= shBase && opt[i].waits.length > 0) keep.push(opt[i]);\n      if (keep.length) pool = keep; else noBetter = true;    // 所有打法都会破听 → 显式标注，绝不静默建议\n    }\n    pool.sort(cmpHintOpt);",
+      "text": "    var shMin = 9, c;\n    for (i = 0; i < opt.length; i++) if (opt[i].shanten < shMin) shMin = opt[i].shanten;\n    /* 听牌张数（waitsFor）只算「可能真听」的候选：13 张手牌真听 ⟹ 向听 0，\n       所以最小向听 > 0 时一个都不算（34 张枚举全省），最小向听 = 0 时才逐张算。 */\n    if (shMin <= 0) {\n      for (i = 0; i < opt.length; i++) {\n        c = opt[i];\n        if (c.shanten > 0) continue;\n        c.waits = waitsFor(c.hand, melds, honor);\n        c.waitsLeft = sumLeft(c.waits, c.hand, seen);\n      }\n    }\n    var cands = [];\n    for (i = 0; i < opt.length; i++) if (opt[i].shanten === shMin) cands.push(opt[i]);\n    /* 听牌保护（唯一出口）：只要「打某张就能听 / 就能保听」，就**只在这一批里选** ——\n       绝不建议打掉听口。打完真听的候选向听必然是 0（= 最小向听），所以这样收窄永远不会让向听变差。 */\n    var tenpaiCands = [];\n    for (i = 0; i < opt.length; i++) if (opt[i].waits.length > 0) tenpaiCands.push(opt[i]);\n    var noBetter = false, pool;\n    if (tenpaiCands.length) pool = tenpaiCands;\n    else {\n      pool = cands;\n      /* 一张都听不了：只有「本来已听（或按向听算已成型）」才算无解，并且要在文案里写明，绝不静默建议 */\n      noBetter = !!(shBase <= 0 || tenpaiNow.length > 0);\n    }\n    pool.sort(cmpHintOpt);"
+    },
+    {
+      "file": "mahjong.js",
+      "from": "    pool.sort(cmpHintOpt);\n    var anyTenpai = false;\n    for (i = 0; i < pool.length; i++) if (pool[i].waits.length) { anyTenpai = true; break; }\n    if (!anyTenpai && pool.length) {                          // 都没听 → 再比「有效进张」（重活，加上限）",
+      "text": "    pool.sort(cmpHintOpt);\n    if (!tenpaiCands.length && pool.length) {                 // 都没听 → 再比「有效进张」（重活，加上限）"
+    }
+  ]
+}

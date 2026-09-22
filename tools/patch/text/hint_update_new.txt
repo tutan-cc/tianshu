@@ -1,0 +1,11 @@
+  /** 每次手牌变化 / 每帧兜底刷新一次（**同状态不重算**，重算判定与缓存签名共用 hintKeyOf）：返回当前提示 */
+  function updateHint() {
+    if (!G.E) return null;
+    if (!G.hintOn || !hintShouldCalc()) { G.hint = null; G.hintIdx = -1; G.hintKey = ""; return null; }
+    var p = G.E.P[0];
+    var key = hintKeyOf(p.hand, p.melds, p.drawn, G.E.honors, hintSeen(0));
+    if (key !== G.hintKey) { G.hintKey = key; G.hint = calcHint(); }
+    /* 下标**永远**从「当前手牌 + 当前建议」现算 —— 不可能出现「文字说一张、高亮画另一张」 */
+    G.hintIdx = G.hint ? indexOfTile(p.hand, G.hint.tile) : -1;
+    return G.hint;
+  }

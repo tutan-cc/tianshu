@@ -1,0 +1,30 @@
+{
+    "poses":  {
+                  "ko":  {
+                             "w":  245,
+                             "lowY":  8,
+                             "file":  "brawler_ko.png",
+                             "h":  345
+                         },
+                  "hit":  {
+                              "w":  256,
+                              "lowY":  22,
+                              "file":  "brawler_hit.png",
+                              "h":  416
+                          },
+                  "idle":  {
+                               "w":  227,
+                               "lowY":  26,
+                               "file":  "brawler_idle.png",
+                               "h":  423
+                           },
+                  "strike":  {
+                                 "w":  256,
+                                 "lowY":  29,
+                                 "file":  "brawler_strike.png",
+                                 "h":  419
+                             }
+              },
+    "ground":  8,
+    "slug":  "brawler"
+}

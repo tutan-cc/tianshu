@@ -1,0 +1,14 @@
+{
+  "jobs": [
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "  stepHintTenpai_throw: \"端到端（摸牌 → 点金框）整段无异常\",\n",
+      "text": ""
+    },
+    {
+      "file": "tools/e2e/mj-browser.js",
+      "from": "    console.log(\"[模式A不可用] \" + ch.why);",
+      "text": "    console.log(\"[模式A不可用] \" + (ch.why || (ch.errors && ch.errors.length ? (\"Chrome 段 \" + ch.errors.length + \" 项未过：\" + ch.errors.join(\" | \")) : \"undefined\")));"
+    }
+  ]
+}

@@ -2223,6 +2223,225 @@ group("17. 结算亮牌数据结构");
 
   MJ.dispose();
   eq(MJ.isBusy(), false, "语音段收尾：dispose 后 isBusy=false");
+  /* ─────────── 21. 智脑提示：实时性 / 听牌保护 / 三处一致 / 缓存 ───────────
+     用户实测：「AI 辅助打牌不准，听胡的牌 AI 指示打出去」。这一节把六个方向全部钉死：
+       · base 必须是「真实手牌去掉刚摸到的那张」（老实现去掉的是排序后最大的一张）
+       · 副露手的 3k+2 听牌不许被当成「已成牌 -1」（否则有效进张整批被吞 → 面板「有效牌：无」）
+       · 已听牌时建议打出的那张，打完必须**仍然听牌**；所有打法都破听时必须显式标记
+       · 面板文案 / 手牌金框 / debug.hint().tile 三处逐字同一张（不是只对齐下标）
+       · 摸牌后立刻读提示 → 必须是摸牌后的手牌算出来的（构造出「摸牌前后建议不同」来钉死）
+       · melds / drawn / 字牌开关 / 已见 任一变化 → 签名必变，绝不命中旧手牌缓存 */
+  group("21. 智脑提示 · 实时性 / 听牌保护 / 三处一致 / 缓存");
+  {
+    /** 从面板 HTML 里逐字抠出「打 X」的那张牌名 */
+    const panelDiscard = (html) => {
+      const m = /打\s*([^\s<（(]+)/.exec(String(html || "").replace(/<[^>]*>/g, " "));
+      return m ? m[1] : "";
+    };
+    const m5 = [meld("peng", "5万")];
+
+    /* ① base = 真实手牌去掉「刚摸到的那张」（不是排序后最大的一张） */
+    const hD = P("123m 456m 789m 23s 99s 1万");             // 引擎摆放：摸到的 1万 在最后
+    const rA = T.hintCalc({ hand: hD, melds: [], drawn: "1万", seen: {}, honors: true });
+    eq(rA.base.join(" "), T.sortTiles(P("123m 456m 789m 23s 99s")).join(" "), "① base = 真实手牌去掉刚摸到的 1万（不是排序后最大的一张 9条）");
+    eq(rA.tenpaiNow, true, "① 去掉摸到的那张 → 摸牌前那手确实已听（面板/理由都按它说）");
+    const rB = T.hintCalc({ hand: hD, melds: [], drawn: "9条", seen: {}, honors: true });
+    ok(rA.base.join(",") !== rB.base.join(","), "① 换一张「摸到的牌」→ base 跟着变（口径真的看 drawn）");
+    const rC = T.hintCalc({ hand: hD, melds: [], seen: {}, honors: true });
+    eq(rC.base.join(" "), rA.base.join(" "), "① 不传 drawn → 按引擎摆放取数组最后一张（与 drawn=1万 同解）");
+    const hSorted = T.sortTiles(hD);
+    const rD = T.hintCalc({ hand: hSorted, melds: [], seen: {}, honors: true });
+    ok(rD.base.join(",") !== rA.base.join(","), "① 数组末张换成 9条 → base 跟着换（绝不瞎猜哪张是摸的）");
+    const gA = T.gainsOf(rA.base, 0, {}, true, undefined, []);
+    eq(rA.improve.map(x => x.tile).join(","), gA.slice(0, rA.improve.length).map(x => x.tile).join(","), "① 「有效牌」是从同一手 base 算出来的（口径一致）");
+
+    /* ② 副露：3k+2 的听牌不许被算成「已成牌 -1」 */
+    const h11 = P("123m 789m 23s 99s 中");                  // 11 张暗手 + 碰 = 14
+    eq(T.totalShanten(h11, 1), 0, "② 副露手 3k+2 听牌 = 0 向听（老实现错报 -1 = 已成牌）");
+    const rM = T.hintCalc({ hand: h11, melds: m5, drawn: "中", seen: {}, honors: true });
+    eq(rM.discard, "中", "② 副露手建议打掉刚摸的 中（打完成听）");
+    eq(rM.tenpaiAfter, true, "② 打完成听");
+    eq(rM.waits.join("/"), "1条/4条", "② 听 1条/4条");
+    ok(rM.shanten >= 0, "② 向听不给负数（-1 只表示真的已成牌，实际 " + rM.shanten + "）");
+
+    /* ③ 副露：1 向听的有效进张不能被吞（老实现 → 面板「有效牌：无」） */
+    const h10 = P("123m 789m 23s 9s 5p");
+    eq(T.totalShanten(h10, 1), 1, "③ 构造出一手「有副露的 1 向听」");
+    const g10 = T.gainsOf(h10, 1, {}, true, undefined, m5);
+    ok(g10.length > 0, "③ 1 向听（有副露）的有效进张不空 → " + (g10.map(x => x.tile + "×" + x.left).join(" ") || "(空)"));
+    ok(g10.some(x => x.tile === "1条") && g10.some(x => x.tile === "4条"), "③ 23条 的进张 1条/4条 都在列表里");
+    const rG = T.hintCalc({ hand: h10.concat(["5筒"]), melds: m5, drawn: "5筒", seen: {}, honors: true });
+    ok(rG.improve.length > 0, "③ 提示面板的「有效牌」不空（有副露时也一样）→ " + rG.improve.map(x => x.tile).join("/"));
+
+    /* ④ 听牌保护：16 组已听手牌（两面 / 单钓 / 坎张 / 对倒 / 七对 / 龙七对 / 字牌 / 1~4 副露 / 大吊车）× 多张摸牌 */
+    const TEN = [
+      ["两面（无副露）", [], P("123m 456m 789m 23s 99s")],
+      ["单钓（无副露）", [], P("123m 456m 789m 123s 9s")],
+      ["坎张（无副露）", [], P("123m 456m 789m 13s 99s")],
+      ["对倒（无副露）", [], P("123m 456m 789m 22s 99s")],
+      ["七对", [], P("11m 22m 33m 44s 55s 66p 7p")],
+      ["龙七对形", [], P("11m 22m 33m 44m 55s 66s 7s")],
+      ["字牌单钓", [], P("123m 456m 789m 99s 东东")],
+      ["字牌对倒", [], P("123m 456m 789m 东东 南南")],
+      ["单副露·两面", [meld("peng", "5万")], P("123m 789m 23s 99s")],
+      ["单副露·单钓", [meld("peng", "5万")], P("123m 789m 123s 9s")],
+      ["单副露·对倒", [meld("peng", "5万")], P("123m 789m 22s 99s")],
+      ["副露+字牌对倒", [meld("peng", "5万")], P("123m 789m 99s 东东")],
+      ["双副露·单钓", [meld("peng", "5万"), meld("peng", "2条")], P("123m 789m 9s")],
+      ["双副露·两面", [meld("peng", "5万"), meld("peng", "2条")], P("123m 23s 99s")],
+      ["三副露·单钓", [meld("peng", "5万"), meld("peng", "6条"), meld("peng", "7筒")], P("123m 9s")],
+      ["大吊车（4 副露）", [meld("peng", "5万"), meld("peng", "6条"), meld("gang", "7筒", true), meld("peng", "东")], P("9s")]
+    ];
+    const DRAWS = ["1筒", "5万", "9条", "东", "白", "2条", "7筒"];
+    /** 去掉一张（本地实现，不依赖内部导出） */
+    const rm1 = (h, t) => { const o = h.slice(); const i = o.indexOf(t); if (i < 0) return null; o.splice(i, 1); return o; };
+    let grp = 0, combos = 0, broke = 0, nullDisc = 0, nb = 0;
+    const brokeEx = [];
+    for (const [name, melds, h13] of TEN) {
+      const w0 = T.waitsFor(h13, melds, true);
+      ok(w0.length > 0, "④ " + name + "：构造成立（听 " + w0.join("/") + "）");
+      grp++;
+      const draws = w0.concat(DRAWS).filter(t => {
+        let n = T.countIn(h13, t);
+        for (const m of melds) n += T.countIn(m.tiles, t);
+        return n < 4;
+      });
+      for (const d of draws) {
+        const h14 = h13.concat([d]);
+        const r = T.hintCalc({ hand: h14, melds: melds, drawn: d, seen: {}, honors: true });
+        combos++;
+        if (!r.discard) { nullDisc++; continue; }
+        if (r.noBetter) {
+          nb++;
+          ok(r.options.every(o => !o.waits.length), "④ " + name + " 摸 " + d + "：noBetter 时所有打法确实都破听（显式标记，不静默）");
+          continue;
+        }
+        const rest = rm1(h14, r.discard);
+        const w1 = T.waitsFor(rest, melds, true);
+        const sh1 = T.totalShanten(rest, melds.length);
+        if (w1.length === 0 || sh1 > 0) {
+          broke++;
+          if (brokeEx.length < 5) brokeEx.push(name + " 摸 " + d + " → 建议打 " + r.discard + "（打完 " + sh1 + " 向听 / 听 " + (w1.join("/") || "无") + "）");
+        }
+      }
+    }
+    ok(grp >= 15, "④ 已听手牌构造 ≥15 组（实际 " + grp + " 组）");
+    eq(broke, 0, "④ 已听牌时建议打出的那张，打完**仍然听牌**（0 组破听 / 共 " + combos + " 次摸牌）" + (brokeEx.length ? " → " + brokeEx.join("；") : ""));
+    eq(nullDisc, 0, "④ 已听牌时一定有建议（不给空建议）");
+    ok(combos >= 100, "④ 组合覆盖足够（" + combos + " 次摸牌）");
+    eq(nb, 0, "④ 常规听牌不会出现「无更好选择」（出现即说明保护逻辑漏了）");
+
+    /* ⑤ 三处一致：debug.hint().tile == 面板文案的牌名 == 金框那一格的牌（逐字，不比下标） */
+    MJ.dispose();
+    eq(MJ.start(makeElement("div"), {}), true, "⑤ 开局（stub DOM）");
+    const UIS = [
+      { name: "无副露", melds: [], hand: P("123m 456m 789m 12s 99s 5p") },
+      { name: "单副露", melds: m5, hand: P("123m 789m 23s 99s 5p") },
+      { name: "字牌", melds: [], hand: P("123m 456m 789m 23s 99s 东") },
+      { name: "大吊车", melds: [meld("peng", "5万"), meld("peng", "6条"), meld("gang", "7筒", true), meld("peng", "东")], hand: P("9s 5p") }
+    ];
+    let uiBad = 0;
+    for (const u of UIS) {
+      eq(MJ.debug.setHand(u.hand, u.melds, u.hand[u.hand.length - 1]), true, "⑤ " + u.name + "：摆牌并轮到自己");
+      MJ.debug.render();
+      const h = MJ.debug.hint();
+      ok(!!h, "⑤ " + u.name + "：算得出提示");
+      if (!h) { uiBad++; continue; }
+      const bt = MJ.debug.brainText();
+      const rects = MJ.debug.handRects();
+      const pTile = panelDiscard(bt.panel);
+      const mTile = rects[h.markIdx] ? rects[h.markIdx].tile : "(无)";
+      const iTile = rects[bt.hintIdx] ? rects[bt.hintIdx].tile : "(无)";
+      ok(h.tile === h.discard, "⑤ " + u.name + "：tile 与 discard 是同一张（" + h.tile + "）");
+      ok(pTile === h.tile, "⑤ " + u.name + "：面板文案里的牌名 == hint().tile（面板=" + pTile + " / hint=" + h.tile + "）");
+      ok(mTile === h.tile, "⑤ " + u.name + "：金框那一格 == hint().tile（金框=" + mTile + "）");
+      ok(iTile === h.tile && h.markIdx === bt.hintIdx, "⑤ " + u.name + "：hintIdx/markIdx 也落在同一张上（" + bt.hintIdx + "）");
+      ok(h.reason.indexOf("打 " + h.tile) >= 0, "⑤ " + u.name + "：理由文案指向同一张 → " + h.reason);
+      if (!(h.tile === h.discard && pTile === h.tile && mTile === h.tile && iTile === h.tile)) uiBad++;
+    }
+    eq(uiBad, 0, "⑤ 面板 / 金框 / debug.hint() 三处逐字一致（0 处不一致）");
+
+    /* ⑤b 高亮定位：手牌一变（刚摸牌）就「立刻」读提示时，金框也必须落在建议的那张牌上 */
+    const core10 = P("123m 789m 23s 99s");                  // 10 张暗手 + 碰 = 13
+    eq(MJ.debug.setHand(core10, m5, null), true, "⑤b 摆成「摸牌前」的一帧（13 张）");
+    MJ.debug.render();
+    const p0 = MJ.debug.engine().P[0];
+    p0.hand.push("5筒"); p0.drawn = "5筒"; T.normalizeHand(p0);   // 真实摸牌（引擎同一条路径）
+    const hA = MJ.debug.hint();                             // 不等下一帧，立刻读（= showHumanUI 的顺序）
+    const btA = MJ.debug.brainText(), rectsA = MJ.debug.handRects();
+    ok(!!hA, "⑤b 摸牌后立刻算得出提示");
+    eq(hA && hA.tile, "5筒", "⑤b 摸到 5筒 → 建议打 5筒");
+    eq(hA && hA.markTile, "5筒", "⑤b 刚摸牌就渲染：金框仍在建议的那张上（老实现越界消失 / 盖到别的牌）");
+    ok(hA && hA.markIdx >= 0, "⑤b 金框定位到了具体一格（markIdx=" + (hA && hA.markIdx) + "）");
+    eq(btA.markDisplay, "block", "⑤b 金框已显示（不是被藏起来）");
+    MJ.debug.render();                                      // 下一帧：画布与 DOM 都按新手牌重画
+    const btB = MJ.debug.brainText(), rectsB = MJ.debug.handRects();
+    eq(rectsB[btB.hintIdx] ? rectsB[btB.hintIdx].tile : "(无)", "5筒", "⑤b 重画后 hintIdx 那一格仍是建议的那张（三者同源）");
+
+    /* ⑥ 确定性：同一手牌连算 5 次完全一致；手牌不变时面板不跳动、不重算 */
+    const hDet = P("123m 456m 789m 12s 99s 东");
+    T.hintCacheClear();
+    const sig5 = [];
+    for (let i = 0; i < 5; i++) {
+      const r = T.hintCalc({ hand: hDet, melds: [], drawn: "东", seen: {}, honors: true });
+      sig5.push([r.discard, r.tile, r.shanten, r.waits.join("/"), r.waitsLeft, r.ukeire, r.reason].join("|"));
+    }
+    eq(new Set(sig5).size, 1, "⑥ 同一手牌连算 5 次结果完全一致 → " + sig5[0]);
+    eq(MJ.debug.setHand(hDet, [], "东"), true, "⑥ 摆牌");
+    MJ.debug.render();
+    const c0 = MJ.debug.hintStats().calcCount;
+    const s1 = JSON.stringify(MJ.debug.hint());
+    let jump = 0;
+    for (let i = 0; i < 4; i++) { MJ.debug.render(); if (JSON.stringify(MJ.debug.hint()) !== s1) jump++; }
+    eq(jump, 0, "⑥ 手牌不变时提示不跳动（4 次重画结果一致）");
+    eq(MJ.debug.hintStats().calcCount, c0, "⑥ 手牌不变 → 一次都不重算（calcCount 不涨）");
+
+    /* ⑦ 时序：摸牌后「立刻」读 → 必须是摸牌后的手牌算出来的建议（构造出摸牌前后建议不同来钉死） */
+    const core13 = P("13579m 2468s 1357p");
+    const dX = "1万", dY = "中";
+    const rX = T.hintCalc({ hand: core13.concat([dX]), melds: [], drawn: dX, seen: {}, honors: true });
+    const rY = T.hintCalc({ hand: core13.concat([dY]), melds: [], drawn: dY, seen: {}, honors: true });
+    ok(rX.discard !== rY.discard, "⑦ 构造成立：摸 " + dX + " 建议打 " + rX.discard + "，摸 " + dY + " 建议打 " + rY.discard);
+    eq(MJ.debug.setHand(core13.concat([dX]), [], dX), true, "⑦ 摸到 " + dX + "（引擎摆放）");
+    const hX = MJ.debug.hint();
+    eq(hX && hX.tile, rX.discard, "⑦ 摸牌后读到的是**这一手**的建议（" + rX.discard + "）");
+    ok(hX && hX.tile !== rY.discard, "⑦ 不是另一手/上一拍的建议（" + (hX && hX.tile) + " ≠ " + rY.discard + "）");
+    eq(MJ.debug.setHand(core13, [], null), true, "⑦ 回到摸牌前（13 张）");
+    eq(MJ.debug.hint(), null, "⑦ 摸牌前不给「打哪张」的建议（不拿旧手牌糊弄）");
+    eq(MJ.debug.setHand(core13.concat([dY]), [], dY), true, "⑦ 换成摸 " + dY);
+    eq(MJ.debug.hint().tile, rY.discard, "⑦ 摸到别的牌 → 建议立刻跟着换（" + rY.discard + "）");
+
+    /* ⑧ 缓存正确性：melds / drawn / 字牌开关 / 已见 任一变化 → 签名必变、绝不命中旧缓存 */
+    const k0 = T.hintKeyOf(P("123m 789m 23s 99s"), m5, null, true, {});
+    eq(T.hintKeyOf(P("123m 789m 23s 99s"), m5, null, true, {}), k0, "⑧ 同状态签名稳定（不抖动）");
+    ok(T.hintKeyOf(P("123m 789m 23s 99s"), [meld("peng", "6万")], null, true, {}) !== k0, "⑧ 副露牌面变了（组数不变）→ 签名必变");
+    ok(T.hintKeyOf(P("123m 789m 23s 99s"), [meld("peng", "5万"), meld("peng", "6万")], null, true, {}) !== k0, "⑧ 副露组数变了 → 签名必变");
+    ok(T.hintKeyOf(P("123m 789m 23s 99s"), m5, "9条", true, {}) !== k0, "⑧ 「摸到的牌」变了 → 签名必变");
+    ok(T.hintKeyOf(P("123m 789m 23s 99s"), m5, null, false, {}) !== k0, "⑧ 字牌开关变了 → 签名必变");
+    ok(T.hintKeyOf(P("123m 789m 23s 99s"), m5, null, true, { "1条": 1 }) !== k0, "⑧ 已见变了 → 签名必变");
+    const cA = T.hintCalc({ hand: hD, melds: [], drawn: "1万", seen: {}, honors: true });
+    const cB = T.hintCalc({ hand: hD, melds: [], drawn: "9条", seen: {}, honors: true });
+    ok(cA !== cB, "⑧ 同一手牌不同「摸到的牌」→ 不是同一个缓存对象（老实现会命中同一份）");
+    ok(cA.base.join(",") !== cB.base.join(","), "⑧ 两者的 base 确实不同（真的按 drawn 重算了）");
+    const cC = T.hintCalc({ hand: h11, melds: m5, drawn: "中", seen: {}, honors: true });
+    const cD = T.hintCalc({ hand: h11, melds: [meld("peng", "6万")], drawn: "中", seen: {}, honors: true });
+    ok(cC !== cD, "⑧ 副露牌面不同 → 不命中旧缓存");
+
+    /* ⑨ 「所有打法都会破听」必须显式标记（noBetter + 面板写明），绝不静默建议 */
+    const nbHand = P("123m 456m 789m 111s 1条 东");           // 摸到 1条：东 是唯一听口，而 1条 已见 4 张
+    const rNB = T.hintCalc({ hand: nbHand, melds: [], drawn: "1条", seen: {}, honors: false });
+    eq(rNB.noBetter, true, "⑨ 字牌关但只听字牌 → noBetter=true（显式标记）");
+    ok(T.hintLines(rNB).l3.indexOf("无更好选择") >= 0, "⑨ 面板 l3 写明「无更好选择」→ " + T.hintLines(rNB).l3);
+    ok(rNB.reason.indexOf("无更好选择") >= 0, "⑨ 理由文案同样写明 → " + rNB.reason);
+    const rNB2 = T.hintCalc({ hand: nbHand, melds: [], drawn: "1条", seen: {}, honors: true });
+    eq(rNB2.noBetter, false, "⑨ 同一手牌「字牌开」时听牌保护正常（不误报 noBetter）");
+    eq(rNB2.discard, "1条", "⑨ 字牌开：建议打掉刚摸的 1条，保住「听 东」");
+    eq(rNB2.tenpaiAfter, true, "⑨ 打完仍听");
+
+    MJ.dispose();
+  }
+
+
 
   console.log("通过 " + pass + " / 共 " + (pass + fail) + (fail ? "，失败 " + fail : "，全部通过 ✔"));
   if (fail) { console.log("失败项：\n - " + fails.join("\n - ")); process.exit(1); }

@@ -1,0 +1,34 @@
+  /** 金框 / 脉动要盖的那一格：在给定摆放里找建议的那张牌（同一张牌有多张时优先「不是刚摸到」的那张）；找不到 → -1 */
+  function hintMarkIdx(rects) {
+    if (!G.hintOn || !G.hint || G.hint.tile === null || G.hint.tile === undefined) return -1;
+    var i, fb = -1;
+    for (i = 0; i < (rects || []).length; i++) {
+      if (rects[i].tile !== G.hint.tile) continue;
+      if (!rects[i].drawn) return i;
+      fb = i;
+    }
+    return fb;
+  }
+  /** 当前手牌的摆放：优先用画布这一帧真正画过的那一份；手牌已经变了（还没重画）→ 现摆一次。
+      老实现直接拿旧摆放的 G.handRects[G.hintIdx] 定位：刚摸牌 / 碰 / 杠之后建议下标已经变了，
+      金框就会盖到**别的牌**上（越界时干脆消失）—— 用户看到的「指的那张」根本不是面板说的那张。 */
+  function hintRects() {
+    var p = G.E && G.E.P[0];
+    if (!p) return G.handRects;
+    return G.handRectsSig === p.hand.join("|") ? G.handRects : layoutHand(p);
+  }
+  /** 更新「被建议的牌」的金框位置（CSS 像素，盖在画布同一张牌上） */
+  function updateHintMark() {
+    var m = byId("mjmHintMark");
+    if (!m) return;
+    var rects = hintRects(), idx = hintMarkIdx(rects);
+    if (!G.hintOn || idx < 0 || !rects[idx] || !G.cv) { m.className = "mjm-hintmark"; m.style.display = "none"; return; }
+    var t = rects[idx], cr = G.cv.getBoundingClientRect(), sx = cr.width / W, sy = cr.height / H;
+    var lift = t.drawn ? LAYOUT.hand.drawnLift : 0;
+    m.className = "mjm-hintmark on";
+    m.style.display = "block";
+    m.style.left = ((t.x - 3) * sx).toFixed(1) + "px";
+    m.style.top = ((t.y - 3 - lift) * sy).toFixed(1) + "px";
+    m.style.width = ((t.w + 6) * sx).toFixed(1) + "px";
+    m.style.height = ((t.h + 6) * sy).toFixed(1) + "px";
+  }

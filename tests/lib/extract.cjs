@@ -79,20 +79,33 @@ function evalConstIn(html, name, sandbox) {
   return evalLiteralIn(html, html.indexOf(m[1], m.index), sandbox);
 }
 
-/** 深度还原一个值，**保留函数源码**（只对 `function(){}` 写法有效；方法简写请用 evalLiteralIn） */
+/** 把 `Function.prototype.toString()` 的输出归一化成**函数表达式**。
+    ⚠ 对象方法简写（`newPose(){...}`）的 toString() **不带 `function` 关键字**，
+      直接包一层括号会得到 `(newPose(){...})` —— 非法语法（实测报 Unexpected token '{'）。
+      这里把开头的方法名剥掉、补上 `function`，于是简写与普通写法都能安全序列化。 */
+function fnSource(fn){
+  const s = String(fn);
+  if(/^\s*(async\s+)?function\b/.test(s)) return s;          // 已经是函数表达式
+  const m = /^\s*(async\s+)?(?:get\s+|set\s+)?[A-Za-z_$][\w$]*\s*\(/.exec(s);
+  if(m) return "function " + s.slice(m[0].length - 1);       // 保留 '(' 起的参数列表与函数体
+  return s;
+}
+
+/** 深度还原一个值，**保留函数源码**（方法简写也能处理，见 fnSource）。
+    这是"把 code 抽出来喂给沙箱"的主力；只有真身带闭包状态时才需要 evalLiteralIn。 */
 function serialize(v, depth) {
   depth = depth || 0;
   if (depth > 6) return "null";
   if (v === null || v === undefined) return "null";
   const t = typeof v;
-  if (t === "function") return "(" + v.toString() + ")";
+  if (t === "function") return "(" + fnSource(v) + ")";
   if (t === "number" || t === "boolean") return String(v);
   if (t === "string") return JSON.stringify(v);
   if (Array.isArray(v)) return "[" + v.map((x) => serialize(x, depth + 1)).join(",") + "]";
   return "{" + Object.keys(v).map((k) => JSON.stringify(k) + ":" + serialize(v[k], depth + 1)).join(",") + "}";
 }
 
-/** 抽一个 const 数据常量，序列化成源码字符串（不含方法时用它最省事） */
+/** 抽一个 const 数据常量，序列化成源码字符串（含方法也能用） */
 function grabConst(html, name) { return serialize(evalConstIn(html, name)); }
 
-module.exports = { readHtml, matchingEnd, grab, grabFn, evalLiteralIn, evalConstIn, serialize, grabConst, HTML_PATH };
+module.exports = { readHtml, matchingEnd, grab, grabFn, evalLiteralIn, evalConstIn, serialize, fnSource, grabConst, HTML_PATH };

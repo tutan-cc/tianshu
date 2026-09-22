@@ -557,34 +557,35 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     <!-- 打斗 2.0 骨架（fight2）：与旧 #fight 并行，DOM id 全部另起
          —— 旧实现有 `document.querySelectorAll("#fightBtns .mbtn")` 的全局绑定，
             复用同一批 id 会让两套玩法的按钮互相抢事件。 -->
-    <div class="overlay" id="fight2"><div class="panel">
+    <!-- 打斗 2.0（fight2）：侧视对战舞台 —— 机制仍是回合制，但表现按街机格斗来
+         （canvas 舞台 + 相机跟随/推镜 + 顿帧火花 + 顶部血条回合数）。
+         DOM id 全部另起：旧 #fight 有 `querySelectorAll("#fightBtns .mbtn")` 的全局绑定。 -->
+    <div class="overlay" id="fight2"><div class="panel" style="width:min(880px,96%)">
       <h3 id="fight2Title"><img class="gm-ico" src="art/icons/game/fight.png" alt="" onload="this.style.display='inline-block'" onerror="this.remove()">拳台对决 2.0</h3><div class="sub2" id="fight2Sub"></div>
-      <div id="fight2Foe" style="font-size:12px;line-height:1.8;padding:8px 10px;background:#0d0b15;border-left:2px solid var(--red);margin-bottom:10px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
-        <div><div style="font-size:10px;color:var(--dim);margin-bottom:3px">你的生命</div><div class="tbar"><i id="fight2HpMine" style="background:linear-gradient(90deg,var(--red),var(--gold))"></i></div></div>
-        <div><div style="font-size:10px;color:var(--dim);margin-bottom:3px">对手生命</div><div class="tbar"><i id="fight2HpFoe" style="background:linear-gradient(90deg,var(--purple),var(--cyan))"></i></div></div>
+      <div id="fight2StageWrap" style="position:relative;margin-bottom:10px">
+        <canvas id="fight2Cv" width="1680" height="900" style="display:block;width:100%;height:auto;background:#05040a"></canvas>
+        <!-- 血条 / 体干 / 回合数画在 canvas 上（见 Fight2Stage.drawHud），
+             这里只留一个"对手意图"的浮层，位置固定在舞台左上 -->
+        <div id="fight2Foe" style="position:absolute;left:10px;top:74px;right:10px;font-size:12px;line-height:1.7;padding:5px 9px;background:rgba(13,11,21,.82);border-left:2px solid var(--red);pointer-events:none"></div>
+        <div id="fight2Tell" style="display:none;position:absolute;left:50%;top:38%;transform:translateX(-50%);font-size:20px;letter-spacing:3px;padding:10px 22px;border:1px solid var(--red);background:rgba(26,13,18,.9);pointer-events:none;white-space:nowrap"></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <div><div style="font-size:10px;color:var(--dim);margin-bottom:3px">你的体干（归零＝大硬直）</div><div class="tbar" style="height:5px"><i id="fight2StamMine" style="background:linear-gradient(90deg,#5dffa0,#4dd8ff)"></i></div></div>
-        <div><div style="font-size:10px;color:var(--dim);margin-bottom:3px">对手体干（打空它就能破防）</div><div class="tbar" style="height:5px"><i id="fight2StamFoe" style="background:linear-gradient(90deg,#ffd76e,#ff4d6d)"></i></div></div>
-      </div>
-      <div id="fight2Tell" style="display:none;font-size:13px;letter-spacing:2px;padding:7px 10px;margin-bottom:8px;border-left:3px solid var(--red);background:#1a0d12"></div>
-      <div id="fight2Num" style="font-size:11.5px;color:var(--dim);margin-bottom:8px"></div>
-      <div id="fight2Bar" style="display:none;position:relative;height:26px;background:#12101c;border:1px solid var(--line);margin-bottom:8px;overflow:hidden;cursor:pointer">
+      <!-- 判定条与按钮留在 DOM 里：它们是交互入口，做成 canvas 会牺牲可点性与可测性 -->
+      <div id="fight2Bar" style="display:none;position:relative;height:28px;background:#12101c;border:1px solid var(--line);margin-bottom:8px;overflow:hidden;cursor:pointer">
         <div id="fight2Zone" style="position:absolute;top:0;bottom:0;background:rgba(93,255,160,.35);border-left:1px solid var(--green);border-right:1px solid var(--green)">
           <i id="fight2ZonePerfect" style="position:absolute;top:0;bottom:0;left:35%;width:30%;background:rgba(255,215,110,.55);border-left:1px solid var(--gold);border-right:1px solid var(--gold)"></i>
         </div>
         <div id="fight2Cur" style="position:absolute;top:-2px;bottom:-2px;width:3px;background:#fff;box-shadow:0 0 10px #fff"></div>
       </div>
       <div id="fight2Btns" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-        <button class="mbtn" data-act="jab">直 拳<b>1 行动力 · 12 · 精准</b></button>
+        <button class="mbtn" data-act="jab">直 拳<b>2 行动力 · 12 · 精准</b></button>
         <button class="mbtn" data-act="combo">组合拳<b>2 行动力 · 8 + 连打</b></button>
-        <button class="mbtn" data-act="low">低 扫<b>2 行动力 · 16</b></button>
-        <button class="mbtn" data-act="guard">抱 架<b>1 行动力 · 格挡 +16</b></button>
+        <button class="mbtn" data-act="low">低 扫<b>2 行动力 · 17</b></button>
+        <button class="mbtn" data-act="guard">抱 架<b>1 行动力 · 格挡 +20</b></button>
         <button class="mbtn" data-act="read">读 招<b>1 行动力 · 公示意图</b></button>
         <button class="mbtn" data-act="skip" style="opacity:.75">跳过战斗<b>按当前属性判胜负</b></button>
       </div>
-      <div id="fight2Log" style="max-height:110px;overflow-y:auto;margin-top:10px;font-size:11.5px;line-height:1.7;color:var(--dim)"></div>
+      <div id="fight2Num" style="font-size:11.5px;color:var(--dim);margin-top:8px"></div>
+      <div id="fight2Log" style="max-height:110px;overflow-y:auto;margin-top:6px;font-size:11.5px;line-height:1.7;color:var(--dim)"></div>
     </div></div>
 
     <!-- 麻将 · 听牌挑战 -->
@@ -2710,6 +2711,905 @@ const FIGHT2_MOVES = {
   guard: { n:"抱 架", ap:1, guard:20, stam:-0.12,           desc:"1 行动力 · 格挡 +20 · 体干 +12" },
   read:  { n:"读 招", ap:1, read:true, stam:-0.06,          desc:"1 行动力 · 公示意图 · 体干 +6" },
 };
+/* ═══════════════ 打斗 2.0 · 侧视对战舞台 ═══════════════
+   机制仍是回合制（三档判定 / 体干 / 预判防守，见 startFight2），
+   这一层只负责"看起来像街机格斗"：侧视透视地面 + 两个拳手 + 相机跟随推镜
+   + 命中顿帧火花 + 顶部血条与回合数。
+
+   为什么是程序化剪影而不是立绘：
+     本项目没有任何角色动作帧/立绘（art/ 下只有 15 张头像、3 张场景图、图标）。
+     三段打斗实拍是"综艺教学片中近景"，抽帧拿不到可用的全身侧视姿态（实测确认）。
+     所以走"代码画人"这条路 —— 与 map3d.js 程序化生成地面/墙面贴图是同一套做法，
+     零外部素材、零授权风险，且姿势与时机完全可控（格斗游戏最吃这个）。
+     风格上刻意做成**霓虹夜景剪影 + 轮廓光**：这是"没有精绘素材"能撑住的高级感，
+     而不是把人物画得很简陋。
+
+   坐标系：舞台逻辑尺寸 1680×900，地面在 y=700，人物以脚底为锚点、height 为身高。
+   相机 (camX, zoom) 把逻辑坐标映射到画布上，顿帧/震动都作用在相机上。 */
+const Fight2Stage = {
+  cv:null, g:null, W:1680, H:900, GROUND:700,
+  running:false, raf:0, frame:0, t:0,
+  S:null,                                    // 最近一次 sync() 过来的战斗状态
+  camX:840, camTargetX:840, zoom:1, zoomTarget:1,
+  shake:0, flash:0, hitstop:0, ko:0, koText:"",
+  fx:[],                                     // 命中特效（火花线、扩散环）
+  after:[],                                  // 延迟回调 {t, fn}（见 step() 里的说明）
+  me:null, foe:null,                         // 两侧的姿势状态
+  air:null,                                  // 天空/地面预生成渐变（createLinearGradient 每帧建太浪费）
+
+  /* ── 角色设定：体型 + 姿势集 ──
+     两个角色只换颜色是不够的（玩家一眼就会觉得"这不就是同一个人"）。
+     这里拆成两层：
+       · body —— 骨架比例：身高 / 肩宽 / 四肢粗细 / 站距 / 头身比
+       · poses —— 同一套动作的不同"性格"：幅度、收招速度、架子高低
+     莽夫（花衬衫）：矮壮宽肩、大开大合、出拳冲得远、挨打时晃得厉害、倒地躺得平
+     陈默（玩家）：高瘦窄肩、动作紧凑、架子小、受击收敛 —— 靠"收着打"的观感 */
+  BODIES:{
+    brawler: { hi:0.90, torso:0.34, arm:0.150, leg:0.158, spread:0.20, head:0.118, shoulder:0.175 },
+    player:  { hi:1.06, torso:0.27, arm:0.122, leg:0.130, spread:0.14, head:0.094, shoulder:0.132 },
+  },
+  POSES:{
+    /* 莽夫：幅度大、冲得远 */
+    brawler:{
+      idle:  { lean:0.02, guardH:0.50, armF:0.30, armB:0.45, crouch:0.02, headY:0.01, step:0.00 },
+      strike:{ lean:0.26, guardH:0.40, armF:1.00, armB:0.05, crouch:0.06, headY:0.03, step:0.85 },
+      hit:   { lean:-0.28, guardH:0.25, armF:0.05, armB:0.60, crouch:0.12, headY:-0.09, step:-0.45 },
+      stun:  { lean:-0.36, guardH:0.10, armF:0.02, armB:0.12, crouch:0.22, headY:-0.13, step:-0.30 },
+      ko:    { lean:-0.62, guardH:0.02, armF:0.01, armB:0.01, crouch:0.84, headY:-0.36, step:-0.60 },
+    },
+    /* 陈默：紧凑、架子小、动作收敛（同一个动作幅度只有莽夫的一半左右） */
+    player:{
+      idle:  { lean:0.00, guardH:0.72, armF:0.38, armB:0.22, crouch:0.00, headY:0.00, step:0.00 },
+      strike:{ lean:0.16, guardH:0.66, armF:1.00, armB:0.12, crouch:0.04, headY:0.02, step:0.42 },
+      hit:   { lean:-0.18, guardH:0.40, armF:0.18, armB:0.35, crouch:0.08, headY:-0.05, step:-0.22 },
+      stun:  { lean:-0.26, guardH:0.18, armF:0.06, armB:0.10, crouch:0.15, headY:-0.08, step:-0.16 },
+      ko:    { lean:-0.48, guardH:0.06, armF:0.02, armB:0.02, crouch:0.70, headY:-0.26, step:-0.36 },
+    },
+  },
+  /** 取某角色的姿势目标值（找不到角色/动作时回落到玩家那套，避免 undefined 炸渲染） */
+  poseOf(who, name){
+    const c = (who && this.POSES[who]) || this.POSES.player;
+    return Object.assign({}, c[name] || c.idle);
+  },
+
+  /* ── 配色：按角色分两个色系，都保留"暗底 + 亮轮廓光"的风格 ──
+     莽夫 = 暖红系（花衬衫狠角色）、陈默 = 冷蓝系（拳击教练）。
+     为什么要"远/近"两档而不是一个色：骨骼是两个人都画在同一平面上的，
+     只靠一个色的话手臂叠一起会糊成一坨；far 档更暗，自动形成前后层次。
+     ⚠ 之前这里是内联的 `f.o ? 红 : 蓝` 三分支，既不好调也没法断言 ——
+       现在集中成表，测试可以直接比两个角色的色值（见 tests/fight2.test.cjs）。 */
+  PALETTE:{
+    brawler:{
+      label:"暖红系",
+      far:  { main:"#4a2028", edge:"#a8415a", skin:"#7a4a52" },   // 远侧肢体：压暗
+      near: { main:"#3a1620", edge:"#ff4d6d", skin:"#8d5a5f" },   // 本体：暖红 + 亮红轮廓光
+      cuff: "#ff6b52",                                            // 拳套收口：偏橙
+    },
+    player:{
+      label:"冷蓝系",
+      far:  { main:"#232a3e", edge:"#3b7f9c", skin:"#46586f" },
+      near: { main:"#1b2133", edge:"#4dd8ff", skin:"#5a6b8c" },
+      cuff: "#7fe6ff",                                            // 拳套收口：偏青
+    },
+  },
+  /** 取某角色的配色；找不到就回落到玩家那套（与 poseOf 同一种兜底思路） */
+  palOf(who){
+    return this.PALETTE[who] || this.PALETTE.player;
+  },
+
+  /* ── 立绘（Lovart 生成的绿幕素材，已抠像切成 4 张透明 PNG）──
+     素材来源：用拳击实拍抽帧做参考图 → Lovart 生成"四人横排绿幕图" →
+     tools/dev/cut-fight2-sprites.ps1 抠像 + 切分 + 脚底对齐。
+     加载失败/未加载完时**自动回落**到下面那套程序化骨骼绘制 ——
+     无头测试环境没有真 Image，永远走回落路径，所以两条路都必须能跑。 */
+  SPRITE_DIR: "art/fight2/",
+  SPRITES:{ puncher:null, brawler:null },
+  /** 每姿势的元数据，来源是 tools/dev/cut-fight2-sprites.ps1 生成的 <slug>.json。
+      ⚠ 两个必须记住的点（都靠读那两张 PNG 才发现的）：
+      ① standH = 该角色**站姿**高度。四张图高度差极大（陈默 309 / 倒地 126），
+         若按"每张都拉到 420px 高"缩放，倒地那张会被放大成 3.3 倍、宽 780px 的怪物。
+         所以实际做法是"先定每单位像素，再按各姿势自身尺寸画"。
+      ② lowY = 该图里**不透明最低行**。切图时为把四格对齐到同一条地面线做了纵向平移，
+         底部会留 0~21px 空档，拿图片底边当脚底会让人陷进地里。
+      改动立绘后请重跑切图脚本，并用 node tools/dev/sprite-align.js 核对这两列。 */
+  SPRITE_META:{
+    puncher:{ standH:309, lowY:{ idle:12, strike:16, hit:14, ko:8 } },
+    brawler:{ standH:423, lowY:{ idle:10, strike:13, hit:20, ko:28 } }
+  },
+  /** 预加载两个角色的 4 个姿势。onload 之前 drawFighter 会走骨骼回落，不会画空白。 */
+  loadSprites(){
+    const self = this;
+    ["puncher", "brawler"].forEach((slug) => {
+      if(self.SPRITES[slug]) return;
+      const set = { ready:0, need:4, poses:{} };
+      self.SPRITES[slug] = set;
+      ["idle", "strike", "hit", "ko"].forEach((p) => {
+        try{
+          const img = new Image();
+          img.onload = ()=>{ set.ready++; };
+          img.onerror = ()=>{};
+          img.src = self.SPRITE_DIR + slug + "_" + p + ".png";
+          set.poses[p] = img;
+        }catch(e){ /* 没有 Image（无头测试）→ 保持 ready=0，走骨骼回落 */ }
+      });
+    });
+  },
+  /** 立绘贴地锚点：需要把图片往下多撑 lowY 像素，内容底部才落在 GROUND 上 */
+  spriteLowY(who, pose){
+    const m = this.SPRITE_META[who];
+    return (m && m.lowY && m.lowY[pose]) || 0;
+  },
+  /** 该角色的站立像素高度（缩放基准）。索引里没有就退回当前图的实测高度 —— 
+      倒地的图会偏大，但至少不会画成空白。 */
+  spriteStandH(who, img){
+    const m = this.SPRITE_META[who];
+    if(m && m.standH > 0) return m.standH;
+    return (img && (img.naturalHeight || img.height)) || 1;
+  },
+  /** 取某角色在某个姿势下的立绘；没加载好就返回 null（调用方回落骨骼绘制） */
+  spriteOf(who, pose){
+    const set = this.SPRITES[who];
+    if(!set || set.ready < set.need) return null;
+    const img = set.poses[pose || "idle"];
+    if(!img) return null;
+    // 有些环境（桩 DOM）Image 没有 naturalWidth，用 width 兜底
+    const w = img.naturalWidth || img.width || 0;
+    return w > 0 ? img : null;
+  },
+
+  /** 开始/结束。begin() 里起 rAF 循环；测试用 frame() 手动推进，不依赖 rAF。
+      拿不到 2D 上下文时（无头测试的桩 DOM 就是）只跑状态机、不绘制 ——
+      于是"命中是否触发了演出"这类断言仍然成立，而测试不需要实现一个 canvas。 */
+  begin(cv){
+    this.cv = cv || $("fight2Cv");
+    this.g = null;
+    try{
+      this.g = (this.cv && typeof this.cv.getContext === "function") ? this.cv.getContext("2d") : null;
+    }catch(e){ this.g = null; }
+    this.running = true; this.frame = 0; this.t = 0;
+    this.camX = this.camTargetX = this.W/2; this.zoom = this.zoomTarget = 1;
+    this.shake = 0; this.flash = 0; this.hitstop = 0; this.ko = 0; this.koText = "";
+    this.fx = []; this.after = []; this.fxCount = 0;   /* fxCount 是单调累加器：fx[] 里的粒子会被生命周期回收，不能拿长度当"有没有打过" */
+    /* who 决定体型与姿势表；sprite 决定用哪套立绘（立绘没加载好时自动回落骨骼） */
+    /* 站距：陈默比莽夫高，所以初始机位也按体型分开一点，避免躯干叠在一起 */
+    this.me  = { x:this.W/2 - 250, who:"player",  sprite:"puncher", o:false, flipped:false };
+    this.foe = { x:this.W/2 + 225, who:"brawler", sprite:"brawler", o:true,  flipped:true  };
+    [this.me, this.foe].forEach((f) => {
+      f.body = this.BODIES[f.who] || this.BODIES.player;
+      f.pose = this.poseOf(f.who, "idle");
+      f.target = Object.assign({}, f.pose);
+      f.poseName = "idle";
+    });
+    this.loadSprites();
+    this.air = null;
+    this.tick();
+    return this;
+  },
+  end(){ this.running = false; if(this.raf) cancelAnimationFrame(this.raf); this.raf = 0; },
+
+  /** 战斗状态同步（render() 每次都会调）—— 这里只存，绘制在 frame() 里做 */
+  sync(st){ this.S = st || null; },
+
+  /** 摆姿势：who = "me"|"foe"，name ∈ idle/strike/hit/stun/ko
+      具体取哪套值由该角色的 who 决定（见 POSES）—— 同一个"出拳"，两个人幅度不同。 */
+  pose(who, name, ms){
+    const f = who === "foe" ? this.foe : this.me;
+    if(!f) return;
+    f.target = this.poseOf(f.who || who, name);
+    f.poseName = (["idle","strike","hit","stun","ko"].indexOf(name) >= 0) ? name : "idle";
+    f.poseMs = ms || 0;
+  },
+
+  /** 命中演出：顿帧 + 火花 + 震动。kind 决定火花的颜色与强度 */
+  hit(kind, who){
+    const K = { light:{stop:6, shake:8,  fx:0.7},  heavy:{stop:12, shake:20, fx:1.4},
+                block:{stop:4, shake:6,  fx:0.5},  counter:{stop:16, shake:26, fx:1.8} };
+    const k = K[kind] || K.light;
+    this.hitstop = Math.max(this.hitstop, k.stop);
+    this.shake = Math.max(this.shake, k.shake);
+    this.flash = Math.max(this.flash, kind === "counter" ? 0.55 : 0.28);
+    const f = (who === "foe" ? this.foe : this.me);
+    const x = f ? f.x : this.W/2, y = this.GROUND - 170;
+    this.fxCount++;
+    for(let i = 0; i < Math.round(10 * k.fx); i++){
+      this.fx.push({ x:x, y:y, a:Math.random()*Math.PI*2, sp:4 + Math.random()*9,
+                     len:16 + Math.random()*34, life:14 + Math.random()*10, max:24,
+                     w:2 + Math.random()*2.5, c: kind === "counter" ? "#ffd76e" : "#fff2c4" });
+    }
+    this.fx.push({ ring:true, x:x, y:y, r:6, life:16, max:16,
+                   c: kind === "counter" ? "#ffd76e" : "#ffffff" });
+  },
+  /** KO / 胜负横幅 */
+  finish(win){
+    this.ko = 1; this.koText = win ? "K.O." : "YOU LOSE";
+    this.zoomTarget = 1.25; this.shake = 16;
+  },
+
+  /* ── 街机过场：点「开始战斗」不再直接开打，而是"被吸进街机里" ──
+     0 → 1 的进度：
+       0.00–0.35 机台从下方升起（霓虹描边点亮）
+       0.35–0.70 屏幕亮起、开始放大 —— 视角往屏幕里推
+       0.70–1.00 机身淡出，只剩画布内的场景（此时收尾，控制权交回战斗）
+     全程叠 CRT 扫描线 + 屏幕辉光；这几样都是纯绘制，不依赖任何素材。 */
+  arcade:0, arcadeOn:false,
+  /* 打完这一整局都待在街机里 —— 不只是转场。参考视觉是"游戏世界被装进 CRT 屏、
+     红壳与操作台在四周"，所以屏幕里的画面走世界坐标，机身一律屏幕坐标。 */
+  arcadeMode:true,
+  startArcade(){ this.arcade = 0; this.arcadeOn = true; this.arcadeMode = true; },
+  /** CRT 屏幕在画布上的矩形 —— 所有"机内"绘制都以它为准 */
+  screenRect(){
+    const W = this.W, H = this.H;
+    /* ⚠ 屏幕的宽高比必须**等于世界的宽高比**（1680:900 = 1.8667）：
+       这样"世界装进屏幕"就是一次纯等比缩放，既不会把人物拉扁，也不会留下黑边。
+       早期版本随手取了 H-182 的高度，比例是 1.8667 : 1.80，结果 kx≠ky —— 横竖差 4.7%，
+       人物会被压扁，而且底部多出一条黑边。 */
+    const w = W - 400;                                     // 左右各留 200 给机壳立柱
+    const h = Math.round(w * H / W);                        // 1280 × 900/1680 = 686
+    return { x: 200, y: 82, w: w, h: h };                   // 顶板 82px、操作台 132px
+  },
+  /* ── 街机机身（红壳 / 发光 LOGO 顶板 / 凹陷 CRT / 双人操作台）────────────────
+     参考视觉：一台立在游戏厅里的红色框体街机，游戏画面嵌在 CRT 屏里。
+     两条硬规则：
+       ① **世界坐标只用于屏幕内部**（drawBackdrop/drawHud/人物），机身一律屏幕坐标；
+       ② 机身要画在**场景之后**（见 draw()），这样屏幕外溢出的部分会被机壳自然盖住。
+     所有图形都是过程式的（渐变 / 圆角矩形用 arc+fillRect 拼 / 圆），不依赖任何素材；
+     也不用 filter/roundRect，保持"最小 canvas 实现"（tools/dev/canvas-sink.cjs）能跑。 */
+  MACHINE:{
+    /* 参考机型：红壳 → 金色描边 → 黑凹槽 → CRT。颜色按参考图的明度定，
+       主色要够饱和才"像街机"（早期用的 #3a0d16 太暗，看着像黑箱子）。 */
+    shell:"#8f1d2e",      // 机身主色（红）
+    shellDark:"#4a0c17",  // 暗部
+    shellLite:"#c02a3e",  // 受光面
+    trim:"#ffd76e",       // 金色描边
+    deck:"#141018",       // 操作台面板
+    neon:"#ff2d6f",
+  },
+  /** 圆角矩形：只用 arc + fillRect 拼，兼容没有 roundRect 的实现 */
+  roundRect(g, x, y, w, h, r){
+    r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+    g.beginPath();
+    g.moveTo(x + r, y); g.lineTo(x + w - r, y);
+    g.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+    g.lineTo(x + w, y + h - r);
+    g.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+    g.lineTo(x + r, y + h);
+    g.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+    g.lineTo(x, y + r);
+    g.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
+    g.fill();
+  },
+  /** 游戏厅环境：暖光源 + 虚化的邻机光带。不追求真实，只要"不在虚空里" */
+  drawHall(g, W, H){
+    const bg = g.createLinearGradient ? g.createLinearGradient(0, 0, 0, H) : null;
+    if(bg){ bg.addColorStop(0, "#120b14"); bg.addColorStop(0.5, "#1b1119"); bg.addColorStop(1, "#0a070c");
+      g.fillStyle = bg; } else g.fillStyle = "#120b14";
+    g.fillRect(0, 0, W, H);
+    /* 邻机的霓虹：左右各几条竖直光带，越远越暗（用宽度模拟虚化） */
+    const beams = [[0.03, 90, "#ff2d6f", 0.10], [0.13, 60, "#4dd8ff", 0.07],
+                   [0.80, 70, "#ffd76e", 0.07], [0.93, 100, "#b07dff", 0.10]];
+    beams.forEach(([fx, bw, c, a]) => {
+      g.globalAlpha = a; g.fillStyle = c;
+      g.fillRect(W * fx - bw / 2, 0, bw, H);
+      g.globalAlpha = a * 1.6;
+      g.fillRect(W * fx - bw / 6, 0, bw / 3, H);
+    });
+    g.globalAlpha = 1;
+    /* 顶部两盏筒灯 + 地面反光：参考图里最显眼的环境线索 */
+    [[0.28, 0.16], [0.72, 0.16]].forEach(([fx, fr]) => {
+      const rl = g.createRadialGradient ? g.createRadialGradient(W * fx, H * 0.04, 4, W * fx, H * 0.04, W * fr) : null;
+      if(!rl) return;
+      rl.addColorStop(0, "rgba(255,226,170,.30)"); rl.addColorStop(1, "rgba(255,226,170,0)");
+      g.fillStyle = rl; g.fillRect(W * fx - W * fr, 0, W * fr * 2, H * 0.42);
+    });
+    const fl = g.createLinearGradient ? g.createLinearGradient(0, H * 0.78, 0, H) : null;
+    if(fl){ fl.addColorStop(0, "rgba(255,120,150,0)"); fl.addColorStop(1, "rgba(255,120,150,.10)");
+      g.fillStyle = fl; g.fillRect(0, H * 0.78, W, H * 0.22); }
+  },
+  /** 屏幕内部：扫描线 + 玻璃反光 + 四角压暗，让人一眼认出"这是台 CRT"。
+      ⚠ 三层都**很轻**：它们是"质感"，不是"滤镜"。第一版把压暗做到 0.55 强度、
+        内半径 0.42，结果屏内空地只剩 rgb(8,6,13)（正常应是 rgb(30,19,44)）——
+        看着像屏幕没点亮，而不是像 CRT。 */
+  drawCrt(g, R, lit, opt){
+    const o = Object.assign({ scan: 0.14, glass: 0.05, vig: 0.26 }, opt || {});
+    g.globalAlpha = o.scan * lit; g.fillStyle = "#000";
+    for(let y = R.y; y < R.y + R.h; y += 4) g.fillRect(R.x, y, R.w, 2);
+    /* 玻璃反光：左上往右下的一道斜光 */
+    g.globalAlpha = o.glass * lit;
+    const gl = g.createLinearGradient ? g.createLinearGradient(R.x, R.y, R.x + R.w * 0.7, R.y + R.h) : null;
+    if(gl){ gl.addColorStop(0, "#ffffff"); gl.addColorStop(0.45, "rgba(255,255,255,0)");
+      gl.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gl; g.fillRect(R.x, R.y, R.w, R.h); }
+    /* 四角压暗：只压最外一圈，中心不受影响 */
+    g.globalAlpha = o.vig * lit;
+    const mx = Math.max(R.w, R.h);
+    const vg = g.createRadialGradient
+      ? g.createRadialGradient(R.x + R.w / 2, R.y + R.h / 2, mx * 0.62,
+                               R.x + R.w / 2, R.y + R.h / 2, mx * 0.92) : null;
+    if(vg){ vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.34)");
+      g.fillStyle = vg; g.fillRect(R.x, R.y, R.w, R.h); }
+    g.globalAlpha = 1;
+  },
+  /** 顶板 LOGO：红底金边 + 立体字。用的是本作自己的标题，不碰任何商标 */
+  drawMarquee(g, R, W){
+    const M = this.MACHINE;
+    const mh = R.y - 14;                                   // 顶板高度
+    /* 顶板外框（比屏幕宽一点，形成"帽子"） */
+    const mx = R.x - 46, mw = R.w + 92;
+    g.fillStyle = M.shellLite; this.roundRect(g, mx, 4, mw, mh + 8, 14);
+    g.fillStyle = M.trim;      this.roundRect(g, mx + 6, 10, mw - 12, mh - 2, 10);
+    const mg = g.createLinearGradient ? g.createLinearGradient(0, 10, 0, mh + 8) : null;
+    if(mg){ mg.addColorStop(0, "#c2183a"); mg.addColorStop(0.55, "#8e0f28"); mg.addColorStop(1, "#5c0818");
+      g.fillStyle = mg; } else g.fillStyle = "#a8142f";
+    this.roundRect(g, mx + 11, 15, mw - 22, mh - 12, 8);
+    /* 标题：金色描边 + 白芯（街机顶板的一贯做法），带一点随帧脉动的光晕 */
+    const flick = 0.82 + 0.18 * Math.sin((this.t || 0) / 11);
+    g.textAlign = "center"; g.textBaseline = "middle";
+    const ty = 15 + (mh - 12) / 2 + 2;
+    g.font = "900 54px 'Impact','Arial Black',sans-serif";
+    g.lineWidth = 9; g.strokeStyle = "rgba(60,6,16,.95)";
+    g.strokeText("再 生 2", W / 2, ty);
+    g.fillStyle = "#ffd76e"; g.fillText("再 生 2", W / 2, ty);
+    g.font = "700 17px 'Arial Black',sans-serif";
+    g.fillStyle = "rgba(255,235,190," + flick.toFixed(3) + ")";
+    g.fillText("A R C A D E   F I G H T   2 . 0", W / 2, ty + 38);
+    /* 顶板灯带 */
+    g.globalAlpha = 0.55 + 0.45 * Math.sin((this.t || 0) / 7);
+    g.fillStyle = M.neon; g.fillRect(mx + 24, 8, mw - 48, 4);
+    g.globalAlpha = 1;
+  },
+  /** 操作台：面板 + 两个摇杆 + 两组按键（识别度主要靠这几个图形） */
+  drawDeck(g, R, W, H){
+    const M = this.MACHINE;
+    const dy = R.y + R.h + 16, dh = H - dy;
+    g.fillStyle = M.deck; g.fillRect(0, dy, W, dh);
+    const dg = g.createLinearGradient ? g.createLinearGradient(0, dy, 0, H) : null;
+    if(dg){ dg.addColorStop(0, "rgba(255,255,255,.07)"); dg.addColorStop(1, "rgba(0,0,0,.35)");
+      g.fillStyle = dg; g.fillRect(0, dy, W, dh); }
+    /* 台面金线 + 一行操作提示（摇杆就是方向键，正是本作的闪避键位） */
+    g.strokeStyle = "rgba(255,215,110,.45)"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, dy + 1); g.lineTo(W, dy + 1); g.stroke();
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = "600 13px 'Arial',sans-serif";
+    g.fillStyle = "rgba(255,225,190,.55)";
+    g.fillText("摇 杆 = 闪 避 方 向 （← ↓ ↑） · 按 键 = 出 招", W / 2, dy + dh * 0.5);
+    /* 两个玩家位：左 1P 红、右 2P 蓝 —— 与两个角色的配色呼应 */
+    [[0.20, "#ff2d6f", "1P"], [0.80, "#4dd8ff", "2P"]].forEach(([fx, c, label]) => {
+      const cx = W * fx, jy = dy + dh * 0.62, by = dy + dh * 0.42;
+      /* 按键：两排各三个，红头黑座 */
+      for(let i = 0; i < 6; i++){
+        const col = i % 3, row = Math.floor(i / 3);
+        const bx = cx + 96 + col * 54, byy = by + row * 46 - 23;
+        g.fillStyle = "#0a0810";
+        g.beginPath(); g.arc(bx, byy, 21, 0, Math.PI * 2); g.fill();
+        g.fillStyle = i === 0 ? c : "#c8102e";
+        g.beginPath(); g.arc(bx, byy, 17, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "rgba(255,255,255,.28)";
+        g.beginPath(); g.arc(bx - 5, byy - 6, 6, 0, Math.PI * 2); g.fill();
+      }
+      /* 摇杆：黑胶套 + 红球头 */
+      g.strokeStyle = "#2a2433"; g.lineWidth = 13; g.lineCap = "round";
+      g.beginPath(); g.moveTo(cx, jy + 34); g.lineTo(cx, jy - 12); g.stroke();
+      g.fillStyle = "#0a0810"; g.beginPath(); g.arc(cx, jy + 36, 24, 0, Math.PI * 2); g.fill();
+      g.fillStyle = c; g.beginPath(); g.arc(cx, jy - 20, 19, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "rgba(255,255,255,.35)";
+      g.beginPath(); g.arc(cx - 6, jy - 26, 6, 0, Math.PI * 2); g.fill();
+      /* 机位标签 */
+      g.font = "700 12px 'Arial Black',sans-serif"; g.fillStyle = "rgba(255,235,190,.5)";
+      g.fillText(label, cx - 78, dy + dh * 0.5);
+    });
+  },
+  /** 机身【框】：在世界之前画。
+      ⚠ 关键顺序约束：**不能**在这里给屏幕铺黑底 —— 那会把随后画进去的世界整个盖掉
+        （实测：世界画完后屏内亮度 100%，铺完黑底立刻变 0%）。
+        屏幕的底色改用"屏幕外框"来表达：先铺一块比屏幕大 12px 的黑，再由世界自己盖住中间。
+      另外 rise<1 时要让屏幕**留空**，好让世界被机壳的升起位移裁切、而不是先看到画面。 */
+  drawMachineFrame(g, rise, screenLit){
+    const W = this.W, H = this.H, M = this.MACHINE;
+    const R = this.screenRect();
+    const off = (1 - rise) * H;
+    if(this.arcadeOn) this.drawHall(g, W, H);              // 过场：整个游戏厅都要看得到
+    else {
+      /* 常驻：机身之外只有近处环境光（只填四条边，别碰屏幕内部） */
+      g.fillStyle = "#0a070c";
+      g.fillRect(0, 0, W, R.y);
+      g.fillRect(0, R.y + R.h, W, H - (R.y + R.h));
+      g.fillRect(0, R.y, R.x, R.h);
+      g.fillRect(R.x + R.w, R.y, W - (R.x + R.w), R.h);
+      const fl = g.createLinearGradient ? g.createLinearGradient(0, R.y + R.h, 0, H) : null;
+      if(fl){ fl.addColorStop(0, "rgba(255,120,150,0)"); fl.addColorStop(1, "rgba(255,120,150,.09)");
+        g.fillStyle = fl; g.fillRect(0, R.y + R.h, W, H - (R.y + R.h)); }
+    }
+    g.save();
+    g.translate(0, off);
+    /* 机身面板：把"屏幕凹槽 + 顶板 + 两侧立柱"占用的区域整片铺成红色。
+       ⚠ 只在屏幕槽之外铺（先铺整片、再用屏幕槽挖掉中间），否则又会把世界盖掉。
+         早期只铺了两条 40px 的立柱，顶带与侧边留出 34px 空隙露出环境色，
+         看着完全不像一台街机（实测那些位置是 rgb(10,7,12) 的环境光）。 */
+    const PX0 = R.x - 74, PX1 = W - R.x + 74;              // 面板左右边界
+    const PY1 = R.y + R.h + 96;                            // 面板下沿（再往下是操作台）
+    g.fillStyle = M.shell;
+    g.fillRect(PX0, 0, PX1 - PX0, R.y - 4);                // 顶板整条
+    g.fillRect(PX0, R.y - 4, R.x - 12 - PX0, PY1 - R.y);   // 左立柱
+    g.fillRect(R.x + R.w + 12, R.y - 4, PX1 - (R.x + R.w + 12), PY1 - R.y); // 右立柱
+    g.fillRect(PX0, R.y + R.h + 12, PX1 - PX0, PY1 - (R.y + R.h + 12));     // 屏下横档
+    /* 受光面与暗部：让平面有体积感 */
+    g.fillStyle = M.shellLite;
+    g.fillRect(PX0, 0, 10, PY1);
+    g.fillRect(PX0 + 34, R.y - 4, 8, PY1 - R.y + 4);
+    g.fillRect(PX1 - 10, 0, 10, PY1);
+    g.fillStyle = M.shellDark;
+    g.fillRect(PX0 + 10, 0, 24, PY1);
+    g.fillRect(PX1 - 34, 0, 24, PY1);
+    /* 面板金色描边 */
+    g.strokeStyle = "rgba(255,215,110,.5)"; g.lineWidth = 3;
+    g.strokeRect(PX0, -2, PX1 - PX0, PY1 + 2);
+    /* 顶部斜遮光罩：参考机型最显眼的特征，没有它就不像街机 */
+    g.fillStyle = "#20070d";
+    g.beginPath();
+    g.moveTo(PX0, R.y - 4); g.lineTo(R.x - 12, R.y - 4);
+    g.lineTo(R.x - 12, R.y + 10); g.lineTo(PX0, R.y + 26);
+    g.closePath(); g.fill();
+    g.beginPath();
+    g.moveTo(PX1, R.y - 4); g.lineTo(R.x + R.w + 12, R.y - 4);
+    g.lineTo(R.x + R.w + 12, R.y + 10); g.lineTo(PX1, R.y + 26);
+    g.closePath(); g.fill();
+    /* 屏幕外框（内凹的凹槽）：世界会盖住它的中间部分 */
+    g.fillStyle = "#0a0810";
+    g.fillRect(R.x - 12, R.y - 12, R.w + 24, R.h + 24);
+    g.strokeStyle = "rgba(255,215,110,.35)"; g.lineWidth = 2;
+    g.strokeRect(R.x - 10, R.y - 10, R.w + 20, R.h + 20);
+    /* 顶板 LOGO */
+    this.drawMarquee(g, R, W);
+    /* 过场：屏幕升起过程中还没点亮，压一层黑 */
+    if(this.arcadeOn && screenLit < 1){
+      g.save(); g.globalAlpha = 1 - screenLit; g.fillStyle = "#05040a";
+      g.fillRect(R.x, R.y, R.w, R.h); g.restore();
+    }
+    g.restore();
+  },
+  /** 机身【罩】：在世界之后画 —— 屏幕质感、内高光、操作台 */
+  drawMachineOverlay(g){
+    const W = this.W, H = this.H;
+    const R = this.screenRect();
+    const lit = this.arcadeOn ? 1 : 1;
+    this.drawCrt(g, R, lit);
+    g.strokeStyle = "rgba(255,255,255,.10)"; g.lineWidth = 2;
+    g.strokeRect(R.x + 1, R.y + 1, R.w - 2, R.h - 2);
+    this.drawDeck(g, R, W, H);
+  },
+  /** 兼容旧调用点：机身常驻时不需要额外做任何事（框与罩已在 draw() 里分两段画） */
+  drawArcade(g){
+    if(!this.arcadeMode && !this.arcadeOn && this.arcade <= 0) return;
+    if(this.arcadeOn) this.drawMachineOverlay(g);
+  },
+
+  /** 每帧：推进时间、平滑姿势与相机、处理顿帧、绘制 */
+  tick(){
+    const self = this;
+    if(!this.running) return;
+    this.raf = requestAnimationFrame(function(){ self.tick(); });
+    this.frame++; this.t++;
+    /* 顿帧：命中瞬间把时间冻住若干帧 —— 这是"打击感"最廉价也最有效的一招 */
+    if(this.hitstop > 0){ this.hitstop--; this.draw(); return; }
+    this.step();
+    this.draw();
+  },
+  /** 测试用：手动推进一帧（不起 rAF） */
+  frameOnce(){ this.frame++; this.t++; if(this.hitstop > 0) this.hitstop--; else this.step(); this.draw(); return this.debugState(); },
+
+  step(){
+    const L = 0.18;                                   // 姿势平滑系数
+    const lerp = (a, b, k) => a + (b - a) * k;
+    [this.me, this.foe].forEach((f) => {
+      if(!f) return;
+      for(const k in f.target) f.pose[k] = lerp(f.pose[k] || 0, f.target[k], L);
+    });
+    /* 延迟回调（"受击姿势 16 帧后恢复待机"这类）。
+       挂在 step() 上而不是自己起 setTimeout：顿帧时 step() 不跑，计时也跟着停，
+       演出与战斗的节奏天然对齐。 */
+    this.after = this.after.filter((a) => { a.t--; if(a.t <= 0){ try{ a.fn(); }catch(e){} return false; } return true; });
+    /* 相机：跟随双方中点，回合内自动推近一点；KO 时更近 */
+    if(this.me && this.foe) this.camTargetX = (this.me.x + this.foe.x) / 2;
+    const st = this.S;
+    this.zoomTarget = this.ko ? 1.25 : (st && st.counter ? 1.14 : 1.06);
+    this.camX = lerp(this.camX, this.camTargetX, 0.10);
+    this.zoom = lerp(this.zoom, this.zoomTarget, 0.06);
+    this.shake = Math.max(0, this.shake - 0.85);
+    this.flash = Math.max(0, this.flash - 0.035);
+    if(this.ko) this.ko = Math.min(1, this.ko + 0.05);
+    /* 街机过场推进：约 2 秒走完（60fps 下 ~120 帧）。
+       0~0.35 顶板+屏幕灯带先亮 → 0.35~0.8 屏幕从黑亮起 → 0.8~1 完全进入。
+       进度到 1 就交回战斗，但**机身常驻**（arcadeMode），玩家始终待在这台机器里。 */
+    if(this.arcadeOn){
+      this.arcade = Math.min(1, this.arcade + 0.0085);
+      if(this.arcade >= 1){ this.arcadeOn = false; this.arcade = 0; }
+    }
+    /* 特效寿命 */
+    this.fx = this.fx.filter((e) => { e.life--; if(e.ring) e.r += 7; else { e.x += Math.cos(e.a)*e.sp; e.y += Math.sin(e.a)*e.sp*0.6; } return e.life > 0; });
+    /* 待机呼吸：没人操作时画面不该是死的。这是"看起来活着"最省事的一招。 */
+    this.bob = Math.sin(this.t / 18) * 3.2;
+  },
+
+  /* ── 绘制 ── */
+  draw(){
+    const g = this.g;
+    if(!g) return;
+    const W = this.W, H = this.H;
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, W, H);
+    /* ── 世界 → 屏幕：机身常驻时，把整个 1680×900 的世界按比例装进 CRT 屏 ──
+       用同一套世界坐标、只做一次等比缩放平移 —— 立绘贴地、相机推镜、HUD 全都不用改。
+       等比缩放后世界是 1281.8×686.7，比屏幕小不到 1px，所以几乎不产生黑边。 */
+    const R = this.screenRect();
+    const inMachine = this.arcadeMode || this.arcadeOn;
+    const k = inMachine ? R.w / W : 1;
+    if(inMachine){
+      /* 机身【框】先画：机壳、顶板、屏幕外框。它**不给屏幕铺底**，
+         屏幕内部留给随后画进来的世界 —— 这是"人在机器里打"的关键顺序。 */
+      if(g.setTransform) g.setTransform(1, 0, 0, 1, 0, 0);
+      const p0 = Math.max(0, Math.min(1, this.arcade));
+      this.drawMachineFrame(g, this.arcadeOn ? Math.min(1, p0 / 0.6) : 1,
+                               this.arcadeOn ? Math.min(1, Math.max(0, (p0 - 0.35) / 0.45)) : 1);
+      g.translate(R.x, R.y);
+      g.scale(k, k);
+      if(g.beginPath && g.rect && g.clip && g.save){
+        g.save(); g.beginPath(); g.rect(0, 0, W, H); g.clip();
+        this._clipped = true;
+      }
+    } else this._clipped = false;    /* 相机：以 camX 为中心做缩放与平移，再叠震动 */
+    const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
+    g.translate(W/2 + sx, H/2 + sy);
+    g.scale(this.zoom, this.zoom);
+    g.translate(-this.camX, -H/2);
+    this.drawBackdrop(g);
+    this.drawHud(g);
+    /* 人物：先画远处（对手）再画近处（玩家），并各画一层地面倒影 */
+    this.drawFighter(g, this.foe);
+    this.drawFighter(g, this.me);
+    this.drawFx(g);
+    /* 白闪与 KO 横幅属于"屏幕内容"，要跟着世界一起缩放，所以放在 clip 内、机身之前 */
+    if(this.flash > 0.01){
+      g.fillStyle = "rgba(255,255,255," + this.flash.toFixed(3) + ")";
+      g.fillRect(-W, -H, W * 3, H * 3);
+    }
+    if(this.ko > 0){
+      const a = Math.min(0.82, this.ko * 1.2);
+      g.fillStyle = "rgba(4,3,8," + (a * 0.55).toFixed(3) + ")";
+      g.fillRect(-W, -H, W * 3, H * 3);
+      g.globalAlpha = Math.min(1, this.ko * 1.6);
+      g.font = "bold 132px 'Impact','Arial Black',sans-serif";
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.lineWidth = 10; g.strokeStyle = "rgba(0,0,0,.85)";
+      g.strokeText(this.koText, W/2, H/2 - 40);
+      g.fillStyle = this.koText === "K.O." ? "#ffd76e" : "#ff4d6d";
+      g.fillText(this.koText, W/2, H/2 - 40);
+      g.globalAlpha = 1;
+    }
+    if(this._clipped && g.restore) g.restore();           // 结束屏幕裁剪
+    /* 机身【罩】最后画（屏幕坐标）：CRT 质感 / 内高光 / 操作台。
+       屏内内容溢出屏幕的部分由前面那层 clip 挡住，不需要靠机壳去盖。 */
+    if(inMachine){
+      if(g.setTransform) g.setTransform(1, 0, 0, 1, 0, 0);
+      this.drawMachineOverlay(g);
+    }
+    g.restore();
+  },
+
+  /** 夜景拳台：天幕 → 远景霓虹 → 透视地面网格 → 地面反射 */
+  drawBackdrop(g){
+    const W = this.W, H = this.H, GY = this.GROUND;
+    if(!this.air){
+      this.air = {
+        sky:   g.createLinearGradient(0, 0, 0, GY),
+        floor: g.createLinearGradient(0, GY, 0, H),
+      };
+      this.air.sky.addColorStop(0,   "#0a0812");
+      this.air.sky.addColorStop(0.55,"#150f22");
+      this.air.sky.addColorStop(1,   "#241634");
+      this.air.floor.addColorStop(0, "#1a1226");
+      this.air.floor.addColorStop(1, "#07050c");
+    }
+    g.fillStyle = this.air.sky;   g.fillRect(-W, -H, W*3, GY + H);
+    g.fillStyle = this.air.floor; g.fillRect(-W, GY, W*3, H);
+    /* 远景霓虹：几块模糊光斑，负责"这是夜里、有城市感" */
+    const neon = [[150,300,"#ff2d6f",0.30],[430,220,"#4dd8ff",0.24],[1180,260,"#b07dff",0.26],
+                  [900,340,"#ffd76e",0.18],[1520,300,"#4dd8ff",0.20]];
+    neon.forEach(([x, y, c, a]) => {
+      const rg = g.createRadialGradient(x, y, 8, x, y, 190);
+      rg.addColorStop(0, c); rg.addColorStop(1, "rgba(0,0,0,0)");
+      g.globalAlpha = a; g.fillStyle = rg;
+      g.fillRect(x - 190, y - 190, 380, 380);
+    });
+    g.globalAlpha = 1;
+    /* 透视地面网格：竖线向灭点收、横线按距离加密 —— 2.5D 的"地面"就靠这个 */
+    const vpx = this.W/2, vpy = GY - 260;
+    g.lineWidth = 1.4;
+    for(let i = -14; i <= 14; i++){
+      const x = vpx + i * 150;
+      g.strokeStyle = i % 2 ? "rgba(93,255,160,.07)" : "rgba(176,125,255,.11)";
+      g.beginPath(); g.moveTo(vpx + i * 26, vpy); g.lineTo(x * 1.6 - vpx * 0.6, H + 40); g.stroke();
+    }
+    for(let k = 0; k < 12; k++){
+      const p = k / 12;
+      const y = vpy + (H + 40 - vpy) * Math.pow(p, 2.2);
+      g.strokeStyle = "rgba(255,255,255," + (0.10 * (1 - p) + 0.02).toFixed(3) + ")";
+      g.beginPath(); g.moveTo(-W, y); g.lineTo(W*2, y); g.stroke();
+    }
+    /* 地面高光线（拳台边绳的意象）+ 人物脚下的光池 */
+    g.strokeStyle = "rgba(255,215,110,.22)"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-W, GY); g.lineTo(W*2, GY); g.stroke();
+  },
+
+  /** 一个拳手：剪影 + 轮廓光 + 地面倒影。
+      比例按"格斗游戏角色"来定：肩宽、四肢粗、头相对小 —— 早期版本是细长火柴人，
+      样片一眼就看出不像格斗（躯干 0.20 宽、肢体 0.085~0.115 都太细了）。 */
+  drawFighter(g, f){
+    if(!f) return;
+    g.save();
+    g.translate(0, this.bob || 0);                    // 待机呼吸（见 step()）
+    const GY = this.GROUND;
+    /* ── 优先用 Lovart 立绘 ──
+       两条规矩（都不是想当然的，是量出来的）：
+       ① 缩放基准是**站姿高度** standH，不是"每张图各自拉到 420px 高"：
+          四张图高度差极大（陈默站 309 / 倒地 126），按各图拉高会把倒地那张放大 3.3 倍。
+       ② 贴地锚点是该图的**不透明最低行** lowY，不是图片底边：
+          切图做了纵向平移对齐，底部留了 0~21px 空档，用底边当脚底会陷进地里。
+       ⚠ 立绘用 f.sprite（立绘 slug），不要用 f.who（体型档位）：陈默是 who:"player" /
+         sprite:"puncher"，拿 who 去查 SPRITES 会查到 undefined → 永远走回落。
+         花衬衫只是恰好 who 与 sprite 同名（都是 "brawler"），所以这个 bug 只坑一个角色。 */
+    const sp = this.spriteOf(f.sprite || f.who, f.poseName);
+    if(sp){
+      const face = f.flipped ? -1 : 1;
+      const p = f.pose || {};
+      /* swing 是"前后位移"，在**世界坐标**里算：对手面朝左，往前走就是往左。
+         骨骼路径是逐点左右算的（hipX 里乘 face），立绘没有关节点，只能在锚点上补。 */
+      const swing = (p.step || 0) * 26 * (f.flipped ? -1 : 1);
+      const H = 420 * (f.body ? f.body.hi : 1);        // 站姿在屏幕上的目标身高，与骨骼同一量纲
+      const w = sp.naturalWidth || sp.width;
+      const h = sp.naturalHeight || sp.height;
+      const k = H / Math.max(1, this.spriteStandH(f.sprite || f.who, sp));   // 每源像素 → 屏幕像素
+      const dw = w * k, dh = h * k;
+      const lowY = this.spriteLowY(f.sprite || f.who, f.poseName) * k;       // 落地点离图片底边多远
+      g.save();
+      g.translate(f.x + swing, GY + lowY);             // 画布原点 = 图片**底边**，故下移 lowY
+      /* ⚠ 镜像必须绕"贴地点"做，图也从 -dw/2 画（不是 0）：
+         若把图左边缘放在锚点再 scale(-1,1)，图会被整个甩到锚点另一侧
+         —— 实测表现是花衬衫的立绘紧贴格子右缘、一半出画。 */
+      if(face < 0) g.scale(-1, 1);                     // 对手面朝左
+      /* 地面倒影：翻转压扁 + 低透明度。倒影要以落地点为镜像轴，不能以图片底边 */
+      g.save();
+      g.globalAlpha = 0.18;
+      g.scale(1, -0.42); g.translate(0, -dh - lowY);
+      try{ g.drawImage(sp, -dw/2, 0, dw, dh); }catch(e){}
+      g.restore();
+      /* 脚下阴影 */
+      g.save();
+      g.globalAlpha = 0.24; g.fillStyle = "#000";
+      if(g.ellipse){
+        g.beginPath(); g.ellipse(0, 3, dw * 0.30, dh * 0.030, 0, 0, Math.PI * 2); g.fill();
+      } else {
+        g.beginPath(); g.arc(0, 3, dw * 0.18, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+      try{ g.drawImage(sp, -dw/2, -dh, dw, dh); }catch(e){}
+      g.restore();
+      return;
+    }
+    const B = f.body || this.BODIES.player;
+    const p = f.pose;
+    const body = 420 * B.hi * (1 - p.crouch * 0.5);   // 身高（逻辑像素）
+    const lean = p.lean;
+    const face = f.flipped ? -1 : 1;                  // 朝向（1 = 面朝右）
+    const hipX = f.x + p.step * 30 * face;
+    const hipY = GY - body * 0.46;
+    const shX  = hipX + lean * 100 * face;
+    const shY  = hipY - body * 0.32;
+    const headR = body * B.head;
+    const headX = shX + lean * 26 * face;
+    const headY = shY - headR * 1.35 + p.headY * 60;
+    /* 配色按角色取（暖红 = 莽夫 / 冷蓝 = 陈默），并区分远侧肢体与本体两档 ——
+       两个人画在同一平面上，只用一个色的话手臂叠一起会糊成一坨。 */
+    const PAL = this.palOf(f.sprite || f.who);
+    const tone = PAL[f.o ? "far" : "near"];
+    const main = tone.main;
+    const edge = tone.edge;
+    const skin = tone.skin;
+
+    const limb = (x1, y1, x2, y2, w) => {
+      g.lineCap = "round"; g.lineJoin = "round";
+      g.strokeStyle = main; g.lineWidth = w;
+      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+      g.strokeStyle = edge; g.globalAlpha = 0.42; g.lineWidth = Math.max(1.5, w * 0.22);
+      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+      g.globalAlpha = 1;
+    };
+
+    const paint = (alpha) => {
+      g.save();
+      if(alpha < 1) g.globalAlpha = alpha;
+      /* 站距 / 四肢粗细 / 肩宽 / 头身比都来自角色体型 —— 这是"两个角色不像同一个人"的关键 */
+      const legSpread = body * B.spread;
+      /* 腿：大腿 + 小腿，粗一点才有分量 */
+      const kneeL = [hipX - legSpread * face, hipY + body * 0.24];
+      const kneeR = [hipX + legSpread * 1.2 * face, hipY + body * 0.24];
+      limb(hipX, hipY, kneeL[0], kneeL[1], body * B.leg * 1.08);
+      limb(hipX, hipY, kneeR[0], kneeR[1], body * B.leg * 1.08);
+      limb(kneeL[0], kneeL[1], hipX - legSpread * 1.1 * face, GY, body * B.leg * 0.86);
+      limb(kneeR[0], kneeR[1], hipX + legSpread * 1.65 * face, GY, body * B.leg * 0.86);
+      /* 脚 */
+      g.fillStyle = main;
+      g.beginPath(); g.ellipse ? g.ellipse(hipX - legSpread * 1.1 * face, GY, body * 0.075, body * 0.028, 0, 0, Math.PI*2)
+                               : g.arc(hipX - legSpread * 1.1 * face, GY, body * 0.05, 0, Math.PI*2); g.fill();
+      g.beginPath(); g.ellipse ? g.ellipse(hipX + legSpread * 1.65 * face, GY, body * 0.075, body * 0.028, 0, 0, Math.PI*2)
+                               : g.arc(hipX + legSpread * 1.65 * face, GY, body * 0.05, 0, Math.PI*2); g.fill();
+      /* 躯干：粗，且肩比胯宽 —— 这是"拳手体型"最省事的表达 */
+      g.strokeStyle = main; g.lineWidth = body * B.torso; g.lineCap = "round";
+      g.beginPath(); g.moveTo(hipX, hipY); g.lineTo(shX, shY); g.stroke();
+      g.strokeStyle = edge; g.globalAlpha = 0.34; g.lineWidth = body * B.torso * 0.9;
+      g.beginPath(); g.moveTo(hipX + 3, hipY); g.lineTo(shX + 3, shY); g.stroke();
+      g.globalAlpha = 1;
+      /* 肩 */
+      g.fillStyle = main;
+      g.beginPath(); g.arc(shX, shY, body * B.shoulder, 0, Math.PI * 2); g.fill();
+      /* 后手（远侧）：起手高度由 guardH 控制 */
+      const guardY = shY + body * (0.10 + p.guardH * 0.26);
+      const backHand = [shX - 20 * face, guardY];
+      limb(shX - 12 * face, shY + 10, backHand[0], backHand[1], body * B.arm);
+      g.fillStyle = main;
+      g.beginPath(); g.arc(backHand[0], backHand[1], body * B.arm * 0.66, 0, Math.PI * 2); g.fill();
+      /* 前手：armF=1 时向前伸到底（出拳） */
+      const reach = body * (0.18 + p.armF * 0.46);
+      const handY = shY + body * (0.12 - p.armF * 0.07);
+      limb(shX + 12 * face, shY + 8, shX + reach * face, handY, body * B.arm * 1.08);
+      /* 手套：莽夫的拳套更大（他本来就是打野架的那种），收口颜色也按角色分 */
+      const gloveR = body * B.arm * 0.78;
+      g.fillStyle = main; g.beginPath();
+      g.arc(shX + reach * face, handY, gloveR, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = PAL.cuff; g.globalAlpha = 0.85; g.lineWidth = 2.6;
+      g.beginPath(); g.arc(shX + reach * face, handY, gloveR, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = edge; g.globalAlpha = 0.55; g.lineWidth = 1.4;
+      g.beginPath(); g.arc(shX + reach * face, handY, gloveR * 1.16, 0, Math.PI * 2); g.stroke();
+      g.globalAlpha = 1;
+      /* 头 + 颈 */
+      limb(headX, shY - body * 0.02, headX, headY + headR * 0.6, body * 0.075);
+      g.fillStyle = skin; g.beginPath(); g.arc(headX, headY, headR, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = edge; g.globalAlpha = 0.8; g.lineWidth = 2.6;
+      g.beginPath(); g.arc(headX, headY, headR, 0, Math.PI * 2); g.stroke();
+      /* 头发/兜帽：盖住上半头，让人形不显得光秃 */
+      g.fillStyle = main; g.globalAlpha = 1;
+      g.beginPath();
+      g.arc(headX - headR * 0.30 * face, headY - headR * 0.22, headR * 0.98, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    };
+
+    /* 倒影 + 脚下阴影：让角色"站在地上"而不是浮着。
+       ⚠ 阴影别做大做浓 —— 早先用 0.52×0.075 的不透明度 0.34，样片里成了脚下两个黑饼。
+         现在收窄压扁、再淡一档，只是"有接触感"就够了。 */
+    g.save();
+    g.globalAlpha = 0.16;
+    paint(0.16);
+    g.restore();
+    const shW = body * 0.30, shH = body * 0.034;
+    g.save();
+    g.globalAlpha = 0.20;
+    g.fillStyle = "#000";
+    if(g.ellipse){
+      g.beginPath(); g.ellipse(hipX, GY + 2, shW, shH, 0, 0, Math.PI * 2); g.fill();
+    } else {
+      g.beginPath(); g.arc(hipX, GY + 2, shW * 0.6, 0, Math.PI * 2); g.fill();
+    }
+    g.restore();
+    paint(1);
+    g.restore();
+  },
+
+  /** 命中特效：放射火花 + 扩散环 */
+  drawFx(g){
+    this.fx.forEach((e) => {
+      const k = e.life / e.max;
+      g.globalAlpha = Math.max(0, k);
+      if(e.ring){
+        g.strokeStyle = e.c; g.lineWidth = 3 * k + 1;
+        g.beginPath(); g.arc(e.x, e.y, e.r, 0, Math.PI * 2); g.stroke();
+      } else {
+        g.strokeStyle = e.c; g.lineWidth = e.w * k;
+        g.beginPath(); g.moveTo(e.x, e.y);
+        g.lineTo(e.x + Math.cos(e.a) * e.len * k, e.y + Math.sin(e.a) * e.len * k);
+        g.stroke();
+      }
+    });
+    g.globalAlpha = 1;
+  },
+
+  /** 顶部 HUD：血条（从中间往外掉）+ 体干细条 + 回合数 + 行动力点 */
+  drawHud(g){
+    const st = this.S;
+    if(!st) return;
+    const W = this.W, pad = 26, barW = (W - pad * 2 - 130) / 2, barH = 26, top = 22;
+    const seg = (x, y, w, h, v, c1, c2, rightAlign) => {
+      g.fillStyle = "rgba(8,6,14,.86)";
+      g.fillRect(x - 2, y - 2, w + 4, h + 4);
+      g.strokeStyle = "rgba(255,255,255,.22)"; g.lineWidth = 1;
+      g.strokeRect(x - 2.5, y - 2.5, w + 5, h + 5);
+      const ww = Math.max(0, Math.min(1, v)) * w;
+      const grd = g.createLinearGradient(x, y, x + w, y);
+      grd.addColorStop(0, c1); grd.addColorStop(1, c2);
+      g.fillStyle = grd;
+      g.fillRect(rightAlign ? x + w - ww : x, y, ww, h);
+      /* 高光条，给"血条"一点体积感 */
+      g.fillStyle = "rgba(255,255,255,.16)";
+      g.fillRect(rightAlign ? x + w - ww : x, y, ww, h * 0.34);
+    };
+    /* 双方血条：玩家在左（从右往左掉），对手在右（从左往右掉）—— 与街机一致 */
+    seg(pad, top, barW, barH, st.hp / st.maxHp, "#ff2d6f", "#ffd76e", true);
+    seg(W - pad - barW, top, barW, barH, st.foeHp / st.foeMax, "#b07dff", "#4dd8ff", false);
+    /* 体干：血条下面一条细的 */
+    seg(pad, top + barH + 8, barW, 7, st.stamMine, "#5dffa0", "#4dd8ff", true);
+    seg(W - pad - barW, top + barH + 8, barW, 7, st.stamFoe, "#ffd76e", "#ff4d6d", false);
+    /* 回合数 + 行动力 */
+    g.font = "bold 30px 'Arial Black',sans-serif";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillStyle = "#ffd76e";
+    g.fillText("R" + st.turn, W/2, top + barH/2 + 2);
+    g.font = "12px ui-monospace,Consolas,monospace";
+    g.fillStyle = "rgba(236,234,244,.6)";
+    g.fillText("行动力", W/2, top + barH + 24);
+    const dots = Math.max(0, st.ap), total = FIGHT2_TUNE.AP;
+    for(let i = 0; i < total; i++){
+      g.beginPath();
+      g.arc(W/2 - (total - 1) * 9 + i * 18, top + barH + 42, 5, 0, Math.PI * 2);
+      g.fillStyle = i < dots ? "#4dd8ff" : "rgba(255,255,255,.18)";
+      g.fill();
+    }
+    /* 状态徽记 */
+    const marks = [];
+    if(st.counter)  marks.push(["反击窗口", "#ffd76e"]);
+    if(st.stunMine) marks.push(["体干崩了", "#ff4d6d"]);
+    if(st.foeStun)  marks.push(["对手硬直", "#5dffa0"]);
+    if(st.guard > 0) marks.push(["格挡 " + st.guard, "#8a87a3"]);
+    g.font = "bold 15px ui-monospace,Consolas,monospace";
+    marks.forEach(([t, c], i) => {
+      g.fillStyle = c; g.textAlign = "center";
+      g.fillText(t, W/2, top + barH + 70 + i * 20);
+    });
+  },
+
+  /** 测试/调试用快照 */
+  debugState(){
+    const st = this.S || {};
+    return { running:this.running, frame:this.frame, zoom:+this.zoom.toFixed(3),
+             camX:+this.camX.toFixed(1), fx:this.fx.length, fxCount:this.fxCount, flash:+this.flash.toFixed(3),
+             hitstop:this.hitstop, ko:+this.ko.toFixed(2), koText:this.koText,
+             meX:this.me ? +this.me.x.toFixed(1) : null, foeX:this.foe ? +this.foe.x.toFixed(1) : null,
+             mePose:this.me ? { armF:+this.me.pose.armF.toFixed(2), lean:+this.me.pose.lean.toFixed(2) } : null,
+             foePose:this.foe ? { armF:+this.foe.pose.armF.toFixed(2), lean:+this.foe.pose.lean.toFixed(2) } : null,
+             meWho:this.me ? this.me.who : null, foeWho:this.foe ? this.foe.who : null,
+             meHi:this.me && this.me.body ? this.me.body.hi : null,
+             foeHi:this.foe && this.foe.body ? this.foe.body.hi : null,
+             /* 立绘是否就绪：测试里没有真 Image，这里必然是 false → 走骨骼回落，
+                所以断言写"回落路径可用"，别写"立绘已就绪"。 */
+             /* 立绘是否就绪：测试里没有真 Image，这里必然是 false → 走骨骼回落，
+                 所以断言写"回落路径可用"，别写"立绘已就绪"。
+                 查表要用 f.sprite 而不是 f.who —— 用 who 会得出"陈默没立绘"的假结论。 */
+             spriteMe:!!this.spriteOf(this.me ? (this.me.sprite || this.me.who) : null, this.me ? this.me.poseName : "idle"),
+             spriteFoe:!!this.spriteOf(this.foe ? (this.foe.sprite || this.foe.who) : null, this.foe ? this.foe.poseName : "idle"),
+             mePoseName:this.me ? this.me.poseName : null,
+             foePoseName:this.foe ? this.foe.poseName : null,
+             /* lean / step 也报出来：测试要验证"同一个动作两人用的不是同一套值"，
+                只给 poseName 的话两个角色会看起来一样（各自表的差异正好在这两个量上）。 */
+             meLean:this.me && this.me.pose ? +this.me.pose.lean.toFixed(3) : null,
+             foeLean:this.foe && this.foe.pose ? +this.foe.pose.lean.toFixed(3) : null,
+             meStep:this.me && this.me.pose ? +this.me.pose.step.toFixed(3) : null,
+             foeStep:this.foe && this.foe.pose ? +this.foe.pose.step.toFixed(3) : null,
+             arcadeOn:this.arcadeOn, arcade:+this.arcade.toFixed(3),
+             spriteReady:{ puncher:this.SPRITES.puncher ? this.SPRITES.puncher.ready : 0,
+                           brawler:this.SPRITES.brawler ? this.SPRITES.brawler.ready : 0 },
+             hasCtx:!!this.g, ap:st.ap, stamMine:st.stamMine, stamFoe:st.stamFoe,
+             hp:st.hp, foeHp:st.foeHp, turn:st.turn };
+  },
+};
+
 /* 对手招式库（P2 版）：
      · tell —— 出招前的模糊意图；read 生效时改显示具体招式名
      · def  —— 玩家该按哪个方向闪（null = 这一手不用闪：抱架/虚招）
@@ -2747,14 +3647,18 @@ function startFight2(it){
   $("fight2Sub").innerHTML = `生命 <b>${maxHp}</b>（体魄加成）· 每回合 ${FIGHT2_TUNE.AP} 行动力 · 带【精准】的招式触发时机判定` +
     `（完美 ×<b>${FIGHT_GRADE_MULT.perfect}</b>）· 对手出招会先<b style="color:#ff4d6d">红闪</b>提示方向，` +
     `按 <b>← / ↓ / ↑</b> 闪开 —— 闪对了不掉血、还会给你<b style="color:#ffd76e">反击窗口</b>`;
+  /* 起舞台：后面所有姿势/命中演出都通过它。
+     顺手放下拉门 —— 点「开始战斗」时会播一段"化身进街机"的过场。 */
+  Fight2Stage.begin($("fight2Cv"));
+  Fight2Stage.startArcade();
 
   function push(s){ log.push(s); }
-  function pct(v){ return Math.max(0, Math.min(1, v))*100 + "%"; }
   function render(){
-    $("fight2HpMine").style.width = Math.max(0, hp/maxHp*100) + "%";
-    $("fight2HpFoe").style.width  = Math.max(0, foeHp/foeMax*100) + "%";
-    $("fight2StamMine").style.width = pct(stamMine);
-    $("fight2StamFoe").style.width  = pct(stamFoe);
+    /* 血条 / 体干条 / 回合数不再用 DOM 进度条，改由 canvas 舞台按街机格斗的样式画
+       （见 Fight2Stage.drawHud）。这里只把状态同步过去。 */
+    try{ Fight2Stage.sync({ hp:hp, maxHp:maxHp, foeHp:foeHp, foeMax:foeMax,
+      stamMine:stamMine, stamFoe:stamFoe, turn:turn, ap:ap, counter:counter,
+      stunMine:stunMine, foeStun:foeStun, phase:phase, guard:guard, read:read, alive:alive }); }catch(e){}
     const badges = [];
     if(guard > 0)   badges.push(`格挡 ${guard}`);
     if(read > 0)    badges.push(`<span style="color:#b07dff">读招 ${read}</span>`);
@@ -2810,6 +3714,7 @@ function startFight2(it){
   function foeTurn(){
     if(!alive) return;
     phase = "defend"; render();
+    Fight2Stage.pose("foe", "strike");            // 对手起手（红闪窗口里看得见的动作）
     /* 防守只看方向、不看位置：把"完美区"藏起来，免得玩家误以为还要瞄绿区 */
     $("fight2ZonePerfect").style.display = "none";
     const fm = foeStun ? null : pickFoeMove();
@@ -2875,6 +3780,10 @@ function startFight2(it){
       stamMine = Math.max(0, stamMine - FIGHT2_TUNE.STAM_ON_DODGE);
       try{ if(!AudioSys.play("sfx-fight-whiff")) AudioSys.ding(); }catch(e){}
       push(`你闪开了 <b>${fm.n}</b> <span style="color:#5dffa0">完全闪避（体干 −${Math.round(FIGHT2_TUNE.STAM_ON_DODGE*100)}）</span>`);
+      /* 演出：玩家侧闪 + 对手扑空。躲开也要有"动作"，否则玩家不知道自己做了什么 */
+      Fight2Stage.pose("me", "hit");
+      Fight2Stage.after.push({ t: 14, fn: ()=>{ Fight2Stage.pose("me", "idle"); Fight2Stage.pose("foe", "idle"); } });
+      Fight2Stage.shake = Math.max(Fight2Stage.shake, 4);
       whiffOpenCounter("他扑了个空");
     } else {
       const wrong = dir ? "方向错了" : "没反应过来";
@@ -2903,6 +3812,10 @@ function startFight2(it){
     const tag = [why, wasStunned?`硬直 ×${FIGHT2_TUNE.STUN_TAKEN_MULT}`:null, blocked?`格挡抵消 ${blocked}`:null]
       .filter(Boolean).join(" · ");
     push(`<b>${fm.n}</b> ${fm.say} <span style="color:#ff4d6d">你受到 ${dmg} 伤害${tag?`（${tag}）`:""}</span>`);
+    /* 演出：格挡 / 挨打的区别要看得出 —— 格挡只有轻震，挨打有火花 + 重震 */
+    if(blocked > 0 && dmg === 0){ Fight2Stage.hit("block", "me"); Fight2Stage.pose("me", "idle"); }
+    else { Fight2Stage.hit(dmg >= 30 ? "heavy" : "light", "me"); Fight2Stage.pose("me", "hit"); }
+    Fight2Stage.after.push({ t: 16, fn: ()=>{ Fight2Stage.pose("me", "idle"); Fight2Stage.pose("foe", "idle"); } });
     if(stamMine <= 0 && !wasStunned){
       push(`<span style="color:#ff4d6d">你的体干崩了 —— 下一个回合动不了，而且会被打得更疼</span>`);
     }
@@ -2956,6 +3869,15 @@ function startFight2(it){
                 : grade==="miss"    ? ` <span style="color:#8a87a3">偏出 ×${FIGHT_GRADE_MULT.miss}</span>` : "";
       const ctag = reversed ? ` <span style="color:#ffd76e">反击 ×${FIGHT2_TUNE.COUNTER_MULT}！</span>` : "";
       push(`${label} <span style="color:#5dffa0">造成 ${d} 伤害</span>${tag}${ctag}`);
+      /* 舞台演出：命中 → 火花 + 顿帧 + 对手受击；偏出 → 只有空挥 */
+      if(grade === "miss"){
+        Fight2Stage.pose("me", "strike");
+      } else {
+        Fight2Stage.hit(reversed ? "counter" : (grade === "perfect" ? "heavy" : "light"), "foe");
+        Fight2Stage.pose("foe", d >= 30 ? "stun" : "hit");
+        Fight2Stage.pose("me", "strike");
+        Fight2Stage.after.push({ t: 16, fn: ()=>{ Fight2Stage.pose("foe", "idle"); } });
+      }
       if(reversed) counter = false;                // 反击窗口用掉就关
       if(stamFoe <= 0 && !foeStun){
         foeStun = true;
@@ -2978,11 +3900,20 @@ function startFight2(it){
       cb({ count:c, bonus:Math.min(4, Math.floor(c/3)), hit:c>=6 });
     });
   }
+  /* ── 过场：点「开始战斗」= 化身进街机 ──
+     进度 0→1 约 1.6 秒：机台升起 → 屏幕点亮 → 视角推进 → 收黑到战斗画面。
+     期间**锁住出招**，免得玩家在过场里把行动力打空（那种"操作丢失"最劝退）。 */
+  function transitionGuard(){
+    if(!Fight2Stage.arcadeOn) return false;
+    push(`<span style="color:#8a87a3">你正被吸进那台街机 —— 稍等。</span>`);
+    return true;
+  }
   function after(){ if(!alive) return; if(ap<=0) endTurn(); else render(); }
   function act(kind){
     if(!alive) return;
     if(kind==="skip") return finish(hp/maxHp >= foeHp/foeMax, true);
     if(phase !== "act") return;                 // 对手出招的红闪窗口里不接受出招
+    if(transitionGuard()) return;               // 街机过场期间不接受出招
     /* 体干崩了：这一回合动不了。按任意招式键 = 硬吃过去，把回合让给对手。 */
     if(stunMine){
       stunMine = false;
@@ -3024,6 +3955,11 @@ function startFight2(it){
     alive = false;
     $("fight2").classList.remove("on");
     $("fight2Bar").style.display = "none";
+    /* 舞台收尾：KO 横幅 + 输家倒地（赢家留站姿）。
+       舞台自己还会跑一会儿 rAF 让横幅淡入，所以**不要**在这里 end()。 */
+    Fight2Stage.finish(win);
+    Fight2Stage.pose(win ? "foe" : "me", "ko");
+    Fight2Stage.after.push({ t: 90, fn: ()=>{ Fight2Stage.end(); } });
     /* ⚠ 文案必须按分支各写一份。
        早先这里把 why 算成"打赢了…"再两个分支共用 —— 结果是输了也显示"打赢了"，
        而且带着"跳过战斗"前缀的句子会跑到 miss 分支上去（测试抓到的）。 */
@@ -3063,6 +3999,11 @@ function startFight2(it){
     /* 判定条是"玩家点/按"才落判的，自动化跑整局时需要一个落判入口。
        给的是真元素，调用方 click() 走的就是玩家那条路径（onclick → judgeBar.click）。 */
     bars: ()=>({ bar:$("fight2Bar"), zone:$("fight2Zone"), cursor:$("fight2Cur"), perfect:$("fight2ZonePerfect") }),
+    /* 舞台快照（P3 表现层）：用于断言"命中确实触发了演出"这类行为。
+       直接吃 Fight2Stage.debugState()，不额外维护一份。 */
+    stage: ()=> Fight2Stage.debugState(),
+    /* 手动推进一帧舞台（测试里没有真 rAF 时用它） */
+    stageStep: (n)=>{ for(let i = 0; i < (n||1); i++) Fight2Stage.frameOnce(); return Fight2Stage.debugState(); },
     /* 防守窗口只在按键里推进，测试要能手动喂一个方向。
        这里走**真实路径**：取出 InputBus 挂在 window 上的那个 keydown 处理器，
        喂一个合成事件进去 —— 与玩家按方向键走的是同一条代码路径，
@@ -3598,6 +4539,9 @@ function enterGame(){
   S = load() || newState();
   $("title").classList.add("hide");
   $("game").classList.add("on");
+  /* 预热打斗 2.0 的立绘：等真进战斗再开始下载，头几帧会是骨骼回落（虽然过场有 1.6 秒遮着，
+     但没必要赌网速/磁盘）。无头测试环境没有 Image，出错就静默跳过。 */
+  try{ Fight2Stage.loadSprites(); }catch(e){}
   render();
   AudioSys.bgm("night");
   $("vobtn").textContent="🎙 "+voModeLabel();
@@ -3647,11 +4591,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260921-1222" data-fp="63a9c7"
-     title="构建版本戳 · build 20260921-1222 · 内容指纹 63a9c7（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260922-1015" data-fp="2bfb34"
+     title="构建版本戳 · build 20260922-1015 · 内容指纹 2bfb34（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260921-1222 · ch 63a9c7 · bf 211K · mj 288K · idx 231K · map 68K</div>
-<script>window.__BUILD={"build":"20260921-1222","fingerprint":"63a9c7","sizes":{"idx":231,"mj":288,"bf":211,"map":68},"files":{"index.html":236315,"mahjong.js":295035,"breakfast.js":216155,"map3d.js":69967},"mtimes":{"mahjong.js":1789892424293,"breakfast.js":1789964551633,"map3d.js":1789789317181},"idxContentHash":"abb1a340db752527352d90c7df3e5aa4457a11e5","idxContentBytes":235025,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260922-1015 · ch 2bfb34 · bf 211K · mj 295K · idx 284K · map 68K</div>
+<script>window.__BUILD={"build":"20260922-1015","fingerprint":"2bfb34","sizes":{"idx":284,"mj":295,"bf":211,"map":68},"files":{"index.html":290671,"mahjong.js":302028,"breakfast.js":216155,"map3d.js":69967},"mtimes":{"mahjong.js":1790043339267,"breakfast.js":1789964551633,"map3d.js":1789789317181},"idxContentHash":"deeb1e4d83e14ea713516ec0db658c647b784f67","idxContentBytes":289374,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>

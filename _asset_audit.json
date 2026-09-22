@@ -1,0 +1,963 @@
+{
+  "reconciled": {
+    "manifestCount": 375,
+    "diskAudioCount": 408,
+    "missingOnDisk": [
+      "audio/mj/seat1/白.mp3",
+      "audio/mj/seat1/北.mp3",
+      "audio/mj/seat1/东.mp3",
+      "audio/mj/seat1/发.mp3",
+      "audio/mj/seat1/南.mp3",
+      "audio/mj/seat1/西.mp3",
+      "audio/mj/seat1/中.mp3",
+      "audio/mj/seat2/白.mp3",
+      "audio/mj/seat2/北.mp3",
+      "audio/mj/seat2/东.mp3",
+      "audio/mj/seat2/发.mp3",
+      "audio/mj/seat2/南.mp3",
+      "audio/mj/seat2/西.mp3",
+      "audio/mj/seat2/中.mp3",
+      "audio/mj/seat3/白.mp3",
+      "audio/mj/seat3/北.mp3",
+      "audio/mj/seat3/东.mp3",
+      "audio/mj/seat3/发.mp3",
+      "audio/mj/seat3/南.mp3",
+      "audio/mj/seat3/西.mp3",
+      "audio/mj/seat3/中.mp3",
+      "audio/mj/白.mp3",
+      "audio/mj/北.mp3",
+      "audio/mj/东.mp3",
+      "audio/mj/发.mp3",
+      "audio/mj/南.mp3",
+      "audio/mj/西.mp3",
+      "audio/mj/中.mp3"
+    ],
+    "unlisted": [
+      "audio/bf/cook_bacon.mp3",
+      "audio/bf/cook_bun.mp3",
+      "audio/bf/cook_congee.mp3",
+      "audio/bf/cook_egg.mp3",
+      "audio/bf/cook_juice.mp3",
+      "audio/bf/cook_milk.mp3",
+      "audio/bf/cook_salad.mp3",
+      "audio/bf/cook_sandwich.mp3",
+      "audio/bf/cook_soup.mp3",
+      "audio/bf/happy_finally2.mp3",
+      "audio/bf/happy_i45.mp3",
+      "audio/bf/happy_v1.mp3",
+      "audio/bf/happy_v3.mp3",
+      "audio/bf/slow.mp3",
+      "audio/bf/tick.mp3",
+      "audio/bf/_happy_i_report.md",
+      "audio/bf/_unused/happy.mp3",
+      "audio/bf/_unused/happy2.mp3",
+      "audio/bf/_unused/happy3.mp3",
+      "audio/bf/_unused/happy_alt1.mp3",
+      "audio/bf/_unused/happy_alt2.mp3",
+      "audio/bf/_unused/happy_alt3.mp3",
+      "audio/bf/_unused/happy_alt4.mp3",
+      "audio/bf/_unused/happy_alt5.mp3",
+      "audio/bf/_unused/happy_alt6.mp3",
+      "audio/bf/_unused/happy_finally3.mp3",
+      "audio/bf/_unused/happy_i10.mp3",
+      "audio/bf/_unused/happy_i26.mp3",
+      "audio/bf/_unused/happy_i38.mp3",
+      "audio/bf/_unused/happy_i47.mp3",
+      "audio/bf/_unused/happy_i55.mp3",
+      "audio/bf/_unused/happy_n1.mp3",
+      "audio/bf/_unused/happy_n10.mp3",
+      "audio/bf/_unused/happy_n11.mp3",
+      "audio/bf/_unused/happy_n12.mp3",
+      "audio/bf/_unused/happy_n13.mp3",
+      "audio/bf/_unused/happy_n14.mp3",
+      "audio/bf/_unused/happy_n15.mp3",
+      "audio/bf/_unused/happy_n16.mp3",
+      "audio/bf/_unused/happy_n17.mp3",
+      "audio/bf/_unused/happy_n18.mp3",
+      "audio/bf/_unused/happy_n19.mp3",
+      "audio/bf/_unused/happy_n2.mp3",
+      "audio/bf/_unused/happy_n20.mp3",
+      "audio/bf/_unused/happy_n21.mp3",
+      "audio/bf/_unused/happy_n22.mp3",
+      "audio/bf/_unused/happy_n23.mp3",
+      "audio/bf/_unused/happy_n24.mp3",
+      "audio/bf/_unused/happy_n25.mp3",
+      "audio/bf/_unused/happy_n26.mp3",
+      "audio/bf/_unused/happy_n27.mp3",
+      "audio/bf/_unused/happy_n28.mp3",
+      "audio/bf/_unused/happy_n29.mp3",
+      "audio/bf/_unused/happy_n3.mp3",
+      "audio/bf/_unused/happy_n30.mp3",
+      "audio/bf/_unused/happy_n31.mp3",
+      "audio/bf/_unused/happy_n32.mp3",
+      "audio/bf/_unused/happy_n33.mp3",
+      "audio/bf/_unused/happy_n34.mp3",
+      "audio/bf/_unused/happy_n35.mp3",
+      "audio/bf/_unused/happy_n36.mp3",
+      "audio/bf/_unused/happy_n37.mp3",
+      "audio/bf/_unused/happy_n38.mp3",
+      "audio/bf/_unused/happy_n39.mp3",
+      "audio/bf/_unused/happy_n4.mp3",
+      "audio/bf/_unused/happy_n40.mp3",
+      "audio/bf/_unused/happy_n41.mp3",
+      "audio/bf/_unused/happy_n42.mp3",
+      "audio/bf/_unused/happy_n43.mp3",
+      "audio/bf/_unused/happy_n44.mp3",
+      "audio/bf/_unused/happy_n45.mp3",
+      "audio/bf/_unused/happy_n46.mp3",
+      "audio/bf/_unused/happy_n47.mp3",
+      "audio/bf/_unused/happy_n48.mp3",
+      "audio/bf/_unused/happy_n49.mp3",
+      "audio/bf/_unused/happy_n5.mp3",
+      "audio/bf/_unused/happy_n50.mp3",
+      "audio/bf/_unused/happy_n51.mp3",
+      "audio/bf/_unused/happy_n52.mp3",
+      "audio/bf/_unused/happy_n53.mp3",
+      "audio/bf/_unused/happy_n54.mp3",
+      "audio/bf/_unused/happy_n55.mp3",
+      "audio/bf/_unused/happy_n56.mp3",
+      "audio/bf/_unused/happy_n57.mp3",
+      "audio/bf/_unused/happy_n58.mp3",
+      "audio/bf/_unused/happy_n59.mp3",
+      "audio/bf/_unused/happy_n6.mp3",
+      "audio/bf/_unused/happy_n7.mp3",
+      "audio/bf/_unused/happy_n8.mp3",
+      "audio/bf/_unused/happy_n9.mp3",
+      "audio/bf/_unused/happy_v2.mp3",
+      "audio/bf/_unused/happy_v4.mp3",
+      "audio/bf/_unused/happy_v5.mp3",
+      "audio/bf/_unused/happy_v6.mp3",
+      "audio/bf/_unused/_MANIFEST.json",
+      "audio/mj/seat1/东风.mp3",
+      "audio/mj/seat1/北风.mp3",
+      "audio/mj/seat1/南风.mp3",
+      "audio/mj/seat1/发财.mp3",
+      "audio/mj/seat1/白板.mp3",
+      "audio/mj/seat1/红中.mp3",
+      "audio/mj/seat1/西风.mp3",
+      "audio/mj/seat2/东风.mp3",
+      "audio/mj/seat2/北风.mp3",
+      "audio/mj/seat2/南风.mp3",
+      "audio/mj/seat2/发财.mp3",
+      "audio/mj/seat2/白板.mp3",
+      "audio/mj/seat2/红中.mp3",
+      "audio/mj/seat2/西风.mp3",
+      "audio/mj/seat3/东风.mp3",
+      "audio/mj/seat3/北风.mp3",
+      "audio/mj/seat3/南风.mp3",
+      "audio/mj/seat3/发财.mp3",
+      "audio/mj/seat3/白板.mp3",
+      "audio/mj/seat3/红中.mp3",
+      "audio/mj/seat3/西风.mp3",
+      "audio/mj/_bak_pre_wopeng/root/杠.mp3",
+      "audio/mj/_bak_pre_wopeng/root/碰.mp3",
+      "audio/mj/_bak_pre_wopeng/seat1/杠.mp3",
+      "audio/mj/_bak_pre_wopeng/seat1/碰.mp3",
+      "audio/mj/_bak_pre_wopeng/seat2/杠.mp3",
+      "audio/mj/_bak_pre_wopeng/seat2/碰.mp3",
+      "audio/mj/_bak_pre_wopeng/seat3/杠.mp3",
+      "audio/mj/_bak_pre_wopeng/seat3/碰.mp3",
+      "audio/mj/东风.mp3",
+      "audio/mj/北风.mp3",
+      "audio/mj/南风.mp3",
+      "audio/mj/发财.mp3",
+      "audio/mj/白板.mp3",
+      "audio/mj/红中.mp3",
+      "audio/mj/西风.mp3"
+    ],
+    "artCount": 98,
+    "claimedArt": "94",
+    "coversArt": false,
+    "wiringGaps": [
+      {
+        "dir": "audio/bf",
+        "count": 95
+      },
+      {
+        "dir": "audio/vo_real",
+        "count": 54
+      }
+    ],
+    "gitVideo": {
+      "ok": true,
+      "files": [
+        "video/fx_flood.mp4",
+        "video/fx_market.mp4",
+        "video/poster/fx_flood.jpg",
+        "video/poster/fx_market.jpg"
+      ]
+    },
+    "gitAudio": {
+      "ok": true,
+      "count": 320
+    }
+  },
+  "judged": [
+    {
+      "item": {
+        "id": "doc:wiring_claim",
+        "kind": "doc_claim_overreach",
+        "title": "SOURCES.md 的验收声明覆盖不到实际范围",
+        "facts": [
+          "SOURCES.md 称「接线由 `tools/e2e/audio-wiring.js` 逐个 URL 验可达性」，用于支撑「为什么可以放心入库」。",
+          "但该脚本的覆盖集不含 audio/bf(95)、audio/vo_real(54)，共 149 个音频文件。",
+          "同一节还宣称「四层自动验收，1572 项断言全绿」——该数字对未覆盖目录同样不成立。"
+        ]
+      },
+      "answers": {
+        "impact": {
+          "type": "score",
+          "score": 2.28,
+          "confidence": 0.7,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0,
+            "1": 0.01,
+            "2": 0.7,
+            "3": 0.29
+          }
+        },
+        "category": {
+          "type": "choice",
+          "choice": "coverage_gap",
+          "confidence": 0.87,
+          "probabilities": {
+            "doc_drift": 0.1,
+            "license_risk": 0,
+            "coverage_gap": 0.9,
+            "housekeeping": 0,
+            "rename_drift": 0
+          }
+        },
+        "blocks_release": {
+          "type": "noul",
+          "noul": 0.75
+        },
+        "next_action": {
+          "type": "choice",
+          "choice": "add_coverage",
+          "confidence": 0.43,
+          "probabilities": {
+            "update_manifest": 0,
+            "verify_license": 0.01,
+            "add_coverage": 0.54,
+            "sync_docs": 0.44,
+            "clean_repo": 0.01
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1491,
+        "output_tokens": 153
+      },
+      "model": "jev-1.13.0",
+      "ms": 1177
+    },
+    {
+      "item": {
+        "id": "doc:art_count",
+        "kind": "doc_count_mismatch",
+        "title": "SOURCES.md 素材计数过期：声称 94 个 png，实际 98 个",
+        "facts": [
+          "SOURCES.md 写「`art/**`（94 个 png）」。",
+          "磁盘实际 png 计数：98。",
+          "差额 4 个，含 art/fight2/ 打斗精灵图与 art/icons/_zoom_*、_sheet_preview* 等后续新增。"
+        ]
+      },
+      "answers": {
+        "impact": {
+          "type": "score",
+          "score": 1.08,
+          "confidence": 0.87,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0.03,
+            "1": 0.87,
+            "2": 0.09,
+            "3": 0.01
+          }
+        },
+        "category": {
+          "type": "choice",
+          "choice": "doc_drift",
+          "confidence": 1,
+          "probabilities": {
+            "housekeeping": 0,
+            "rename_drift": 0,
+            "doc_drift": 1,
+            "coverage_gap": 0,
+            "license_risk": 0
+          }
+        },
+        "blocks_release": {
+          "type": "noul",
+          "noul": 0.1
+        },
+        "next_action": {
+          "type": "choice",
+          "choice": "sync_docs",
+          "confidence": 0.69,
+          "probabilities": {
+            "clean_repo": 0,
+            "update_manifest": 0.15,
+            "add_coverage": 0.08,
+            "verify_license": 0.02,
+            "sync_docs": 0.75
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1446,
+        "output_tokens": 152
+      },
+      "model": "jev-1.13.0",
+      "ms": 1224
+    },
+    {
+      "item": {
+        "id": "license:video_boundary",
+        "kind": "license_boundary",
+        "title": "第三方素材的授权边界：video/ 被 git 跟踪 4 个文件",
+        "facts": [
+          "SOURCES.md 声明 68 个实拍素材「授权未核实、不入库」，走带外分发。",
+          "git 实际跟踪的 video/ 文件（4 个）：video/fx_flood.mp4、video/fx_market.mp4、video/poster/fx_flood.jpg、video/poster/fx_market.jpg",
+          "磁盘上 video/ 共 70 个条目，其中未核实的 68 个已被 .gitignore 排除，未进入版本库。",
+          "对照：audio/ 被跟踪 320 个（自产素材，授权清晰，应当入库）。"
+        ]
+      },
+      "answers": {
+        "boundary_enforced": {
+          "type": "noul",
+          "noul": 0.88
+        },
+        "verification_strength": {
+          "type": "score",
+          "score": 1.03,
+          "confidence": 0.96,
+          "legend": {
+            "0": "靠人工记忆与自觉，没有任何书面或自动的约束",
+            "1": "靠 .gitignore 等静态配置，但没有任何测试会在它被改坏时报警",
+            "2": "有自动检查覆盖，并纳入常规验收流程"
+          },
+          "probabilities": {
+            "0": 0,
+            "1": 0.97,
+            "2": 0.03
+          }
+        },
+        "next_action": {
+          "type": "choice",
+          "choice": "add_coverage",
+          "confidence": 0.23,
+          "probabilities": {
+            "clean_repo": 0.04,
+            "update_manifest": 0.02,
+            "sync_docs": 0.24,
+            "add_coverage": 0.39,
+            "verify_license": 0.31
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1275,
+        "output_tokens": 96
+      },
+      "model": "jev-1.13.0",
+      "ms": 1207
+    },
+    {
+      "item": {
+        "id": "rename:all",
+        "kind": "rename_drift",
+        "title": "素材改名未同步清单：7 组 × 4 个目录（共 28 个文件）",
+        "facts": [
+          "媒体清单.json 登记的是旧短名，磁盘上已是新长名，两边对不上。",
+          "涉及的目录：audio/mj、audio/mj/seat1、audio/mj/seat2、audio/mj/seat3",
+          "改名映射（每个目录各一份）：白.mp3 → 白板.mp3、北.mp3 → 北风.mp3、东.mp3 → 东风.mp3、发.mp3 → 发财.mp3、南.mp3 → 南风.mp3、西.mp3 → 西风.mp3、中.mp3 → 红中.mp3",
+          "后果：清单登记的文件在磁盘上不存在（28 条），磁盘上的实际文件又不在清单里（28 条）—— 同一批文件同时触发两类告警。"
+        ]
+      },
+      "answers": {
+        "impact": {
+          "type": "score",
+          "score": 1.89,
+          "confidence": 0.82,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.13,
+            "2": 0.82,
+            "3": 0.04
+          }
+        },
+        "category": {
+          "type": "choice",
+          "choice": "rename_drift",
+          "confidence": 1,
+          "probabilities": {
+            "doc_drift": 0,
+            "license_risk": 0,
+            "housekeeping": 0,
+            "coverage_gap": 0,
+            "rename_drift": 1
+          }
+        },
+        "blocks_release": {
+          "type": "noul",
+          "noul": 0.69
+        },
+        "next_action": {
+          "type": "choice",
+          "choice": "update_manifest",
+          "confidence": 0.9,
+          "probabilities": {
+            "add_coverage": 0.08,
+            "clean_repo": 0,
+            "verify_license": 0,
+            "sync_docs": 0,
+            "update_manifest": 0.92
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1584,
+        "output_tokens": 152
+      },
+      "model": "jev-1.13.0",
+      "ms": 1211
+    },
+    {
+      "item": {
+        "id": "doc:art_not_manifested",
+        "kind": "manifest_scope_gap",
+        "title": "art/ 完全不在媒体清单治理范围内",
+        "facts": [
+          "媒体清单.json 只含 audio/ 与 video/ 条目，无任何 art/ 条目。",
+          "art/ 有 98 个 png，含 Lovart 生成素材与程序切片产物，目前只靠 SOURCES.md 散文描述治理。",
+          "SOURCES.md 对 art/ 的授权结论是「AI 生成原创，随仓库分发」，但无逐项登记（对比 audio/ 的 305 条逐项 sha256）。"
+        ]
+      },
+      "answers": {
+        "impact": {
+          "type": "score",
+          "score": 2.21,
+          "confidence": 0.72,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0,
+            "1": 0.03,
+            "2": 0.73,
+            "3": 0.24
+          }
+        },
+        "category": {
+          "type": "choice",
+          "choice": "coverage_gap",
+          "confidence": 0.98,
+          "probabilities": {
+            "coverage_gap": 0.99,
+            "doc_drift": 0.01,
+            "rename_drift": 0,
+            "housekeeping": 0,
+            "license_risk": 0
+          }
+        },
+        "blocks_release": {
+          "type": "noul",
+          "noul": 0.5
+        },
+        "next_action": {
+          "type": "choice",
+          "choice": "update_manifest",
+          "confidence": 0.61,
+          "probabilities": {
+            "update_manifest": 0.7,
+            "sync_docs": 0,
+            "clean_repo": 0,
+            "verify_license": 0.02,
+            "add_coverage": 0.28
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1490,
+        "output_tokens": 151
+      },
+      "model": "jev-1.13.0",
+      "ms": 1215
+    },
+    {
+      "item": {
+        "id": "unlisted:audio/bf（cook 系）",
+        "kind": "disk_unlisted",
+        "title": "磁盘存在但未登记清单：audio/bf（cook 系）（9 个）",
+        "facts": [
+          "目录 audio/bf（cook 系） 下有 9 个文件不在 媒体清单.json 中。",
+          "样例：cook_bacon.mp3、cook_bun.mp3、cook_congee.mp3、cook_egg.mp3、cook_juice.mp3、cook_milk.mp3、cook_salad.mp3、cook_sandwich.mp3、cook_soup.mp3",
+          "清单总条目 375，磁盘 audio 文件 408 —— 差额说明清单已过期。"
+        ]
+      },
+      "answers": {
+        "disposition": {
+          "type": "choice",
+          "choice": "active_asset_needs_registration",
+          "confidence": 0.92,
+          "probabilities": {
+            "intentional_archive": 0,
+            "debug_artifact": 0.04,
+            "active_asset_needs_registration": 0.94,
+            "superseded_backup": 0.02
+          }
+        },
+        "naming_clarity": {
+          "type": "score",
+          "score": 0.94,
+          "confidence": 0.89,
+          "legend": {
+            "0": "不能：名字无法判断用途，或同族文件分不清哪个是当前版本",
+            "1": "部分可以：能看出大致类别，但分不清版本新旧，需要打开文件确认",
+            "2": "可以：名字清楚表达用途与版本，维护者一眼可辨"
+          },
+          "probabilities": {
+            "0": 0.07,
+            "1": 0.92,
+            "2": 0.01
+          }
+        },
+        "impact": {
+          "type": "score",
+          "score": 1.85,
+          "confidence": 0.7,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.21,
+            "2": 0.7,
+            "3": 0.08
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1368,
+        "output_tokens": 94
+      },
+      "model": "jev-1.13.0",
+      "ms": 297
+    },
+    {
+      "item": {
+        "id": "unlisted:audio/bf/_unused",
+        "kind": "disk_unlisted",
+        "title": "磁盘存在但未登记清单：audio/bf/_unused（79 个）",
+        "facts": [
+          "目录 audio/bf/_unused 下有 79 个文件不在 媒体清单.json 中。",
+          "样例：happy.mp3、happy2.mp3、happy3.mp3、happy_alt1.mp3、happy_alt2.mp3、happy_alt3.mp3、happy_alt4.mp3、happy_alt5.mp3、happy_alt6.mp3、happy_finally3.mp3、happy_i10.mp3、happy_i26.mp3 …",
+          "清单总条目 375，磁盘 audio 文件 408 —— 差额说明清单已过期。"
+        ]
+      },
+      "answers": {
+        "disposition": {
+          "type": "choice",
+          "choice": "superseded_backup",
+          "confidence": 0.72,
+          "probabilities": {
+            "intentional_archive": 0.01,
+            "debug_artifact": 0.18,
+            "active_asset_needs_registration": 0.03,
+            "superseded_backup": 0.78
+          }
+        },
+        "naming_clarity": {
+          "type": "score",
+          "score": 0.52,
+          "confidence": 0.27,
+          "legend": {
+            "0": "不能：名字无法判断用途，或同族文件分不清哪个是当前版本",
+            "1": "部分可以：能看出大致类别，但分不清版本新旧，需要打开文件确认",
+            "2": "可以：名字清楚表达用途与版本，维护者一眼可辨"
+          },
+          "probabilities": {
+            "0": 0.48,
+            "1": 0.52,
+            "2": 0
+          }
+        },
+        "impact": {
+          "type": "score",
+          "score": 1.73,
+          "confidence": 0.59,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.32,
+            "2": 0.6,
+            "3": 0.07
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1380,
+        "output_tokens": 93
+      },
+      "model": "jev-1.13.0",
+      "ms": 302
+    },
+    {
+      "item": {
+        "id": "unlisted:audio/mj/_bak_pre_wopeng",
+        "kind": "disk_unlisted",
+        "title": "磁盘存在但未登记清单：audio/mj/_bak_pre_wopeng（8 个，分布在 4 个子目录）",
+        "facts": [
+          "audio/mj/_bak_pre_wopeng 及其子目录下共 8 个文件不在 媒体清单.json 中。",
+          "分布在：audio/mj/_bak_pre_wopeng/root、audio/mj/_bak_pre_wopeng/seat1、audio/mj/_bak_pre_wopeng/seat2、audio/mj/_bak_pre_wopeng/seat3",
+          "目录名以下划线开头，按项目既有约定属于非正式产物（对比 tools/archive/ 的历史脚本归档）。"
+        ]
+      },
+      "answers": {
+        "disposition": {
+          "type": "choice",
+          "choice": "superseded_backup",
+          "confidence": 0.87,
+          "probabilities": {
+            "intentional_archive": 0.01,
+            "active_asset_needs_registration": 0,
+            "superseded_backup": 0.9,
+            "debug_artifact": 0.09
+          }
+        },
+        "naming_clarity": {
+          "type": "score",
+          "score": 1.16,
+          "confidence": 0.48,
+          "legend": {
+            "0": "不能：名字无法判断用途，或同族文件分不清哪个是当前版本",
+            "1": "部分可以：能看出大致类别，但分不清版本新旧，需要打开文件确认",
+            "2": "可以：名字清楚表达用途与版本，维护者一眼可辨"
+          },
+          "probabilities": {
+            "0": 0.09,
+            "1": 0.66,
+            "2": 0.25
+          }
+        },
+        "impact": {
+          "type": "score",
+          "score": 1.44,
+          "confidence": 0.47,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0.05,
+            "1": 0.53,
+            "2": 0.36,
+            "3": 0.06
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1373,
+        "output_tokens": 93
+      },
+      "model": "jev-1.13.0",
+      "ms": 380
+    },
+    {
+      "item": {
+        "id": "unlisted:audio/bf（happy 系）",
+        "kind": "disk_unlisted",
+        "title": "磁盘存在但未登记清单：audio/bf（happy 系）（5 个）",
+        "facts": [
+          "目录 audio/bf（happy 系） 下有 5 个文件不在 媒体清单.json 中。",
+          "样例：happy_finally2.mp3、happy_i45.mp3、happy_v1.mp3、happy_v3.mp3、_happy_i_report.md",
+          "注意：其中含 .md 文档（非素材文件），说明该目录里混入了非素材产物。"
+        ]
+      },
+      "answers": {
+        "disposition": {
+          "type": "choice",
+          "choice": "debug_artifact",
+          "confidence": 0.58,
+          "probabilities": {
+            "superseded_backup": 0.1,
+            "intentional_archive": 0.01,
+            "debug_artifact": 0.68,
+            "active_asset_needs_registration": 0.21
+          }
+        },
+        "naming_clarity": {
+          "type": "score",
+          "score": 0.83,
+          "confidence": 0.72,
+          "legend": {
+            "0": "不能：名字无法判断用途，或同族文件分不清哪个是当前版本",
+            "1": "部分可以：能看出大致类别，但分不清版本新旧，需要打开文件确认",
+            "2": "可以：名字清楚表达用途与版本，维护者一眼可辨"
+          },
+          "probabilities": {
+            "0": 0.18,
+            "1": 0.8099999999999999,
+            "2": 0.01
+          }
+        },
+        "impact": {
+          "type": "score",
+          "score": 1.8,
+          "confidence": 0.68,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.25,
+            "2": 0.6799999999999999,
+            "3": 0.06
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1339,
+        "output_tokens": 93
+      },
+      "model": "jev-1.13.0",
+      "ms": 492
+    },
+    {
+      "item": {
+        "id": "wiring:audio/bf",
+        "kind": "wiring_coverage_gap",
+        "title": "验收链路未覆盖：audio/bf（95 个文件）",
+        "facts": [
+          "audio-wiring.js 的覆盖集是 sfx/amb/bgm/mj，不含 audio/bf。",
+          "该目录有 95 个音频文件，从未做过「运行时可达性」验证。",
+          "现有接线结果全文为绿：10 项通过、0 项失败，但样本只含 251 个文件。",
+          "项目自身记录过同类事故：素材缺失与接线错误在断言层无法区分，导致「牌桌暗杠补杠完全没有声音」却 1542 项断言全绿。"
+        ]
+      },
+      "answers": {
+        "impact": {
+          "type": "score",
+          "score": 2.01,
+          "confidence": 0.98,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0.98,
+            "3": 0.02
+          }
+        },
+        "category": {
+          "type": "choice",
+          "choice": "coverage_gap",
+          "confidence": 1,
+          "probabilities": {
+            "coverage_gap": 1,
+            "doc_drift": 0,
+            "housekeeping": 0,
+            "rename_drift": 0,
+            "license_risk": 0
+          }
+        },
+        "blocks_release": {
+          "type": "noul",
+          "noul": 0.81
+        },
+        "next_action": {
+          "type": "choice",
+          "choice": "add_coverage",
+          "confidence": 1,
+          "probabilities": {
+            "sync_docs": 0,
+            "update_manifest": 0,
+            "clean_repo": 0,
+            "verify_license": 0,
+            "add_coverage": 1
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1523,
+        "output_tokens": 153
+      },
+      "model": "jev-1.13.0",
+      "ms": 319
+    },
+    {
+      "item": {
+        "id": "wiring:audio/vo_real",
+        "kind": "wiring_coverage_gap",
+        "title": "验收链路未覆盖：audio/vo_real（54 个文件）",
+        "facts": [
+          "audio-wiring.js 的覆盖集是 sfx/amb/bgm/mj，不含 audio/vo_real。",
+          "该目录有 54 个音频文件，从未做过「运行时可达性」验证。",
+          "现有接线结果全文为绿：10 项通过、0 项失败，但样本只含 251 个文件。",
+          "项目自身记录过同类事故：素材缺失与接线错误在断言层无法区分，导致「牌桌暗杠补杠完全没有声音」却 1542 项断言全绿。"
+        ]
+      },
+      "answers": {
+        "impact": {
+          "type": "score",
+          "score": 2.1,
+          "confidence": 0.89,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0.9,
+            "3": 0.1
+          }
+        },
+        "category": {
+          "type": "choice",
+          "choice": "coverage_gap",
+          "confidence": 1,
+          "probabilities": {
+            "license_risk": 0,
+            "rename_drift": 0,
+            "doc_drift": 0,
+            "housekeeping": 0,
+            "coverage_gap": 1
+          }
+        },
+        "blocks_release": {
+          "type": "noul",
+          "noul": 0.81
+        },
+        "next_action": {
+          "type": "choice",
+          "choice": "add_coverage",
+          "confidence": 1,
+          "probabilities": {
+            "verify_license": 0,
+            "clean_repo": 0,
+            "update_manifest": 0,
+            "add_coverage": 1,
+            "sync_docs": 0
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1525,
+        "output_tokens": 153
+      },
+      "model": "jev-1.13.0",
+      "ms": 314
+    },
+    {
+      "item": {
+        "id": "unlisted:audio/bf（零散）",
+        "kind": "disk_unlisted",
+        "title": "磁盘存在但未登记清单：audio/bf（零散）（2 个）",
+        "facts": [
+          "目录 audio/bf（零散） 下有 2 个文件不在 媒体清单.json 中。",
+          "样例：slow.mp3、tick.mp3",
+          "清单总条目 375，磁盘 audio 文件 408 —— 差额说明清单已过期。"
+        ]
+      },
+      "answers": {
+        "disposition": {
+          "type": "choice",
+          "choice": "active_asset_needs_registration",
+          "confidence": 0.53,
+          "probabilities": {
+            "intentional_archive": 0.01,
+            "debug_artifact": 0.31,
+            "active_asset_needs_registration": 0.65,
+            "superseded_backup": 0.03
+          }
+        },
+        "naming_clarity": {
+          "type": "score",
+          "score": 0.6,
+          "confidence": 0.39,
+          "legend": {
+            "0": "不能：名字无法判断用途，或同族文件分不清哪个是当前版本",
+            "1": "部分可以：能看出大致类别，但分不清版本新旧，需要打开文件确认",
+            "2": "可以：名字清楚表达用途与版本，维护者一眼可辨"
+          },
+          "probabilities": {
+            "0": 0.4,
+            "1": 0.6,
+            "2": 0
+          }
+        },
+        "impact": {
+          "type": "score",
+          "score": 1.94,
+          "confidence": 0.67,
+          "legend": {
+            "0": "纯记账问题：不影响玩家体验，也不影响发布，只是数字不好看",
+            "1": "文档或清单与事实不符：会误导后续维护者，但游戏照常运行",
+            "2": "治理出现盲区：缺失的自动发现手段让问题可能在发布前一直查不出来",
+            "3": "授权合规或发布阻断风险：可能导致未授权素材被分发，或公开仓库出问题"
+          },
+          "probabilities": {
+            "0": 0.01,
+            "1": 0.19,
+            "2": 0.67,
+            "3": 0.13
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 1306,
+        "output_tokens": 94
+      },
+      "model": "jev-1.13.0",
+      "ms": 1174
+    }
+  ],
+  "failures": [],
+  "totals": {
+    "in": 17100,
+    "out": 1477,
+    "ms": 2397
+  }
+}

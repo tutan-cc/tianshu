@@ -1,0 +1,180 @@
+  var HINT_CACHE = Object.create(null), HINT_CACHE_N = 0;
+  var HINT_STAT = { calcCount: 0, cacheHits: 0, lastMs: 0, worstMs: 0 };
+  var HINT_CACHE_MAX = 4000;
+  var HINT_IMPROVE_MAX = 5;
+  var HINT_UKEIRE_MAX = 4;      // 「有效进张」逐张算的候选上限（兜底：极端手牌也不让一帧算爆）
+  /* 只清提示缓存：**向听 DP 缓存（SH_CACHE）留着** —— 一起清会让下一手退化成整手重算，
+     实测就是「最坏 583ms」的元凶之一（提示慢一拍、整桌跟着卡帧）。要冷启动计时用 hintCacheClearAll。 */
+  function hintCacheClear() {
+    HINT_CACHE = Object.create(null); HINT_CACHE_N = 0; HINT_STAT.cacheHits = 0;
+    return true;
+  }
+  function hintCacheClearAll() {
+    hintCacheClear(); SH_CACHE = Object.create(null); SH_CACHE_N = 0; return true;
+  }
+  function hintCacheStats() { return { size: HINT_CACHE_N, hits: HINT_STAT.cacheHits, calcCount: HINT_STAT.calcCount, lastMs: HINT_STAT.lastMs, worstMs: HINT_STAT.worstMs }; }
+
+  /**
+   * 提示状态的**唯一指纹**：手牌 + 刚摸到的那张 + 副露（种类 / 暗明 / 杠种 / 牌面）+ 字牌开关 + 已见。
+   * hintCalc 的缓存签名与 updateHint 的「要不要重算」判定**共用这一个函数** ——
+   * 摸牌 / 出牌 / 碰 / 杠 / 补摸 / 抢杠 / 改字牌开关，任意一项变化 → 签名必变 → 绝不可能命中旧手牌的缓存。
+   */
+  function hintKeyOf(hand, melds, drawn, honors, seen) {
+    var i, ms = [], s, ks;
+    for (i = 0; i < (melds || []).length; i++) {
+      var m = melds[i] || {};
+      ms.push((m.type || "?") + (m.an ? "a" : "") + (m.kind || "") + ":" + sortTiles(m.tiles || []).join(""));
+    }
+    ms.sort();
+    s = "h[" + sortTiles(hand || []).join(",") + "]d[" + (drawn === null || drawn === undefined ? "" : drawn) +
+        "]o[" + (honors ? 1 : 0) + "]m[" + ms.join(";") + "]s[";
+    ks = sortTiles(Object.keys(seen || {}));
+    for (i = 0; i < ks.length; i++) s += ks[i] + (seen[ks[i]] || 0);
+    return s + "]";
+  }
+  /** 建议理由（面板文案与 debug.hint().reason 同一份；**只读 hint 自己的字段**，不另算一次） */
+  function hintReason(h) {
+    if (!h) return "暂无建议（还没轮到你出牌）";
+    if (h.discard === null || h.discard === undefined) {
+      return h.tenpaiNow ? ("已听牌：" + listTiles(h.waits) + "（剩 " + h.waitsLeft + " 张）")
+                         : ("未听牌 · " + h.shanten + " 向听 · 有效进张 " + h.ukeire + " 张");
+    }
+    var why = h.noBetter ? "无更好选择（所有打法都会破听）："
+      : (h.tenpaiNow ? "已听牌，打这张不破听：" : (h.tenpaiAfter ? "一打即听：" : ""));
+    var tail = h.tenpaiAfter ? ("听 " + listTiles(h.waits) + "（剩 " + h.waitsLeft + " 张）")
+                             : (h.shanten + " 向听 · 有效进张 " + h.ukeire + " 张");
+    return why + "打 " + h.discard + " → " + tail;
+  }
+
+  /**
+   * 智脑提示（纯函数）。入参必须是**当前引擎的真实手牌**：
+   *   arg.hand   = 暗手 + 刚摸到的那张（引擎摆放：摸到的牌固定在数组最后一位）
+   *   arg.melds  = 真实副露（碰 / 明杠 / 暗杠 / 补杠，每组计 1 个面子）
+   *   arg.drawn  = 刚摸到的那张（= 引擎的 p.drawn）；不传就按规范摆放取 hand 的**最后一张**
+   *   arg.honors = 本局字牌开关；arg.seen = 全桌已见（其他家弃牌 + 四家副露）
+   * 选牌口径（**唯一一把尺子**）：向听最小 → 听牌张数最多（都没听时比有效进张）→ 安全张 → 孤张 → 幺九；
+   * 已听牌时**禁止**建议任何会破听的牌（除非所有打法都破听 —— 那时 noBetter=true，文案里写明）。
+   * 返回：{ discard, tile, discardIdx, hand, base, drawn, melds, seen, honors, shanten, shantenNow,
+   *        tenpaiNow, tenpaiAfter, waits, waitsLeft, ukeire, improve, improveKinds, options, noBetter, reason }
+   * 面板文字 / 手牌金框 / debug.hint() 三处**只认 discard（= tile）这一个字段**。
+   */
+  function hintCalc(arg) {
+    arg = arg || {};
+    var honor = arg.honors === undefined ? true : !!arg.honors;
+    var melds = arg.melds || [], seen = arg.seen || {};
+    var rawIn = arg.hand || [];
+    var hand = sortTiles(rawIn);                             // 内部一律按排序手牌算（与摆放 / 下标无关）
+    var mk = melds.length;
+    var needDiscard = hand.length % 3 === 2;                 // 3k+2 = 轮到我出牌（含刚摸到的那张）
+    var drawn = (arg.drawn === undefined || arg.drawn === null)
+      ? (needDiscard && rawIn.length ? rawIn[rawIn.length - 1] : null)   // 引擎摆放：摸到的牌在最右
+      : arg.drawn;
+    var sig = hintKeyOf(rawIn, melds, drawn, honor, seen);
+    if (HINT_CACHE[sig]) { HINT_STAT.cacheHits++; return HINT_CACHE[sig]; }
+
+    var t0 = Date.now();
+    HINT_STAT.calcCount++;
+    /* base = 「摸牌前那手 3k+1 的牌」= 真实手牌去掉**刚摸到的那张**。
+       （老实现去掉的是「排序后最大的一张」，于是「已听 / 有效牌」是拿一手不存在的牌算出来的。） */
+    var base = needDiscard && drawn !== null ? removeOne(hand, drawn) : hand.slice();
+    if (!base) { drawn = hand[hand.length - 1]; base = removeOne(hand, drawn); }   // 异常输入兜底
+    if (!base) base = hand.slice();
+    var shBase = totalShanten(base, mk);
+    var tenpaiNow = waitsFor(base, melds, honor);
+    var guardOn = tenpaiNow.length > 0 || shBase <= 0;       // 已听牌（或已成型）→ 绝不许建议破听
+    var opt = [], i, t, rest, u;
+    if (needDiscard) {
+      u = uniqTiles(hand);
+      for (i = 0; i < u.length; i++) {
+        t = u[i];
+        rest = removeOne(hand, t);
+        opt.push({
+          discard: t, tile: t, hand: rest, shanten: totalShanten(rest, mk),
+          waits: [], waitsLeft: 0, ukeire: 0, uDone: false,
+          iso: isolation(hand, t), safe: seen[t] || 0, term: termScore(t)
+        });
+      }
+    }
+    var shMin = 9, c;
+    for (i = 0; i < opt.length; i++) if (opt[i].shanten < shMin) shMin = opt[i].shanten;
+    /* 听牌 / 听口张数只算「可能被选中」的候选（向听 ≤ min(最小向听, 摸牌前向听)），省掉没意义的 34 张枚举 */
+    var shBar = shMin > shBase ? shMin : shBase;
+    for (i = 0; i < opt.length; i++) {
+      c = opt[i];
+      if (c.shanten > shBar) continue;
+      c.waits = waitsFor(c.hand, melds, honor);
+      c.waitsLeft = sumLeft(c.waits, c.hand, seen);
+    }
+    var cands = [];
+    for (i = 0; i < opt.length; i++) if (opt[i].shanten === shMin) cands.push(opt[i]);
+    /* 听牌保护：已听 → 只留「打完仍真听（waitsFor 非空）」的牌 */
+    var noBetter = false, pool = cands;
+    if (guardOn) {
+      var keep = [];
+      for (i = 0; i < opt.length; i++) if (opt[i].shanten <= shBase && opt[i].waits.length > 0) keep.push(opt[i]);
+      if (keep.length) pool = keep; else noBetter = true;    // 所有打法都会破听 → 显式标注，绝不静默建议
+    }
+    pool.sort(cmpHintOpt);
+    var anyTenpai = false;
+    for (i = 0; i < pool.length; i++) if (pool[i].waits.length) { anyTenpai = true; break; }
+    if (!anyTenpai && pool.length) {                          // 都没听 → 再比「有效进张」（重活，加上限）
+      var probe = pool.length > HINT_UKEIRE_MAX ? pool.slice(0, HINT_UKEIRE_MAX) : pool.slice();
+      for (i = 0; i < probe.length; i++) { probe[i].ukeire = ukeireOf(probe[i].hand, mk, seen, honor, melds); probe[i].uDone = true; }
+      pool = pool.length > HINT_UKEIRE_MAX ? probe.concat(pool.slice(HINT_UKEIRE_MAX)) : probe;
+      pool.sort(cmpHintUke);
+    }
+    var pick = pool.length ? pool[0] : null;
+    if (pick) {
+      if (pick.waits.length) pick.ukeire = pick.waitsLeft;
+      else if (!pick.uDone) { pick.ukeire = ukeireOf(pick.hand, mk, seen, honor, melds); pick.uDone = true; }
+    }
+    /* options 里凡是「打完就听」的候选，进张口径统一成听口张数（单测核对最优性时口径一致） */
+    for (i = 0; i < opt.length; i++) if (opt[i] !== pick && opt[i].waits.length) opt[i].ukeire = opt[i].waitsLeft;
+    var waitsAfter = pick ? pick.waits : tenpaiNow;
+    /* 有效牌提示：从「真实的那手 3k+1」出发（已听 → 听口；没听 → 加了能降向听的牌） */
+    var us = ukeireSet(base, mk, seen, honor, shBase, melds);
+    var improve = [];
+    for (i = 0; i < us.list.length && improve.length < HINT_IMPROVE_MAX; i++) improve.push({ tile: us.list[i].tile, left: us.list[i].left });
+    var hint = {
+      hand: hand, base: base, drawn: drawn, melds: melds, seen: seen, honors: honor,
+      discard: pick ? pick.discard : null,
+      tile: pick ? pick.discard : null,                       // 与 discard **同一张牌**（面板 / 金框 / debug.hint 都取它）
+      discardIdx: pick ? indexOfTile(rawIn, pick.discard) : -1,
+      shanten: pick ? pick.shanten : shBase, shantenNow: shBase,
+      tenpaiNow: tenpaiNow.length > 0, tenpaiAfter: !!(pick && pick.waits.length > 0),
+      waits: waitsAfter, waitsLeft: pick ? pick.waitsLeft : sumLeft(tenpaiNow, base, seen),
+      ukeire: pick ? pick.ukeire : ukeireOf(base, mk, seen, honor, melds),
+      improve: improve, improveKinds: us.list.length,
+      options: opt, noBetter: noBetter,
+      reason: ""
+    };
+    hint.reason = hintReason(hint);
+    var ms = Date.now() - t0;
+    HINT_STAT.lastMs = ms; if (ms > HINT_STAT.worstMs) HINT_STAT.worstMs = ms;
+    if (HINT_CACHE_N >= HINT_CACHE_MAX) hintCacheClear();
+    HINT_CACHE[sig] = hint; HINT_CACHE_N++;
+    return hint;
+  }
+  /** 提示候选第一把尺子：向听 → 听牌张数最多 → 安全张 → 孤张 → 幺九 */
+  function cmpHintOpt(a, b) {
+    if (a.shanten !== b.shanten) return a.shanten - b.shanten;
+    var aw = a.waits.length ? a.waitsLeft : -1, bw = b.waits.length ? b.waitsLeft : -1;
+    if (aw !== bw) return bw - aw;
+    if (b.safe !== a.safe) return b.safe - a.safe;
+    if (a.iso !== b.iso) return a.iso - b.iso;
+    return a.term - b.term;
+  }
+  /** 都没听时的第二把尺子：有效进张最多 → 安全张 → 孤张 → 幺九 */
+  function cmpHintUke(a, b) {
+    if (b.ukeire !== a.ukeire) return b.ukeire - a.ukeire;
+    if (b.safe !== a.safe) return b.safe - a.safe;
+    if (a.iso !== b.iso) return a.iso - b.iso;
+    return a.term - b.term;
+  }
+  function indexOfTile(hand, t) { for (var i = 0; i < hand.length; i++) if (hand[i] === t) return i; return -1; }
+  function sumLeft(waits, hand, seen) {
+    var n = 0, i;
+    for (i = 0; i < (waits || []).length; i++) n += remainingOf(waits[i], hand, seen);
+    return n;
+  }
+  function listTiles(a) { return (a || []).join("/"); }

@@ -1,0 +1,17 @@
+  /** 调试：当前提示（**面板文字 / 手牌金框 / 这里返回的 tile 三者是同一张牌**）
+   *  用法：Mahjong.debug.hint() → { discard, tile, shanten, waits, ukeire, reason, markTile, ... } */
+  function dbgHint() {
+    var h = updateHint();
+    renderBrain(); updateHintMark();
+    if (!h) return null;
+    var rects = hintRects(), mi = hintMarkIdx(rects), L = hintLines(h);
+    return {
+      discard: h.tile, tile: h.tile, discardIdx: G.hintIdx,
+      markIdx: mi, markTile: (mi >= 0 && rects[mi]) ? rects[mi].tile : null,
+      panelText: L ? L.l1 : "",
+      shanten: h.shanten, shantenNow: h.shantenNow, tenpaiNow: h.tenpaiNow, tenpaiAfter: h.tenpaiAfter,
+      waits: h.waits.slice(), waitsLeft: h.waitsLeft, ukeire: h.ukeire,
+      improve: h.improve.slice(), improveKinds: h.improveKinds,
+      noBetter: !!h.noBetter, reason: h.reason, drawn: h.drawn, melds: h.melds.length
+    };
+  }
