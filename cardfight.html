@@ -323,6 +323,15 @@ body{
   position:absolute;left:50%;bottom:8px;transform:translateX(-50%);
   font-size:12px;color:#ff8fa3;background:rgba(0,0,0,.7);padding:4px 12px;border-radius:8px;display:none;z-index:60;
 }
+/* 静音开关：右下角小圆钮，平时半透明，悬停才亮 */
+#muteBtn{
+  position:absolute;right:10px;bottom:8px;width:38px;height:38px;z-index:70;
+  border-radius:50%;cursor:pointer;font-size:17px;line-height:1;
+  background:rgba(28,20,46,.72);border:1px solid rgba(255,255,255,.16);
+  color:#cfc6e6;opacity:.5;transition:opacity .2s, transform .15s, border-color .2s;
+}
+#muteBtn:hover{opacity:1;transform:scale(1.08);border-color:rgba(255,215,110,.6)}
+#muteBtn.off{color:#ff8fa3;border-color:rgba(255,143,163,.5)}
 </style>
 </head>
 <body>
@@ -416,6 +425,8 @@ body{
   </div>
 
   <div id="err"></div>
+  <!-- 静音开关：一局要响 15 次交锋，必须有一个一键闭麦的入口 -->
+  <button id="muteBtn" title="开关音效" aria-label="开关音效">🔊</button>
 </div>
 
 <script>
@@ -825,6 +836,123 @@ function shuffle(a) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* ══════════════════════════════════════════════════════════════════
+   2.5 音效（Web Audio 实时合成）
+   为什么不用现成的 mp3（原型项目 audio/ 下有一批）：本作是"单文件、零依赖、双击即玩"。
+   引外部音频会让它一旦被单独拷走就静音，浏览器对 file:// 下的音频限制也更多。
+   合成音效没有这些约束，改一个参数就能调音色。
+
+   音色设计（每类事件用不同的特征，闭着眼也能分辨）：
+     抽牌  短促上滑"咻"（带通噪声 + 上扫）              —— 空气摩擦
+     翻面  木质"嗒"（两个三角波高音 + 极短包络）        —— 纸牌敲击【试听后选定】
+     出击  低频下扫 + 白噪爆音                          —— 打击感
+     挨打  同上但更闷（低通截止 900Hz）                 —— 隔着护具挨打
+     格挡  闷响 + 一记"啪"（木盾版）                    —— 被硬物挡下【试听后选定】
+     加盾  高频金属泛音三连（正弦非谐比例 1:2.76:5.4）  —— 金属/水晶
+     回血  上行大三和弦琶音                             —— 温暖【试听后选定】
+     吸血  下行滑音                                     —— "吸回来"的方向感
+     蓄力  噪声上升 + 音高上扫                          —— 能量聚集
+     反弹  差 7Hz 的双音拍频                            —— 反噬的刺痛
+     诅咒  低频锯齿拍频                                 —— 阴森
+     KO    长下滑 + 延迟落地噪声                        —— 收局
+   音量刻意做得轻（0.05~0.20）：一局要响 15 次交锋，提示音不能吵。
+   ══════════════════════════════════════════════════════════════════ */
+const SFX = (() => {
+  let ctx = null, master = null, muted = false;
+  /** 懒创建 AudioContext。浏览器要求**用户手势**之后才能出声 ——
+      所以由「开始对决」那次点击解锁（见文件末尾 goBtn 的绑定）。 */
+  function ac() {
+    if (!ctx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      ctx = new C();
+      master = ctx.createGain();
+      master.gain.value = muted ? 0 : 0.5;
+      master.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+  /** 一段振荡音：f0 滑到 f1，指数收尾 */
+  function tone(f0, f1, dur, type, vol, delay) {
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime + (delay || 0);
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.012, dur * 0.25));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  /** 一段噪声：带通/低通/高通塑形，用来做"咻 / 闷响 / 爆音" */
+  function noise(dur, vol, filt, f0, f1, delay, q) {
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime + (delay || 0);
+    const len = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource(); src.buffer = buf;
+    const bq = c.createBiquadFilter();
+    bq.type = filt || "bandpass";
+    bq.Q.value = q == null ? 1.1 : q;
+    bq.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) bq.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bq); bq.connect(g); g.connect(master);
+    src.start(t0); src.stop(t0 + dur + 0.02);
+  }
+  return {
+    unlock() { ac(); },
+    setMuted(v) { muted = !!v; if (master) master.gain.value = muted ? 0 : 0.5; return muted; },
+    isMuted() { return muted; },
+    /* ── 各事件 ── */
+    draw() { noise(0.16, 0.16, "bandpass", 700, 2600, 0, 1.4); tone(520, 900, 0.12, "sine", 0.05); },
+    /** 翻面：木质"嗒"（试听后选定，不用更亮的清脆版） */
+    flip() { tone(1250, 780, 0.055, "triangle", 0.10); tone(640, 420, 0.05, "triangle", 0.05, 0.01); noise(0.04, 0.06, "highpass", 2400, 1800, 0, 0.8); },
+    hit(big) {
+      tone(big ? 190 : 140, big ? 46 : 62, big ? 0.26 : 0.2, "sine", big ? 0.20 : 0.15);
+      noise(big ? 0.16 : 0.11, big ? 0.20 : 0.13, "lowpass", big ? 2200 : 1500, 260, 0, 0.7);
+      if (big) tone(90, 40, 0.3, "sawtooth", 0.08, 0.02);
+    },
+    /** 挨打：比出击更闷 —— "自己挨打"与"打中别人"听感要分开 */
+    take() { tone(120, 52, 0.24, "sine", 0.16); noise(0.14, 0.14, "lowpass", 900, 200, 0, 0.6); },
+    /** 格挡：闷响 + 一记"啪"（木盾版，试听后选定） */
+    block() { noise(0.14, 0.13, "lowpass", 700, 200, 0, 0.8); tone(300, 180, 0.08, "triangle", 0.11); tone(150, 92, 0.18, "sine", 0.08, 0.01); },
+    /** 加护盾：非谐比例三连 —— 谐波比例会像乐器，非谐才有金属味 */
+    shield() { [1, 2.76, 5.4].forEach((k, i) => tone(880 * k, 860 * k, 0.5 - i * 0.09, "sine", 0.055 / (i + 1), i * 0.035)); noise(0.14, 0.05, "highpass", 3600, 5200, 0, 0.8); },
+    /** 回血：上行大三和弦琶音（试听后选定） */
+    heal() { [523, 659, 784, 1046].forEach((f, i) => tone(f, f, 0.3, "sine", 0.07, i * 0.07)); },
+    charge() { noise(0.62, 0.09, "bandpass", 300, 3000, 0, 3.2); tone(180, 900, 0.6, "triangle", 0.05); },
+    drain() { tone(880, 240, 0.4, "sine", 0.10); tone(440, 130, 0.42, "triangle", 0.05, 0.02); },
+    reflect() { tone(1180, 900, 0.16, "square", 0.055); tone(1187, 905, 0.16, "square", 0.055, 0.012); },
+    curse() { tone(150, 118, 0.5, "sawtooth", 0.075); tone(159, 125, 0.5, "sawtooth", 0.05, 0.01); },
+    ko() { tone(320, 60, 0.85, "sawtooth", 0.14); noise(0.3, 0.16, "lowpass", 900, 120, 0.3, 0.8); },
+    cue() { tone(420, 300, 0.14, "sine", 0.075); },
+    round() { tone(660, 660, 0.12, "triangle", 0.06); tone(990, 990, 0.16, "triangle", 0.055, 0.1); },
+    win() { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, f, 0.34, "triangle", 0.085, i * 0.11)); },
+    lose() { [523, 466, 392, 311].forEach((f, i) => tone(f, f * 0.98, 0.38, "sine", 0.085, i * 0.14)); },
+    drawGame() { [494, 494].forEach((f, i) => tone(f, f, 0.4, "sine", 0.075, i * 0.22)); },
+  };
+})();
+
+/* 音效调用计数：无头验证"每种音效真的被触发过"。
+   音效最容易"看着接上了、其实没响"（AudioContext 没解锁 / 方法名写错 / 被静音），
+   而无声环境里人耳听不到，所以留一份可断言的计数。 */
+Object.keys(SFX).forEach((k) => {
+  if (typeof SFX[k] !== "function" || k === "setMuted" || k === "isMuted") return;
+  const fn = SFX[k];
+  SFX[k] = function () {
+    if (window.__dbg) { window.__dbg.sfx = window.__dbg.sfx || {}; window.__dbg.sfx[k] = (window.__dbg.sfx[k] || 0) + 1; }
+    return fn.apply(SFX, arguments);
+  };
+});
+
 /* ── 卡牌 DOM ───────────────────────────────────────────────────── */
 /** 造一张卡（正反面都在 DOM 里，靠 .flipped 翻转）。
  *  @param faceDown 初始是否背面朝上（默认 true） */
@@ -950,6 +1078,21 @@ function buildDeckVisual(n) {
   const box = $("deck");
   box.innerHTML = "";
   for (let i = 0; i < n; i++) box.appendChild(makeCard(CARDS[i % CARDS.length], true));
+  armDeckBacks();
+}
+/** 给中央卡背挂上"可点 + 点击就抽"。
+    ⚠ 必须独立成一个函数并被**每次重建后**调用：buildDeckVisual 会在
+      "牌堆抽空重洗"时重建卡背，第一版只在 startRound 里挂过一次 handler，
+      于是重洗出来的那批卡背点不动 —— 表现为某些轮只抽到 2 张
+      （实测第三局只抽了 13 张而不是 15 张，且 step 返回 no-back）。
+      挂/摘集中在这里，别再散出去。 */
+function armDeckBacks() {
+  document.querySelectorAll("#deck .card").forEach((el) => {
+    el.classList.add("pickable");
+    if (el._armed) return;                       // 避免重复绑定（重建后是新元素，一般不会重）
+    el._armed = true;
+    el.addEventListener("click", () => pickDrawFromDeck(el));
+  });
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1011,6 +1154,7 @@ async function pickDrawFromDeck(backEl) {
   /* 立即标成"已抽"并停止接收点击，避免连点抽超 */
   backEl.classList.add("picked");
   const src = rectIn(backEl);
+  SFX.draw();                                       // 抽牌"咻"
   const key = drawOne();                             // 从卡池随机取一张（放回式）
   S.hand[slot] = key;
   backEl.remove();                                   // 这一张从中央消失（视觉上"被取走"）
@@ -1021,6 +1165,7 @@ async function pickDrawFromDeck(backEl) {
   slots[slot].appendChild(cardEl);
   await sleep(160);
   flip(cardEl, true);                                // 3D 翻面
+  SFX.flip();                                        // 翻面：木质"嗒"
   await sleep(140);
   paintHud();
   if (S.drawn >= HAND) {
@@ -1060,13 +1205,10 @@ async function startRound() {
   /* 中央恢复成**完整 12 张卡背**：每轮都是全新的一副牌在等你抽。
      （放回式抽牌，所以不会再出现"牌堆被抽空"的情况 —— 上一版的 ensureDrawable
        是为消耗式抽牌写的，现在整个不需要了。） */
-  buildDeckVisual(DECK);
-  document.querySelectorAll("#deck .card").forEach((el) => {
-    el.classList.add("pickable");
-    el.addEventListener("click", () => pickDrawFromDeck(el));
-  });
+  buildDeckVisual(DECK);          // 内部已调 armDeckBacks()，卡背可点
   paintHud();
   showCallout("第 " + S.round + " 轮 · 点 牌 堆 抽 三 张");
+  SFX.round();
   /* 抽牌阶段结束（pickDrawFromDeck 里抽满三张会调 runRound）——
      这里只负责把牌铺好。 */
 }
@@ -1127,6 +1269,7 @@ async function runRound() {
       showCallout(bout === 0
         ? ("第 " + S.round + " 轮 · 第 1 次交锋")
         : ("还 剩 " + (HAND - bout) + " 次 交 锋"));
+      SFX.cue();
       const idx = await waitForPick();
       if (idx < 0) break;
       await resolveRound();
@@ -1197,8 +1340,8 @@ async function resolveBody() {
 
   /* 双方同时起身（出招姿势），这是"要动手了"的信号 */
   Stage.reset();
-  if ((pCard.dmg || pCard.reprisal) && !pCard.charge) Stage.attack("player");
-  if ((eCard.dmg || eCard.reprisal) && !eCard.charge) Stage.attack("enemy");
+  if ((pCard.dmg || pCard.reprisal) && !pCard.charge) { Stage.attack("player"); SFX.hit((pCard.dmg || 0) >= 15); }
+  if ((eCard.dmg || eCard.reprisal) && !eCard.charge) { Stage.attack("enemy"); SFX.hit((eCard.dmg || 0) >= 15); }
 
   /* 对手出牌：在对手区域展示并翻面 */
   $("foeLabel").textContent = "赤鬼出牌（第 " + (S.picked + 1) + "/" + HAND + " 次交锋）";
@@ -1208,6 +1351,7 @@ async function resolveBody() {
   $("foeCard").innerHTML = "";
   $("foeCard").appendChild(fc);
   await sleep(320);
+  SFX.flip();
   flip(fc, true);
   await sleep(420);
   showCallout("第 " + (S.picked + 1) + " 次 交 锋");
@@ -1233,6 +1377,7 @@ async function resolveBody() {
   const eShieldGain = eCard.shield || 0;
   if (pShieldGain) { S.p.shield += pShieldGain; pop("p", "+" + pShieldGain + " 盾", "#8fd8ff", -70); Stage.shield("player"); }
   if (eShieldGain) { S.e.shield += eShieldGain; pop("e", "+" + eShieldGain + " 盾", "#8fd8ff", 70); Stage.shield("enemy"); }
+  if (pShieldGain || eShieldGain) SFX.shield();      // 加盾：金属泛音
   if (pShieldGain || eShieldGain) { paintHud(); await sleep(600); }
 
   /* ② 伤害：护盾先抵（破防牌无视护盾） */
@@ -1256,13 +1401,13 @@ async function resolveBody() {
      这一层是"看得见的打斗"——数字飘字之外，人物必须真的动。 */
   if (pIntent.dmg > 0) {
     S.p.dealt += pDealt;
-    if (pDealt > 0) { pop("e", "-" + pDealt, "#ff6b8a", 0, 44); Stage.hurt("enemy", pDealt >= 15); }
-    else { pop("e", "护盾全挡", "#8fd8ff", 0, 26); Stage.guard("enemy"); }
+    if (pDealt > 0) { pop("e", "-" + pDealt, "#ff6b8a", 0, 44); Stage.hurt("enemy", pDealt >= 15); SFX.hit(pDealt >= 15); }
+    else { pop("e", "护盾全挡", "#8fd8ff", 0, 26); Stage.guard("enemy"); SFX.block(); }   // 被挡下：木盾闷响
   }
   if (eIntent.dmg > 0) {
     S.e.dealt += eDealt;
-    if (eDealt > 0) { pop("p", "-" + eDealt, "#ff6b8a", 0, 44); Stage.hurt("player", eDealt >= 15); }
-    else { pop("p", "护盾全挡", "#8fd8ff", 0, 26); Stage.guard("player"); }
+    if (eDealt > 0) { pop("p", "-" + eDealt, "#ff6b8a", 0, 44); Stage.hurt("player", eDealt >= 15); SFX.take(); }
+    else { pop("p", "护盾全挡", "#8fd8ff", 0, 26); Stage.guard("player"); SFX.block(); }
   }
   if (pIntent.dmg > 0 || eIntent.dmg > 0) {
     flash();
@@ -1280,6 +1425,7 @@ async function resolveBody() {
   const pH = healOf(pCard, S.p), eH = healOf(eCard, S.e);
   if (pH) { S.p.hp = Math.min(MAXHP, S.p.hp + pH); pop("p", "+" + pH, "#5dffa0", -70); Stage.heal("player"); }
   if (eH) { S.e.hp = Math.min(MAXHP, S.e.hp + eH); pop("e", "+" + eH, "#5dffa0", 70); Stage.heal("enemy"); }
+  if (pH || eH) SFX.heal();                          // 回血：上行琶音
   if (pH || eH) { paintHud(); await sleep(620); }
 
   /* ④ 特殊效果 */
@@ -1289,13 +1435,13 @@ async function resolveBody() {
   if (pCard.lifesteal && pDealt > 0) {
     const h = Math.floor(pDealt / 2);
     S.p.hp = Math.min(MAXHP, S.p.hp + h);
-    pop("p", "吸血 +" + h, "#5dffa0", -110);
+    pop("p", "吸血 +" + h, "#5dffa0", -110); SFX.drain();
     paintHud(); await sleep(420);
   }
   if (eCard.lifesteal && eDealt > 0) {
     const h = Math.floor(eDealt / 2);
     S.e.hp = Math.min(MAXHP, S.e.hp + h);
-    pop("e", "吸血 +" + h, "#5dffa0", 110);
+    pop("e", "吸血 +" + h, "#5dffa0", 110); SFX.drain();
     paintHud(); await sleep(420);
   }
   /* 反击：反弹本轮所受伤害的一半（打在对方身上，护盾可挡） */
@@ -1310,8 +1456,8 @@ async function resolveBody() {
   };
   const pRef = reflect(S.p, S.e, pCard, eDealt, "p");
   const eRef = reflect(S.e, S.p, eCard, pDealt, "e");
-  if (pRef > 0) pop("e", "反弹 -" + pRef, "#b07dff", 0, 32);
-  if (eRef > 0) pop("p", "反弹 -" + eRef, "#b07dff", 0, 32);
+  if (pRef > 0) { pop("e", "反弹 -" + pRef, "#b07dff", 0, 32); SFX.reflect(); }
+  if (eRef > 0) { pop("p", "反弹 -" + eRef, "#b07dff", 0, 32); SFX.reflect(); }
   if (pRef || eRef) { paintHud(); await sleep(520); }
   /* 反击波：伤害 = 自己当前护盾 */
   const reprisal = (self, foe, card, who) => {
@@ -1326,14 +1472,15 @@ async function resolveBody() {
   };
   const pRep = reprisal(S.p, S.e, pCard, "p");
   const eRep = reprisal(S.e, S.p, eCard, "e");
-  if (pRep > 0) { pop("e", "-" + pRep, "#ff6b8a", 0, 40); flash(); }
-  if (eRep > 0) { pop("p", "-" + eRep, "#ff6b8a", 0, 40); flash(); }
+  if (pRep > 0) { pop("e", "-" + pRep, "#ff6b8a", 0, 40); flash(); SFX.reflect(); }
+  if (eRep > 0) { pop("p", "-" + eRep, "#ff6b8a", 0, 40); flash(); SFX.reflect(); }
   if (pRep || eRep) { paintHud(); await sleep(560); }
   /* 蓄力 / 诅咒标记 */
-  if (pCard.charge) { S.p.charge = true; Stage.charge("player"); }
-  if (eCard.charge) { S.e.charge = true; Stage.charge("enemy"); }
+  if (pCard.charge) { S.p.charge = true; Stage.charge("player"); SFX.charge(); }
+  if (eCard.charge) { S.e.charge = true; Stage.charge("enemy"); SFX.charge(); }
   S.p.curse = !!eCard.curse;                      // 对手的诅咒作用在我身上
   S.e.curse = !!pCard.curse;
+  if (pCard.curse || eCard.curse) SFX.curse();       // 诅咒：低频不谐和
   paintHud();
   await sleep(520);
   Stage.reset();                                  // 双方回待机（下一轮再起手）
@@ -1371,6 +1518,7 @@ function endGame() {
     if (win) Stage.ko("enemy");
     else Stage.ko("player");
   }
+  SFX.ko();
   const box = $("result");
   box.classList.remove("on", "win", "lose", "draw");
   box.classList.add(draw ? "draw" : win ? "win" : "lose");
@@ -1386,6 +1534,7 @@ function endGame() {
   /* 日志可能有 15 条（5 轮 × 3 次交锋），要**自动滚到底**，
      否则玩家只看得到前几条、以为后面没打（实测截图就是这样）。 */
   $("rLog").scrollTop = $("rLog").scrollHeight;
+  if (draw) SFX.drawGame(); else if (win) SFX.win(); else SFX.lose();
   void box.offsetWidth;
   box.classList.add("on");
 }
@@ -1417,7 +1566,14 @@ async function begin() {
   await sleep(560);
   startRound();
 }
-$("goBtn").addEventListener("click", begin);
+$("goBtn").addEventListener("click", () => { SFX.unlock(); begin(); });   // 用这次点击解锁音频
+/* 静音开关：先 unlock 再切，否则第一次点击只解锁、不静音 */
+$("muteBtn").addEventListener("click", () => {
+  SFX.unlock();
+  const m = SFX.setMuted(!SFX.isMuted());
+  $("muteBtn").textContent = m ? "🔇" : "🔊";
+  $("muteBtn").classList.toggle("off", m);
+});
 $("againBtn").addEventListener("click", () => {
   $("result").classList.remove("on");
   $("battle").classList.remove("on");
