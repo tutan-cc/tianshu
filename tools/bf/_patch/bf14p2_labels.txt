@@ -1,0 +1,4 @@
+  put("本帧实测：等着起锅 " + nPick + " 口（煎蛋剩 " + (S3.serveWin || 0).toFixed(1) + "s）· 已糊 " + nBurntPan +
+      " 口（培根 · burnt=" + d.state().burnt + "）· 盘占着没地方放 " + nBlocked + " 口（三明治）· " +
+      "盘上保鲜 " + cntKeep + " 份（三明治·热乎 ·「∞ 可一直放着」）",
+      24, bandY + 186, 26, "#ffd76e");

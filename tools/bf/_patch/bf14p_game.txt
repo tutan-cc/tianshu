@@ -1,0 +1,18 @@
+  adv(d, 4.2);                                        // 逻辑推进（不渲染）：顾客进门、订单卡出来
+  /* ① 五列各做一份 → **窗口内点锅起锅** → 落到各自专属盘上（bf-14：不再自动落盘）*/
+  d.drop("milk", null); d.drop("sandwich", null); d.drop("salad", null);
+  d.drop("bun", null); d.drop("soup", null);
+  { let g = 0;
+    while (g++ < 900 && d.plates().length < 5) {
+      d.stations().forEach(s => { if (s.state === "perfect" && s.windowOpen && !s.plate) d.takeOut(s.i); });
+      d.tick(1 / 60);
+    } }
+  /* ② 一口锅（第 4 列培根）**没人起锅** → 窗口走完自己糊：焦黑锅体 + 红叉 +「糊了 · 双击丢掉」*/
+  d.drop("bacon", null);
+  { let g = 0; while (g++ < 700 && d.stations()[4].state !== "burnt") d.tick(1 / 60); }
+  /* ③ 两口锅正**等在起锅窗口**里（锅上「起锅！点一下这口锅」+ 窗口倒计时环）*/
+  d.drop("congee", null); d.drop("egg", null);
+  { let g = 0;
+    while (g++ < 400 && !(d.stations()[0].state === "perfect" && d.stations()[0].windowOpen &&
+                          d.stations()[3].state === "perfect" && d.stations()[3].windowOpen)) d.tick(1 / 60); }
+  d.tick(0.55);                                       // 让「熟了 · 起锅！」飘字播完，出图干净

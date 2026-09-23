@@ -1,0 +1,6 @@
+      var pickN = 0;
+      for (var wi = 0; wi < st.stations.length; wi++) if (isServeWindowOpen(st.stations[wi])) pickN++;
+      g.fillText("完美 " + st.perfect + " · 温 " + (st.heat.warm || 0) + " · 凉 " + (st.heat.cold || 0) +
+                 " · 糊 " + st.burnt + "（忘起锅 " + (st.expire || 0) + "）· 跑单 " + st.angry + " · 上错 " + st.wrong +
+                 " · 盘上 " + st.plates.length + "/" + PLATES_TOTAL + " · " +
+                 (pickN > 0 ? ("锅里等着起锅 " + pickN + " 份") : "盘上永久保鲜（无倒计时）"), 18, 50);

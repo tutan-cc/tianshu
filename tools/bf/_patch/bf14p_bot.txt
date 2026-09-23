@@ -1,0 +1,30 @@
+/** 机器人：看单下料（每样只进自己那一列）+ 锅里熟了**在窗口内点锅起锅** + 单击盘出餐
+    （bf-14：熟了不再自动落盘；盘被占就先点盘把旧的送出去）*/
+function bot(B, maxSteps) {
+  const d = B.debug;
+  let guard = 0;
+  while (!d.state().over && guard++ < (maxSteps || 5000)) {
+    d.stations().forEach((s, i) => {                              // ① 起锅
+      if (s.state === "perfect" && s.windowOpen) {
+        if (s.plate) { const r = d.serveCol(i); if (!r.ok) d.trash(i); }
+        else d.takeOut(i);
+      }
+    });
+    d.stations().forEach((s, i) => {                              // ② 盘上的送出去 / 清掉
+      if (s.state === "burnt" || s.plateState === "burnt") { d.trash(i); return; }
+      if (s.plate) { const r = d.serveCol(i); if (!r.ok && r.why === "no-want") d.trash(i); }
+    });
+    for (const c of d.orders()) for (const f of c.order) {        // ③ 看单下料
+      if (c.done.indexOf(f) >= 0) continue;
+      if (d.stations().some(s => s.food === f)) continue;
+      if (d.plates().some(p => p.food === f && p.state !== "burnt")) continue;
+      d.drop(f, null);
+    }
+    for (let n = 0; n < 60 && !d.state().over; n++) {
+      d.tick(1 / 60);
+      if (d.stations().some(s => s.windowOpen)) break;            // 有锅进起锅窗口了
+    }
+    if (d.state().over) break;
+    d.tick(0.12);
+  }
+}

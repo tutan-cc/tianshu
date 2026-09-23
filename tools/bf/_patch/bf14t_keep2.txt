@@ -1,0 +1,12 @@
+  /* bf-14：盘占着**不再挡下料**（用户原话「锅里也可以同时煮着」）——
+     代价搬到了「起锅那一刻」：没地方放 → plate-occupied → 窗口走完就糊（原口径在下料时就拒）。 */
+  assert.equal(R.placeFoodEx(st, "bun", null).ok, true, "盘占着也能下料（原口径：plate-occupied）");
+  const pk = pickOut(st, col);
+  assert.equal(pk.ok, false); assert.equal(pk.why, "plate-occupied", "起锅被拒：盘里还有一份，没地方放");
+  assert.equal(R.plateOfStation(st, col).state, "perfect", "盘上那份没被动过（永久保鲜，还是好的）");
+  assert.equal(st.burnt, 0, "「没地方放」这一刻还不算糊（窗口还在走）");
+  R.trashStation(st, col);                        // 清掉锅里那份（顺带清盘），再原样做一份放回盘上
+  assert.equal(pickOut(st, col, 12).ok, true, "重做一份放回盘上");
+  assert.equal(st.burnt, 0, "丢掉锅里那份也不记糊");
+  /* 双击仍然丢得掉 —— 「盘上东西丢不丢」仍由玩家决定 */
+  assert.equal(R.trashColumn(st, col), true, "双击盘照样能丢掉（丢弃仍需玩家操作）");

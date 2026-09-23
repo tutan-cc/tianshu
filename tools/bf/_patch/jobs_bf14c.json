@@ -1,0 +1,9 @@
+{
+ "jobs": [
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  R.trashStation(st, col);                       // 清干净，回到后面「盘被占 → 糊」那条主线\n  assert.equal(R.placeFood(st, \"egg\", null), true, \"重新下料，继续验「盘被占 → 窗口走完 → 糊」\");\n  const po2 = pickOut(st, col);\n  assert.equal(po2.why, \"plate-occupied\", \"盘被占（这次是被出餐后重下的那份占着）\");",
+   "textFile": "tools/bf/_patch/bf14c_serve_keeps_pan_fix.txt"
+  }
+ ]
+}

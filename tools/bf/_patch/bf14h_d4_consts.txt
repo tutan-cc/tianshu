@@ -1,0 +1,10 @@
+  A(d4.state().autoPlate === false, "bf-14：页面开局默认**关闭**自动落盘（原断言：默认打开）");
+  A(d4.state().panWindow === 4.5 && d4.state().panBurntSticky === true && d4b.B.SERVE_WARN_SEC === 1.0,
+    "锅内限时起锅：起锅窗口 4.5s（可调常量）/ 糊锅粘住必须双击 / 最后一秒红闪阈值 1.0s",
+    "panWindow=" + d4.state().panWindow + " · sticky=" + d4.state().panBurntSticky);
+  A(d4b.B.PAN_PICK_TEXT === "恰好 · 起锅" && d4b.B.PAN_BLOCKED_TEXT === "盘占着 · 没地方放" && d4b.B.PAN_BURNT_TEXT === "糊了 · 双击丢掉",
+    "锅内三句状态文案与规则层同源（UI 不可能与行为不一致）");
+  A(d4.state().platesTotal === 9 && d4.state().columns === 9, "9 列 × 每列 1 个专属盘（不再限量 3 盘）");
+  A(!isFinite(d4.state().plateLife) && d4.state().plateKeep === true && d4.state().serveWindow === 4.5,
+    "盘上永久保鲜：plateLife = Infinity（无倒计时）/ plateKeep = true；serveWindow 仍是 4.5",
+    "plateLife=" + d4.state().plateLife + " plateKeep=" + d4.state().plateKeep);

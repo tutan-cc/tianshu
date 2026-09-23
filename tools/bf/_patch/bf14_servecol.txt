@@ -1,0 +1,8 @@
+    if (k < 0) {
+      /* 盘空：锅里若正有一份等着起锅，提示就直接指向那口锅（bf-14） */
+      var s0 = stationByIdx(st, stationIdx);
+      var h0 = isServeWindowOpen(s0)
+        ? ("盘里还空着 —— 锅里那份正等着起锅：点一下锅（还剩 " + round1(serveWinLeft(st, s0)) + "s）")
+        : "盘里还空着 —— 先点下面的食材下锅";
+      return { ok:false, why:"no-plate", hint:h0, station:stationIdx };
+    }

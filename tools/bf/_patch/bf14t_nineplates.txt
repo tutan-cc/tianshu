@@ -1,0 +1,30 @@
+  // 9 列同时各放一份 → 9 份各自进起锅窗口 → 逐口点锅起锅（不限量、不串台）
+  const each = ["congee", "milk", "soup", "egg", "bacon", "sandwich", "bun", "salad", "juice"];
+  each.forEach((f, i) => assert.equal(R.placeFood(st, f, null), true, "第 " + i + " 列下 " + f));
+  assert.equal(st.made, 9, "9 列同时开工");
+  for (let i = 0; i < 9; i++) {
+    const po = pickOut(st, i, 12);
+    assert.equal(po.ok, true, "第 " + i + " 列窗口内点锅起锅（why=" + po.why + "）");
+  }
+  assert.equal(st.plates.length, 9, "9 份全部落到各自的专属盘上（没有 3 盘限量）");
+  assert.equal(new Set(st.plates.map(p => p.station)).size, 9, "没有两个灶位共用一个盘");
+  for (let i = 0; i < 9; i++) {
+    const p = R.plateOfStation(st, i);
+    assert.ok(p, i + " 号灶位有自己的盘");
+    assert.equal(p.station, i, "盘记录里写着唯一的归属灶位");
+    assert.equal(p.food, each[i], "盘里正好是这一列做出来的东西");
+    assert.equal(R.stationFree(st, i), true, "锅空了 → 这一列可以继续下料（bf-14：盘占着不挡下料）");
+  }
+  // bf-14：盘占着也能下料（代价是熟了没地方起锅）—— 只动第 0 列，验完立刻还原
+  assert.equal(R.placeFoodEx(st, each[0], null).ok, true, "第 0 列盘占着也能下料（原口径：plate-occupied）");
+  assert.equal(R.takeOut(st, 0).why, "raw", "刚下锅还没熟 → 起锅被拒（raw）");
+  assert.equal(R.trashStation(st, 0), true, "清掉第 0 列（锅 + 盘）");
+  assert.equal(R.placeFood(st, each[0], null), true, "重下一份");
+  assert.equal(pickOut(st, 0, 12).ok, true, "再起锅一次，回到 9 盘");
+  assert.equal(st.plates.length, 9, "9 盘又齐了");
+  // 只丢掉第 0 列 → 只有它恢复
+  assert.equal(R.trashColumn(st, 0), true);
+  assert.equal(R.stationFree(st, 0), true, "丢掉后第 0 列恢复");
+  assert.equal(st.plates.length, 8, "别的 8 列不受影响");
+  assert.equal(R.plateOfStation(st, 1).food, "milk", "第 1 列的盘还占着（bf-14：盘占着不挡下料）");
+  assert.equal(R.placeFood(st, "congee", null), true, "第 0 列马上能再用");

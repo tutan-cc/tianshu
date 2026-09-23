@@ -1,0 +1,2 @@
+    takePlate: takePlate, takeOut: takeOut, serveWinLeft: serveWinLeft, burnStation: burnStation,
+    autoPlateStations: autoPlateStations, trashStation: trashStation, trashPlate: trashPlate,

@@ -1,0 +1,19 @@
+  assert.equal(st.stations[col].state, "perfect", "锅里那份还在（窗口继续走）");
+  assert.ok(st.stations[col].serveWin > 0, "被拒**不会**重置窗口（剩余 " + st.stations[col].serveWin.toFixed(2) + "s）");
+  /* ④ 把盘上那份送出去腾地方：**只清盘，不许动锅**（锅里那份还在等起锅）*/
+  const cw = longPatience(R.spawnCustomer(st, ["egg"]));
+  const sv0 = R.serveFromColumn(st, col);
+  assert.equal(sv0.ok, true, "盘上那份送给顾客");
+  assert.equal(R.plateOfStation(st, col), null, "盘空了");
+  assert.equal(cw.done.indexOf("egg") >= 0, true, "顾客拿到了那一份");
+  assert.equal(st.stations[col].food, "egg", "出餐**没有**把锅里那份清掉（bf-14 真机修复）");
+  assert.equal(st.stations[col].state, "perfect", "锅里那份还是恰好");
+  assert.ok(st.stations[col].serveWin > 0, "窗口照旧在走（看门狗没被出餐重置）");
+  assert.equal(R.takeOut(st, col).ok, true, "盘一空，窗口内点锅 → 起锅成功");
+  assert.equal(R.plateOfStation(st, col).food, "egg", "第二份进盘了");
+  R.trashStation(st, col);                       // 清干净，回到后面「盘被占 → 糊」那条主线
+  assert.equal(R.placeFood(st, "egg", null), true, "重新下料，继续验「盘被占 → 窗口走完 → 糊」");
+  const po2 = pickOut(st, col);
+  assert.equal(po2.why, "plate-occupied", "盘被占（这次是被出餐后重下的那份占着）");
+  const left = st.stations[col].serveWin;
+  advance(st, left - 0.01);

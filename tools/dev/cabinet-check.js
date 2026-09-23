@@ -24,8 +24,10 @@ const { encodePng } = require("./png-write.cjs");
 const html = readHtml();
 const api = new vm.Script("(function(){\n" +
   "const FIGHT2_TUNE = " + grabConst(html, "FIGHT2_TUNE") + ";\n" +
-  /* Fight2Stage.drawCards 要读卡池（每张牌的名字/类型/消耗），必须一起抽出来 */
+  /* Fight2Stage.drawCards 要读卡池（每张牌的名字/类型/消耗）与 CardArt（画牌面/牌背），
+     必须一起抽出来，否则 --png 导出时 ReferenceError */
   "const FIGHT2_CARDS = " + grabConst(html, "FIGHT2_CARDS") + ";\n" +
+  "const CardArt = " + grabConst(html, "CardArt") + ";\n" +
   "const Fight2Stage = " + serialize(evalConstIn(html, "Fight2Stage")) + ";\n" +
   "var document={getElementById:function(){return {style:{},dataset:{},innerHTML:\"\",textContent:\"\",\n" +
   "  classList:{add:function(){},remove:function(){},contains:function(){return false;}},\n" +

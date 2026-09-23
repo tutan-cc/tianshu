@@ -1,0 +1,74 @@
+{
+ "jobs": [
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "         盘上永久保鲜（bf-13：不降档 / 无倒计时 / 不糊 / 不消失；锅内该糊还是糊）",
+   "textFile": "tools/bf/_patch/bf14t_header.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "/** 只看「锅里火候」的小局：关掉自动落盘（食物留在锅里，方便断言 生→恰好→过火→糊） */\nfunction wokState(cfg) { const st = R.newState(Object.assign({ duration: 12, goal: 99, autoPlate:false }, cfg || {})); st.running = true; return st; }\n/** 走完整新规则的小局：9 列各 1 专属盘、熟了自动落盘、**盘上永久保鲜**（不降档 / 不糊 /\n    不消失、没有倒计时）。nextIn 拉大 → 不自动进店，只有测试自己 spawn 的顾客在场。 */\nfunction plateState(cfg) { const st = R.newState(Object.assign({ duration: 999, goal: 99, autoPlate:true }, cfg || {})); st.running = true; st.nextIn = 1e6; return st; }",
+   "textFile": "tools/bf/_patch/bf14t_helpers.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "/** 给当前第一位顾客做他要的下一道菜，熟了落到本列盘上再端上去（返回 serve 结果，做不了返回 null） */\nfunction autoServe(st) {\n  const list = R.activeCustomers(st);\n  if (!list.length) return null;\n  const c0 = list[0];\n  let want = null;\n  for (let i = 0; i < c0.order.length; i++) if (c0.done.indexOf(c0.order[i]) < 0) { want = c0.order[i]; break; }\n  if (!want) return null;\n  const col = R.columnOf(want);\n  if (!R.stationFree(st, col)) return null;\n  if (!R.placeFood(st, want, col)) return null;\n  let k = 0;\n  while (!R.plateOfStation(st, col) && k++ < 1200 && !st.over) R.step(st, 1 / 60);\n  if (st.over || !R.plateOfStation(st, col)) { R.trashStation(st, col); return null; }\n  return R.serveFromColumn(st, col);          // 单击盘 → 自动送给正在等的顾客\n}",
+   "textFile": "tools/bf/_patch/bf14t_autoserve.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "    // 2) 推进到有东西落到盘上（或 1 秒）\n    let frames = 0;\n    while (frames++ < 60 && !st.over) { R.step(st, 1 / 60); if (st.plates.length) break; }\n    if (st.over) break;\n    // 3) 单击每一列的专属盘：自动送给正在需要 + 耐心最少的顾客（没人要就留着）\n    for (let i = 0; i < st.stations.length; i++) if (R.plateOfStation(st, i)) R.serveFromColumn(st, i);\n    // 4) 清掉糊掉的残骸 / 没人要的存货，避免堵住某一列\n    for (let i = 0; i < st.stations.length; i++) {\n      const p = R.plateOfStation(st, i);\n      if ((p && p.state === \"burnt\") || st.stations[i].state === \"burnt\") R.trashStation(st, i);\n    }",
+   "textFile": "tools/bf/_patch/bf14t_winbot.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  // 熟了自动落到本列专属盘 → 锅里空了，但盘占着 → 仍然拒绝下料\n  advance(st, 3.2);\n  assert.equal(R.plateOfStation(st, 3).food, \"egg\", \"熟了落到第 3 列的专属盘\");\n  const pbusy = R.placeFoodEx(st, \"egg\", null);\n  assert.equal(pbusy.ok, false); assert.equal(pbusy.why, \"plate-occupied\");\n  assert.match(pbusy.hint, /盘里还有一份，先送出去/);\n  // 送出去以后这一列立刻恢复\n  longPatience(R.spawnCustomer(st, [\"egg\"]));\n  assert.equal(R.serveFromColumn(st, 3).ok, true);\n  assert.equal(R.placeFood(st, \"egg\", null), true, \"盘空 → 马上能再下一份\");",
+   "textFile": "tools/bf/_patch/bf14t_place_route.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  // 9 列同时各放一份 → 9 份都能各自落到自己的盘上（不限量）\n  const each = [\"congee\", \"milk\", \"soup\", \"egg\", \"bacon\", \"sandwich\", \"bun\", \"salad\", \"juice\"];\n  each.forEach((f, i) => assert.equal(R.placeFood(st, f, null), true, \"第 \" + i + \" 列下 \" + f));\n  assert.equal(st.made, 9, \"9 列同时开工\");\n  advance(st, 5.2);\n  assert.equal(st.plates.length, 9, \"9 份全部落到各自的专属盘上（没有 3 盘限量）\");\n  assert.equal(new Set(st.plates.map(p => p.station)).size, 9, \"没有两个灶位共用一个盘\");\n  for (let i = 0; i < 9; i++) {\n    const p = R.plateOfStation(st, i);\n    assert.ok(p, i + \" 号灶位有自己的盘\");\n    assert.equal(p.station, i, \"盘记录里写着唯一的归属灶位\");\n    assert.equal(p.food, each[i], \"盘里正好是这一列做出来的东西\");\n    assert.equal(R.stationFree(st, i), false, \"盘上有东西 → 这一列不可下料\");\n    assert.equal(R.placeFoodEx(st, each[i], null).why, \"plate-occupied\", \"原因码 plate-occupied：\" + each[i]);\n  }\n  // 只丢掉第 0 列 → 只有它恢复\n  assert.equal(R.trashColumn(st, 0), true);\n  assert.equal(R.stationFree(st, 0), true, \"丢掉后第 0 列恢复\");\n  assert.equal(st.plates.length, 8, \"别的 8 列不受影响\");\n  assert.equal(R.stationFree(st, 1), false, \"第 1 列还占着\");\n  assert.equal(R.placeFood(st, \"congee\", null), true, \"第 0 列马上能再用\");",
+   "textFile": "tools/bf/_patch/bf14t_nineplates.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "test(\"熟了自动落到本列专属盘（autoPlate 默认开）；manual 按住看火不落盘、照样烧到糊\", () => {\n  const st = R.newState({ duration:999, goal:99 });\n  assert.equal(st.cfg.autoPlate, true, \"默认自动落盘（新模型的核心规则）\");\n  st.running = true; st.nextIn = 1e6;\n  const col = R.columnOf(\"bacon\");                       // 2.8s 熟（bf-9 新表）\n  assert.equal(R.placeFood(st, \"bacon\", null), true);\n  advance(st, 2.0);\n  assert.equal(st.plates.length, 0, \"还没熟 → 不落盘\");\n  assert.equal(R.phaseOf(st, col), \"cooking\");\n  advance(st, 1.7);\n  assert.equal(st.plates.length, 1, \"进了完美窗口 → 自动落到本列专属盘\");\n  assert.equal(st.stations[col].food, null, \"落盘后锅位立刻空出来\");\n  assert.equal(R.phaseOf(st, col), \"plated\");\n  assert.equal(st.prepped, 1, \"记账：备好 1 份\");\n  // manual（按住看火）→ 食物留在锅里，会一路烧到糊\n  const st2 = plateState();\n  assert.equal(R.placeFoodEx(st2, \"bacon\", null, { manual:true }).ok, true);\n  advance(st2, R.FOOD.bacon.dur + 0.2);                  // 完美窗口内（2.8 + 0.7 = 3.5 出窗口）\n  assert.equal(st2.plates.length, 0, \"manual 不自动落盘\");\n  assert.equal(st2.stations[4].state, \"perfect\");\n  advance(st2, 2.5);\n  assert.equal(st2.stations[4].state, \"burnt\", \"按住不管 → 真的会糊（看火的压力还在）\");\n  assert.equal(st2.burnt, 1);\n  // 关掉 autoPlate 的旧手感：手动 takePlate 才落盘\n  const st3 = R.newState({ duration:999, goal:99, autoPlate:false }); st3.running = true; st3.nextIn = 1e6;\n  R.placeFood(st3, \"congee\", null);\n  advance(st3, 5.1);\n  assert.equal(st3.plates.length, 0, \"autoPlate:false → 不自动落盘\");\n  assert.equal(R.takePlate(st3, 0), true, \"手动落盘照旧\");\n  assert.equal(st3.plates.length, 1);\n});",
+   "textFile": "tools/bf/_patch/bf14t_autoplate_case.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  assert.equal(R.placeFood(st, \"congee\", null), true);\n  advance(st, R.FOOD.congee.dur + 0.1);           // 煮了 3.5s（比旧的 4.5s 窗口还长）\n  const p = R.plateOfStation(st, 0);\n  assert.ok(p, \"白粥落盘了\");",
+   "textFile": "tools/bf/_patch/bf14t_keep_long.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  /* 盘占着这一列：锅不能再下料（旧规则不变），但这是「占位」不是「报废」 */\n  assert.equal(R.placeFoodEx(st, \"bun\", null).why, \"plate-occupied\", \"盘占着 → 原因码 plate-occupied（不是 burnt）\");\n  /* 双击仍然丢得掉 —— 「盘上东西丢不丢」仍由玩家决定（这一条是留给用户的折中②的现状） */\n  assert.equal(R.trashColumn(st, col), true, \"双击盘照样能丢掉（丢弃仍需玩家操作）\");",
+   "textFile": "tools/bf/_patch/bf14t_keep2.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  /* ③b 自动落盘（默认开）：一到「恰好」就离开锅 → 锅里根本不给它糊的机会 */\n  const st2 = plateState();\n  assert.equal(st2.cfg.autoPlate, true, \"autoPlate 默认开\");\n  assert.equal(R.placeFood(st2, \"egg\", null), true);\n  advance(st2, R.FOOD.egg.dur + 0.05);\n  assert.equal(st2.stations[col].food, null, \"熟了立刻落盘 → 锅位空出来\");\n  assert.equal(R.plateOfStation(st2, col).state, \"perfect\");\n  advance(st2, 60);\n  assert.equal(st2.burnt, 0, \"自动落盘这条路上锅内不会糊（压力点只剩「按住看火」那条）\");\n  assert.equal(R.plateOfStation(st2, col).tier, \"hot\", \"盘上那份 60s 后仍是热乎档\");",
+   "textFile": "tools/bf/_patch/bf14t_keep3b.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  assert.equal(R.trashColumn(st3, col3), true, \"双击才丢得掉\");\n  assert.equal(c3.done.indexOf(\"bacon\") >= 0, false, \"那份始终没送出去\");\n});",
+   "textFile": "tools/bf/_patch/bf14t_newcases.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "/** 机器人：看单下料 → 熟了自动落盘 → 单击盘出餐（真把「通过」跑出来） */\nfunction botRun(B) {\n  const d = B.debug;\n  let guard = 0;\n  while (!d.state().over && guard++ < 6000) {\n    for (const c of d.orders()) for (const f of c.order) {\n      if (c.done.indexOf(f) >= 0) continue;\n      if (d.stations().some(s => s.food === f)) continue;\n      if (d.plates().some(p => p.food === f && p.state !== \"burnt\")) continue;\n      d.drop(f, null);\n    }\n    for (let n = 0; n < 60 && !d.state().over; n++) { d.tick(1 / 60); if (d.plates().some(p => p.state === \"perfect\")) break; }\n    if (d.state().over) break;\n    d.stations().forEach((s, i) => { if (s.plate && s.plateState !== \"burnt\") d.serveCol(i); });\n    d.stations().forEach((s, i) => {\n      if (s.state === \"burnt\" || s.plateState === \"burnt\") { d.trash(i); return; }\n      if (s.plate) { const r = d.serveCol(i); if (!r.ok && r.why === \"no-want\") d.trash(i); }\n    });\n    d.tick(0.15);\n  }\n  return d.state();\n}",
+   "textFile": "tools/bf/_patch/bf14t_botrun.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  assert.equal(R.placeFood(st, \"egg\", null), true);\n  advance(st, 2.6);                                   // 熟了自动落盘\n  assert.equal(R.plateOfStation(st, 3).food, \"egg\", \"确实落盘了\");\n  assert.equal(played(\"cook_egg\").length, 1, \"出锅 / 落盘不响（只在下锅那一刻响）\");",
+   "textFile": "tools/bf/_patch/bf14t_audiocook.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  /* 玩法账照记：下料 / 落盘 / 出餐一条都不少 */\n  advance(st, R.FOOD.juice.dur + 0.1);\n  assert.equal(R.plateOfStation(st, 8).food, \"juice\", \"果汁照样熟了落盘\");\n  assert.equal(st.made, 2, \"两次下料都记在账上\");",
+   "textFile": "tools/bf/_patch/bf14t_audiosilent.txt"
+  }
+ ]
+}

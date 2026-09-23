@@ -1,0 +1,34 @@
+{
+ "jobs": [
+  {
+   "file": "breakfast.js",
+   "from": "      \"④ 双击锅 / 盘 → 丢垃圾桶（不扣分）；**糊了必须双击丢掉才能再用这口锅** ｜ \" +",
+   "textFile": "tools/bf/_patch/bf14d_tip_order.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  for (let i = 0; i < 400 && d4.stations()[0].state !== \"burnt\"; i++) d4.tick(1 / 60);\n  A(d4.stations()[0].state === \"burnt\", \"没人起锅 → 窗口走完那份**糊在锅里**（本轮唯一的报废来源）\");",
+   "textFile": "tools/bf/_patch/bf14d_burn_frames.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  A(t6p.some(x => /恰好 · 起锅 d+.d+s/.test(x)), \"同时画出窗口倒计时环的秒数（恰好 · 起锅 N.Ns）\",",
+   "textFile": "tools/bf/_patch/bf14d_regex_fix.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  A(!t6b2.some(x => /糊了/.test(x)) && !t6b2.some(x => /只能丢/.test(x)),\n    \"放 90 秒也不会画出「糊了 · 只能丢」（旧断言：超时 4.5s 就画糊了）\");",
+   "textFile": "tools/bf/_patch/bf14d_plate_noburn.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "    if (!s.food && !s.plate) d.drop(want, col);\n    d.tick(1 / 60);\n    const s2 = d.stations()[col];\n    if (s2.plate && s2.plateState !== \"burnt\") { const r = d.serveCol(col); if (r.ok) served = true; }",
+   "textFile": "tools/bf/_patch/bf14d_audio_serve.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  A(t6c.some(x => /糊了/.test(x)) && t6c.some(x => /只能丢/.test(x)), \"糊了的盘画出「糊了 · 只能丢（双击）」\",",
+   "textFile": "tools/bf/_patch/bf14d_panburn_precise.txt"
+  }
+ ]
+}

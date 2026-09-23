@@ -1,0 +1,5 @@
+      d4.drop(f, null);
+      for (let i = 0; i < 340 && !d4.stations()[col].windowOpen; i++) d4.tick(1 / 60);   // bf-14：等起锅窗口
+      if (d4.stations()[col].food !== f) continue;
+      d4.takeOut(col);                                                                   // 单击锅 → 起锅进盘
+      if (d4.stations()[col].plate !== f) continue;

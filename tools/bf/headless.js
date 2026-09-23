@@ -487,10 +487,16 @@ function runMain() {
   A(B.debug.stations()[0].food === null, "拖到别人的锅（煎蛋 → 白粥锅）会被拒绝");
   A(m.texts.slice(t3).some(x => /别人的锅|只进自己那一列/.test(x)), "被拒时给了原因文案",
     (m.texts.slice(t3).filter(x => /别人的锅|只进自己那一列/.test(x))[0] || ""));
-  /* 单击盘 → 自动送给正在需要这份、且耐心最少的顾客 */
-  for (let i = 0; i < 300 && !B.debug.stations()[3].plate; i++) B.debug.tick(1 / 60);
-  A(B.debug.stations()[3].plate === "egg", "熟了自动落到本列专属盘（第 3 列）", String(B.debug.stations()[3].plate));
-  A(B.debug.stations()[3].food === null, "落盘后锅位立刻空出来");
+  /* bf-14：熟了**不再自动落盘** → 进「起锅窗口」；真实鼠标**单击锅** = 起锅 */
+  for (let i = 0; i < 300 && !B.debug.stations()[3].windowOpen; i++) B.debug.tick(1 / 60);
+  A(B.debug.stations()[3].windowOpen === true, "熟了进入起锅窗口（原断言：同一帧自动落到盘上）",
+    "state=" + B.debug.stations()[3].state + " · 剩 " + B.debug.stations()[3].serveWin + "s");
+  A(B.debug.stations()[3].plate === null, "还没起锅 → 盘上是空的（原断言：已经自动落盘）");
+  const POT3 = center(B.stationBox(3));
+  cv.dispatch("mousedown", { clientX: POT3.x, clientY: POT3.y, preventDefault() {} });
+  A(B.debug.stations()[3].plate === "egg", "真实鼠标单击锅 → 起锅落到本列专属盘（第 3 列）", String(B.debug.stations()[3].plate));
+  A(B.debug.stations()[3].food === null, "起锅后锅位立刻空出来");
+  A(B.debug.stations()[3].tier === "hot", "入盘即最高档（热乎）", String(B.debug.stations()[3].tier));
   B.debug.pushCustomer(["egg"]);                       // 保证此刻真的有人要这份
   const PLATE3 = center(B.plateBox(3));
   /* 这一下只比较「点击本身造成的改变」：点在 handler 里同步完成，不推进时钟，
@@ -514,8 +520,9 @@ function runMain() {
      旧断言是「盘上停留超过过火计时 → 变糊」，现在改成「放 90 秒仍是热乎档、仍是完美份」；
      而「糊盘」这条交互 / 渲染路径改走它**唯一**的真实来源：锅里烧糊了再端上盘。 */
   B.debug.drop("egg", null);
-  for (let i = 0; i < 300 && !B.debug.stations()[3].plate; i++) B.debug.tick(1 / 60);
-  A(B.debug.stations()[3].plate === "egg", "再做一份，等着它落盘");
+  for (let i = 0; i < 300 && !B.debug.stations()[3].windowOpen; i++) B.debug.tick(1 / 60);
+  A(B.debug.takeOut(3).ok === true, "再做一份：窗口内起锅（bf-14：不再等它自动落盘）");
+  A(B.debug.stations()[3].plate === "egg", "再做一份，起锅进盘");
   B.debug.setPlateAge(3, B.SERVE_WINDOW + 0.5);         // 拨到「旧过火计时」之后
   B.debug.tick(1 / 60);
   A(B.debug.plates().some(p => p.station === 3 && p.state === "perfect"),
@@ -563,10 +570,15 @@ function runMain() {
   const d4b = boot();
   d4b.B.start(d4b.host, { target: { id: "lin", name: "林溪", bond: 44 }, duration: 999, goal: 99, onFinish: () => {} });
   const d4 = d4b.B.debug;
-  A(d4.state().autoPlate === true, "页面开局默认打开「熟了自动落到本列专属盘」");
+  A(d4.state().autoPlate === false, "bf-14：页面开局默认**关闭**自动落盘（原断言：默认打开）");
+  A(d4.state().panWindow === 4.5 && d4.state().panBurntSticky === true && d4b.B.SERVE_WARN_SEC === 1.0,
+    "锅内限时起锅：起锅窗口 4.5s（可调常量）/ 糊锅粘住必须双击 / 最后一秒红闪阈值 1.0s",
+    "panWindow=" + d4.state().panWindow + " · sticky=" + d4.state().panBurntSticky);
+  A(d4b.B.PAN_PICK_TEXT === "恰好 · 起锅" && d4b.B.PAN_BLOCKED_TEXT === "盘占着 · 没地方放" && d4b.B.PAN_BURNT_TEXT === "糊了 · 双击丢掉",
+    "锅内三句状态文案与规则层同源（UI 不可能与行为不一致）");
   A(d4.state().platesTotal === 9 && d4.state().columns === 9, "9 列 × 每列 1 个专属盘（不再限量 3 盘）");
   A(!isFinite(d4.state().plateLife) && d4.state().plateKeep === true && d4.state().serveWindow === 4.5,
-    "盘上永久保鲜：plateLife = Infinity（无倒计时）/ plateKeep = true；锅内窗口常量仍是 4.5（兼容层）",
+    "盘上永久保鲜：plateLife = Infinity（无倒计时）/ plateKeep = true；serveWindow 仍是 4.5",
     "plateLife=" + d4.state().plateLife + " plateKeep=" + d4.state().plateKeep);
   const pm = d4.prepMap();
   A(pm.prep.length === 9 && pm.serve.length === 0, "9 列都有盘，没有「无盘现做灶位」", JSON.stringify(pm.prep));
@@ -579,11 +591,17 @@ function runMain() {
   A(d4.drop("congee", null) === true, "点白粥 → 进第 0 列（白粥锅）");
   A(d4.stations()[0].food === "congee", "就在它那一列");
   A(d4.placeEx("congee", 4).why === "wrong-column", "拖到培根盘 → wrong-column");
-  /* 熟了自动落到本列专属盘 */
-  for (let i = 0; i < 320 && !d4.stations()[0].plate; i++) d4.tick(1 / 60);
-  A(d4.stations()[0].plate === "congee", "熟了自动落到第 0 列的专属盘（不用手动出锅）", JSON.stringify(d4.plates()));
-  A(d4.stations()[0].phase === "plated", "状态机走到 plated（cooking → plated）", d4.stations()[0].phase);
-  A(d4.stations()[0].food === null, "落盘后锅位立刻空出来");
+  /* bf-14：熟了**不落盘** → 停在「恰好」等起锅；单击锅才起锅 */
+  for (let i = 0; i < 320 && !d4.stations()[0].windowOpen; i++) d4.tick(1 / 60);
+  A(d4.stations()[0].plate === null, "熟了**没有**自动落盘（原断言：不用手动出锅就落到盘上）", JSON.stringify(d4.plates()));
+  A(d4.stations()[0].state === "perfect" && d4.stations()[0].windowOpen === true,
+    "停在「恰好」并开着起锅窗口", "剩 " + d4.stations()[0].serveWin + "s");
+  A(d4.stations()[0].phase === "window", "状态机：cooking → window（还没 plated）", d4.stations()[0].phase);
+  const pick0 = d4.takeOut(0);
+  A(pick0.ok === true && pick0.kind === "plated", "单击锅 → 起锅", String(pick0.why));
+  A(d4.stations()[0].plate === "congee", "起锅后落到第 0 列的专属盘", JSON.stringify(d4.plates()));
+  A(d4.stations()[0].phase === "plated", "状态机走到 plated（cooking → window → plated）", d4.stations()[0].phase);
+  A(d4.stations()[0].food === null, "起锅后锅位立刻空出来");
   const p0 = d4.plates()[0];
   A(p0.tier === "hot" && p0.hot === true, "刚落盘 = 热乎（14 分档）", p0.tier);
   A(p0.station === 0, "这盘记录着自己的归属灶位", "station=" + p0.station);
@@ -593,10 +611,49 @@ function runMain() {
   A(V4.drawn.plates === 9 && V4.drawn.pans === 9, "本帧画出 9 个锅位 + 9 个专属盘",
     V4.drawn.plates + " 盘 / " + V4.drawn.pans + " 锅");
   A(V4.plateCount === 1 && V4.drawn.foods >= 1, "落盘的那份真的在盘上（plateCount=1）", "plateCount=" + V4.plateCount);
-  /* 盘占用 / 锅忙 → 明确原因码 */
+  /* bf-14：盘里有东西**也能下料**（用户原话「餐盘可以一直放着，锅里也可以同时煮着」）——
+     原因码 plate-occupied 从「下料被拒」搬到「起锅被拒」：这份熟了没地方放，窗口走完就糊。 */
   const rej = d4.placeEx("congee", null);
-  A(rej.ok === false && rej.why === "plate-occupied", "盘里有东西时拒绝下料（原因码 plate-occupied）", rej.why);
-  A(/盘里还有一份/.test(rej.hint || ""), "提示语：盘里还有一份，先送出去", rej.hint);
+  A(rej.ok === true, "盘里有东西时**照样能下料**（原断言：plate-occupied 拦在下料这一步）", rej.why);
+  for (let i = 0; i < 320 && !d4.stations()[0].windowOpen; i++) d4.tick(1 / 60);
+  const rej2 = d4.takeOut(0);
+  A(rej2.ok === false && rej2.why === "plate-occupied", "起锅被拒：盘里还有一份，没地方放", rej2.why);
+  A(/盘里还有一份/.test(rej2.hint || ""), "提示语：盘里还有一份，先送出去", rej2.hint);
+  A(d4.stations()[0].windowOpen === true, "被拒之后窗口**继续走**（没被重置、也没暂停）",
+    "剩 " + d4.stations()[0].serveWin + "s");
+  A(d4.plates().length === 1 && d4.stations()[0].plate === "congee", "盘上那份没被动过");
+  /* 把盘上那份送出去 → 盘一空，窗口内再点锅就能起锅（顺带验「出餐不会清锅」，真机修复过） */
+  d4.pushCustomer(["congee"]);
+  A(d4.serveCol(0).ok === true, "盘上那份送给顾客");
+  A(d4.plates().length === 0, "盘空了");
+  A(d4.stations()[0].food === "congee" && d4.stations()[0].windowOpen === true,
+    "出餐**没有**把锅里那份清掉（bf-14 真机修复：以前点盘会把等起锅的那份抹掉）");
+  A(d4.takeOut(0).ok === true, "盘一空，窗口内点锅 → 起锅成功");
+  A(d4.stations()[0].plate === "congee" && d4.stations()[0].food === null, "第二份进盘、锅位空出来");
+  /* 窗口超时 → 糊 + 记账 + 不自动清（必须双击） */
+  d4.trash(0);
+  A(d4.placeEx("congee", null).ok === true, "重新下一份白粥");
+  for (let i = 0; i < 600 && d4.stations()[0].state !== "burnt"; i++) d4.tick(1 / 60);
+  A(d4.stations()[0].state === "burnt", "没人起锅 → 窗口走完那份**糊在锅里**（本轮唯一的报废来源）",
+    "用了 " + (600 / 60) + "s 上限（白粥 3.4s 熟 + 4.5s 窗口）");
+  A(d4.state().burnt === 1 && d4.state().expire === 1, "记账：burnt=1 / expire=1（忘起锅）",
+    "burnt=" + d4.state().burnt + " expire=" + d4.state().expire);
+  A(d4.placeEx("congee", null).why === "station-occupied", "糊着的时候不能再下料（station-occupied）");
+  d4.tick(20);
+  A(d4.stations()[0].state === "burnt" && d4.stations()[0].food === "congee",
+    "糊残骸**不会自动清**（bf-14：以前 14 秒自己消失）—— 必须双击", d4.stations()[0].state);
+  const scToss = d4.state().score;
+  A(d4.trashCol(0) === true, "双击第 0 列 → 丢掉糊的（锅 + 盘）");
+  A(d4.state().score === scToss, "丢垃圾桶不扣分");
+  A(d4.stations()[0].food === null, "锅清空");
+  A(d4.placeEx("congee", null).ok === true, "丢掉后这一列马上能再用");
+  d4.trash(0);
+  /* 回到「盘上永久保鲜」那条线：重新做一份放回第 0 列的盘上（下面按盘龄验档位）*/
+  A(d4.placeEx("congee", null).ok === true, "再下一份白粥");
+  for (let i = 0; i < 400 && !d4.stations()[0].windowOpen; i++) d4.tick(1 / 60);
+  A(d4.takeOut(0).ok === true, "窗口内点锅起锅 → 放回盘上");
+  A(d4.plates().length === 1 && d4.plates()[0].station === 0 && d4.plates()[0].tier === "hot",
+    "盘上 1 份（第 0 列 · 热乎）—— 本段后续断言的对象");
   /* bf-13 盘上永久保鲜：旧断言是「停 1.7s → 温 / 停 3.2s → 凉」，现在改成
      「停 1.7s / 3.2s / 90s 都还是 hot」—— 档位不再随盘龄变化（这是本轮口径变化的核心）。 */
   d4.setPlateAge(0, B.HEAT.hotSec + 0.2);
@@ -638,7 +695,9 @@ function runMain() {
       if (wanted[f]) continue;
       if (d4.stations()[col].plate || d4.stations()[col].food) continue;
       d4.drop(f, null);
-      for (let i = 0; i < 340 && !d4.stations()[col].plate; i++) d4.tick(1 / 60);
+      for (let i = 0; i < 340 && !d4.stations()[col].windowOpen; i++) d4.tick(1 / 60);   // bf-14：等起锅窗口
+      if (d4.stations()[col].food !== f) continue;
+      d4.takeOut(col);                                                                   // 单击锅 → 起锅进盘
       if (d4.stations()[col].plate !== f) continue;
       const r = d4.serveCol(col);
       if (!r.ok && r.why === "no-want") { nowant = { r: r, col: col, f: f }; break; }
@@ -648,6 +707,9 @@ function runMain() {
       nowant ? (B9.FOOD[nowant.f].n + " @ 第 " + nowant.col + " 列：" + nowant.r.hint) : "候选食材都被人要走了");
     if (nowant) {
       A(d4.stations()[nowant.col].plate === nowant.f, "这份留在盘上永久保鲜（不消耗）");
+      /* bf-14：「忘取」账现在**只由锅里的起锅窗口超时**产生（上面刚验过一次），
+         所以这里改成相对值 —— 盘龄再怎么拨，这个账都不许动。 */
+      const exp0 = d4.state().expire;
       d4.setPlateAge(nowant.col, B.SERVE_WINDOW - 0.1);
       d4.tick(1 / 60);
       A(d4.plates().some(p => p.station === nowant.col && p.state === "perfect"), "旧窗口前 0.1s：还是好的（未糊）");
@@ -655,7 +717,8 @@ function runMain() {
       d4.tick(1 / 60);
       A(d4.plates().some(p => p.station === nowant.col && p.state === "perfect"), "盘上停留超过 4.5s **也不糊**（旧断言：变糊）");
       A(d4.plates().some(p => p.station === nowant.col && p.tier === "hot"), "档位也没掉（仍是热乎）");
-      A(d4.state().expire === 0, "「忘取」账仍是 0（旧断言：记了一次忘取）");
+      A(d4.state().expire === exp0, "盘龄再大也不记「忘起锅」（expire 只由锅内窗口超时产生）",
+        exp0 + " → " + d4.state().expire);
       d4.setPlateAge(nowant.col, 60);
       d4.tick(1 / 60);
       A(d4.plates().some(p => p.station === nowant.col && p.state === "perfect"), "放到 60s 还是完美档、还在盘上");
@@ -675,8 +738,10 @@ function runMain() {
   d5b.B.start(d5b.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 999, goal: 99, onFinish: () => {} });
   const d5 = d5b.B.debug;
   A(d5.drop("egg", null) === true, "煎蛋下到第 3 列");
-  for (let i = 0; i < 300 && !d5.stations()[3].plate; i++) d5.tick(1 / 60);
-  A(d5.stations()[3].plate === "egg", "熟了自动落到第 3 列的专属盘");
+  for (let i = 0; i < 300 && !d5.stations()[3].windowOpen; i++) d5.tick(1 / 60);
+  A(d5.stations()[3].plate === null && d5.stations()[3].windowOpen === true,
+    "熟了停在起锅窗口里（原断言：自动落到第 3 列的专属盘）");
+  A(d5.takeOut(3).ok === true && d5.stations()[3].plate === "egg", "单击锅 → 起锅落到第 3 列的专属盘");
   d5.setPlateAge(3, B.SERVE_WINDOW - 0.1);
   d5.tick(1 / 60);
   A(d5.stations()[3].plateState === "perfect", "旧窗口前 0.1s：还是好的（未糊）", d5.stations()[3].plateState);
@@ -692,7 +757,8 @@ function runMain() {
   d5.tick(1 / 60);
   A(d5.stations()[3].plateState === "perfect" && d5.stations()[3].tier === "hot", "放 90 秒仍是 perfect / hot");
   A(d5.state().plateCount === 1, "那份一直留在盘上（没有消失、没有被自动清掉）");
-  A(d5.placeEx("egg", null).why === "plate-occupied", "盘占着这一列 → 下料被拒（但这是占位，不是报废）");
+  A(d5.placeEx("egg", null).ok === true, "盘占着**也能下料**（bf-14 新口径；原断言：plate-occupied）");
+  A(d5.takeOut(3).why === "raw", "刚下锅那份起锅被拒（raw —— 不是盘的问题）");
   A(d5.trashCol(3) === true && d5.placeEx("egg", null).ok === true, "双击丢掉后才能再用");
   /* 糊盘唯一来源：锅里烧糊 → 端上盘；糊菜端给顾客 → 顾客当场离开（现有规则不变） */
   A(d5.place("congee", null) === true, "第 0 列按住看火下一份白粥（manual：不自动落盘）");
@@ -733,7 +799,39 @@ function runMain() {
   /* 盘上有食物：画出档位 + **静态**的「∞ 可一直放着」（bf-13：盘上没有倒计时）。
      旧断言是「档位 + N.Ns 内送出」；现在反过来要求**不能**再出现任何「N.Ns 内送出」文案。 */
   d6.drop("egg", null);
-  for (let i = 0; i < 300 && !d6.stations()[3].plate; i++) d6.tick(1 / 60);
+  for (let i = 0; i < 300 && !d6.stations()[3].windowOpen; i++) d6.tick(1 / 60);
+  /* bf-14 新 UI：锅内「恰好」→ 画「起锅」提示 + 窗口倒计时环（t6p）*/
+  d6b.canvas()._m.texts.length = 0;
+  const strokesBeforeRing = Object.assign({}, d6b.canvas()._m.strokes);
+  d6b.pump(1);
+  const t6p = d6b.canvas()._m.texts;
+  /* 倒计时环的颜色 = PAL.steelHot（橙 #ffb347）——「橙 → 最后一秒红闪 → 走完焦黑」的第一步 */
+  A((d6b.canvas()._m.strokes["#ffb347"] || 0) > (strokesBeforeRing["#ffb347"] || 0),
+    "起锅窗口画出**橙色倒计时环**（#ffb347 = PAL.steelHot；火候环那四档语义一个字没改）",
+    "#ffb347 " + (strokesBeforeRing["#ffb347"] || 0) + " → " + (d6b.canvas()._m.strokes["#ffb347"] || 0));
+  A(t6p.some(x => /起锅/.test(x)), "锅里熟了 → 画出「起锅」提示", (t6p.filter(x => /起锅/.test(x))[0] || ""));
+  A(t6p.some(x => /恰好 · 起锅 \d+\.\d+s/.test(x)), "同时画出窗口倒计时环的秒数（恰好 · 起锅 N.Ns）",
+    (t6p.filter(x => /恰好 · 起锅/.test(x))[0] || ""));
+  A(t6p.some(x => /点锅起锅/.test(x)), "图例②写明「熟了 4.5s 内点锅起锅」",
+    (t6p.filter(x => /点锅起锅/.test(x))[0] || ""));
+  A(t6p.some(x => /盘被占了就只能糊掉/.test(x)), "底排说明写明「盘被占了就只能糊掉（双击丢弃再用锅）」",
+    (t6p.filter(x => /盘被占/.test(x))[0] || ""));
+  A(!t6p.some(x => /自动落盘/.test(x)) && !t6p.some(x => /内送出/.test(x)),
+    "画面上没有任何「自动落盘 / N.Ns 内送出」这类旧文案");
+  /* 盘被占 → 锅上明说「没地方放」（红字）*/
+  d6.takeOut(3);
+  d6.drop("egg", null);
+  for (let i = 0; i < 300 && !d6.stations()[3].windowOpen; i++) d6.tick(1 / 60);
+  d6b.canvas()._m.texts.length = 0;
+  d6b.pump(1);
+  const t6q = d6b.canvas()._m.texts;
+  A(t6q.some(x => /盘占着 · 没地方放/.test(x)), "盘被占 → 锅上画「盘占着 · 没地方放」",
+    (t6q.filter(x => /没地方放/.test(x))[0] || ""));
+  /* 回到「盘上永久保鲜」那条渲染线：把第 3 列清干净，重新起锅一份 */
+  d6.trash(3);
+  d6.drop("egg", null);
+  for (let i = 0; i < 300 && !d6.stations()[3].windowOpen; i++) d6.tick(1 / 60);
+  d6.takeOut(3);
   d6b.canvas()._m.texts.length = 0;
   d6b.pump(1);
   const t6b = d6b.canvas()._m.texts;
@@ -751,8 +849,8 @@ function runMain() {
   const t6b2 = d6b.canvas()._m.texts;
   A(t6b2.some(x => /煎蛋·热乎/.test(x)) && t6b2.some(x => /可一直放着/.test(x)),
     "放 90 秒后还是「煎蛋·热乎」+「∞ 可一直放着」（档位与文案都不变）");
-  A(!t6b2.some(x => /糊了/.test(x)) && !t6b2.some(x => /只能丢/.test(x)),
-    "放 90 秒也不会画出「糊了 · 只能丢」（旧断言：超时 4.5s 就画糊了）");
+  A(!t6b2.some(x => /煎蛋·糊了/.test(x)) && !t6b2.some(x => /只能丢/.test(x)),
+    "放 90 秒也不会把盘画成糊盘（「煎蛋·糊了 / 只能丢」一个都不出现；旧断言：超时 4.5s 就画糊了）");
   /* 糊盘的渲染仍然要验 —— 唯一来源是「锅里烧糊了再端上盘」 */
   d6.trash(3);
   A(d6.place("egg", null) === true, "按住看火下一份煎蛋（manual）");
@@ -763,7 +861,7 @@ function runMain() {
   const imgN6 = d6b.record.drawImage.length;
   d6b.pump(1);
   const t6c = d6b.canvas()._m.texts;
-  A(t6c.some(x => /糊了/.test(x)) && t6c.some(x => /只能丢/.test(x)), "糊了的盘画出「糊了 · 只能丢（双击）」",
+  A(t6c.some(x => /煎蛋·糊了/.test(x)) && t6c.some(x => /只能丢/.test(x)), "糊了的盘画出「煎蛋·糊了 / 只能丢（双击）」",
     (t6c.filter(x => /只能丢/.test(x))[0] || ""));
 
   /* 红叉现在是 ui/cross.png 贴图（缺图才回退红色矢量叉）→ 两条路任一成立即可，
@@ -781,28 +879,37 @@ function runMain() {
   const d2 = d2b.B.debug;
   let guard = 0;
   while (!d2.state().over && guard++ < 4000) {
-    const os = d2.orders();
-    for (const c of os) for (const f of c.order) {
-      if (c.done.indexOf(f) >= 0) continue;
-      if (d2.stations().some(s => s.food === f)) continue;
-      if (d2.plates().some(p => p.food === f && p.state !== "burnt")) continue;   // 这一列盘上已有
-      d2.drop(f, null);                                                            // 食材只进它自己那一列（自动落盘）
-    }
-    for (let n = 0; n < 60 && !d2.state().over; n++) { d2.tick(1 / 60); if (d2.plates().some(p => p.state === "perfect")) break; }
-    if (d2.state().over) break;
-    /* 单击每一列的专属盘 → 自动送给「正在需要 + 耐心最少」的顾客（新玩法的连做节奏） */
-    d2.stations().forEach((s, i) => { if (s.plate && s.plateState !== "burnt") d2.serveCol(i); });
-    /* 糊的 / 没人要的存货清掉，别堵着某一列 */
+    /* ① 起锅：锅里进窗口的那份 → 单击锅（盘被占就先点盘把旧的送出去）（bf-14）*/
+    d2.stations().forEach((s, i) => {
+      if (s.state === "perfect" && s.windowOpen) {
+        if (s.plate) { const r = d2.serveCol(i); if (!r.ok) d2.trash(i); }
+        else d2.takeOut(i);
+      }
+    });
+    /* ② 盘上的存货 → 单击盘送给要的人；糊的 / 没人要的丢掉，别堵着某一列 */
     d2.stations().forEach((s, i) => {
       if (s.state === "burnt" || s.plateState === "burnt") { d2.trash(i); return; }
       if (s.plate) { const r = d2.serveCol(i); if (!r.ok && r.why === "no-want") d2.trash(i); }
     });
+    /* ③ 看单下料（每样只进自己那一列）*/
+    for (const c of d2.orders()) for (const f of c.order) {
+      if (c.done.indexOf(f) >= 0) continue;
+      if (d2.stations().some(s => s.food === f)) continue;
+      if (d2.plates().some(p => p.food === f && p.state !== "burnt")) continue;
+      d2.drop(f, null);
+    }
+    for (let n = 0; n < 60 && !d2.state().over; n++) {
+      d2.tick(1 / 60);
+      if (d2.stations().some(s => s.windowOpen)) break;
+    }
+    if (d2.state().over) break;
     d2.tick(0.15);
   }
   const win = d2.state();
   A(win.over === true, "通过路径：debug 驱动跑完整局");
   A(win.win === true, "拿到 win:true", "served " + win.served + "/" + win.goal);
   A(win.served >= 8, "服务满 8 位顾客", win.served + " 位");
+  A(win.burnt === 0, "全程按新规则点锅起锅 → 一份都没糊（bf-14：限时起锅是能做到的）", "burnt=" + win.burnt);
   A(!!win.result && win.result.bondDelta > 0, "结算：好感上升", win.result && ("+" + win.result.bondDelta));
   A(!!win.result.quote && win.result.quote.length > 4, "通过有专属台词", win.result && win.result.quote);
   A(/苏晚晴/.test((win.result && win.result.impact) || ""), "本局影响一句话带对方名字");
@@ -1358,24 +1465,32 @@ function bootGlue() {
     },
   };
 }
-/** 真打赢一局（看单下料 → 熟了自动落盘 → 单击盘出餐） */
+/** 真打赢一局（看单下料 → 锅里熟了**在窗口内点锅起锅** → 单击盘出餐）*/
 function driveWin(B) {
   const d = B.debug;
   let guard = 0;
   while (!d.state().over && guard++ < 6000) {
-    for (const c of d.orders()) for (const f of c.order) {
+    d.stations().forEach((s, i) => {                     // ① 起锅（bf-14）
+      if (s.state === "perfect" && s.windowOpen) {
+        if (s.plate) { const r = d.serveCol(i); if (!r.ok) d.trash(i); }
+        else d.takeOut(i);
+      }
+    });
+    d.stations().forEach((s, i) => {                     // ② 盘上的存货送出去 / 清掉
+      if (s.state === "burnt" || s.plateState === "burnt") { d.trash(i); return; }
+      if (s.plate) { const r = d.serveCol(i); if (!r.ok && r.why === "no-want") d.trash(i); }
+    });
+    for (const c of d.orders()) for (const f of c.order) {   // ③ 看单下料
       if (c.done.indexOf(f) >= 0) continue;
       if (d.stations().some(s => s.food === f)) continue;
       if (d.plates().some(p => p.food === f && p.state !== "burnt")) continue;
       d.drop(f, null);
     }
-    for (let n = 0; n < 60 && !d.state().over; n++) { d.tick(1 / 60); if (d.plates().some(p => p.state === "perfect")) break; }
+    for (let n = 0; n < 60 && !d.state().over; n++) {
+      d.tick(1 / 60);
+      if (d.stations().some(s => s.windowOpen)) break;
+    }
     if (d.state().over) break;
-    d.stations().forEach((s, i) => { if (s.plate && s.plateState !== "burnt") d.serveCol(i); });
-    d.stations().forEach((s, i) => {
-      if (s.state === "burnt" || s.plateState === "burnt") { d.trash(i); return; }
-      if (s.plate) { const r = d.serveCol(i); if (!r.ok && r.why === "no-want") d.trash(i); }
-    });
     d.tick(0.15);
   }
   return d.state();
@@ -1617,7 +1732,10 @@ function runAudio() {
     if (!s.food && !s.plate) d.drop(want, col);
     d.tick(1 / 60);
     const s2 = d.stations()[col];
-    if (s2.plate && s2.plateState !== "burnt") { const r = d.serveCol(col); if (r.ok) served = true; }
+    /* bf-14：熟了要**点锅起锅**才进盘（不再自动落盘） */
+    if (s2.state === "perfect" && s2.windowOpen && !s2.plate) d.takeOut(col);
+    const s3 = d.stations()[col];
+    if (s3.plate && s3.plateState !== "burnt") { const r = d.serveCol(col); if (r.ok) served = true; }
   }
   A(served, "无头里真的完成了一次上餐（happy 断言的前提）");
   A(happyCalls().length === 1, "上餐成功 → 恰好播一条欢呼", happyCalls().length + " 条");
@@ -1745,8 +1863,8 @@ function runBf9() {
       "9 个桶点到的是 9 个**互不相同**的文件", seen.map(s => s.replace("audio/bf/", "")).join(" "));
     /* 落盘 / 上餐不响下锅音效 */
     const nBefore = cookCalls("egg").length;
-    for (let k = 0; k < 200 && !d.stations()[3].plate; k++) d.tick(1 / 60);
-    A(!!d.stations()[3].plate, "煎蛋熟了自动落到专属盘（不响下锅音效的前提）");
+    for (let k = 0; k < 200 && !d.stations()[3].windowOpen; k++) d.tick(1 / 60);
+    A(d.takeOut(3).ok === true && !!d.stations()[3].plate, "煎蛋窗口内点锅起锅 → 落到专属盘（不响下锅音效的前提）");
     A(cookCalls("egg").length === nBefore, "出锅 / 落盘不响下锅音效（只在下锅那一刻响）",
       cookCalls("egg").length + " 条");
     G.B.dispose();
@@ -1825,8 +1943,8 @@ function runBf9() {
     };
     /* 先把煎蛋煮好落到盘上（这一段耐心会掉，所以摆值放在点击前一刻）*/
     d.drop("egg", null);
-    for (let k = 0; k < 200 && !d.stations()[3].plate; k++) d.tick(1 / 60);
-    A(!!d.stations()[3].plate, "煎蛋已经落在第 3 列的专属盘上");
+    for (let k = 0; k < 200 && !d.stations()[3].windowOpen; k++) d.tick(1 / 60);
+    A(d.takeOut(3).ok === true && !!d.stations()[3].plate, "煎蛋已经落在第 3 列的专属盘上（窗口内点锅起锅）");
     const pLate = abs(idLate, 30), pMid = abs(idMid, 12), pHurry = abs(idHurry, 5);
     A(Math.abs(pLate - 30) < 0.05 && Math.abs(pMid - 12) < 0.05 && Math.abs(pHurry - 5) < 0.05,
       "3 位顾客的耐心分别摆成 30 / 12 / 5（三档明显不同）", pLate + " / " + pMid + " / " + pHurry);
@@ -1847,7 +1965,8 @@ function runBf9() {
     const idFull = d.pushCustomer(["congee", "bacon"]);
     const oFull = d.orders().filter(x => x.id === idFull)[0];
     d.drop("congee", null);
-    for (let k = 0; k < 300 && !d.stations()[0].plate; k++) d.tick(1 / 60);
+    for (let k = 0; k < 300 && !d.stations()[0].windowOpen; k++) d.tick(1 / 60);
+    d.takeOut(0);                                          // bf-14：点锅起锅才进盘
     d.setPatience(idFull, 1.0);                            // = 初始耐心（满）
     const full0 = d.orders().filter(x => x.id === idFull)[0].patience;
     A(Math.abs(full0 - oFull.patienceMax) < 0.05, "把这位摆成「满耐心」（= 初始耐心）", String(full0));
@@ -1862,7 +1981,8 @@ function runBf9() {
     const idFirst = d.pushCustomer(["egg", "bacon"]);       // 先来（短单）
     const idOther = d.pushCustomer(["egg", "congee", "soup"]); // 后来（长单）
     d.drop("egg", null);
-    for (let k = 0; k < 300 && !d.stations()[3].plate; k++) d.tick(1 / 60);
+    for (let k = 0; k < 300 && !d.stations()[3].windowOpen; k++) d.tick(1 / 60);
+    d.takeOut(3);                                          // bf-14：点锅起锅才进盘
     const fAbs = abs(idFirst, 8), oAbs = abs(idOther, 9);
     const os = d.orders();
     const fO = os.filter(o => o.id === idFirst)[0], oO = os.filter(o => o.id === idOther)[0];
