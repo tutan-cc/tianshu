@@ -949,12 +949,19 @@ function settle() {
     "一局内至少能看到一次「对手喘气/反击窗口」（体干机制真的走起来了）",
     runs.map((r) => "反击 " + r.counterSeen + "/喘气 " + r.restSeen).join(" · "));
 
+  /* 懒打对照组：判据不能用"收官时对手剩多少血"——
+     战斗以 foeHp<=0 结束，血量会到负数（实测 −3 ~ −9），而"懒打也打赢"时两边都是负数，
+     比负数大小就看运气（实测 2/8 次翻转失败）。连打删除后懒打能靠 12 回合兜底偶尔打赢，
+     所以这条从"必然更差"降级为"不会更好、也不会更快"。 */
   const lazy = playFull(true, true);
   A(lazy.turns >= Math.max.apply(null, turns),
     "打得差（每回合只出一张便宜牌、行动力作废）不会让一局更短",
-    "懒打 " + lazy.turns + " 回合 vs 理想 " + turns.join("/") + "（实测懒打恒为 13 回合）");
-  A(lazy.foeHp > bestFoe, "而且它是真的打得更差（收官时对手还剩更多血）",
-    "懒打剩 " + lazy.foeHp + " vs 理想最多剩 " + bestFoe + "（实测懒打剩 40–98）");
+    "懒打 " + lazy.turns + " 回合 vs 理想 " + turns.join("/") + "（实测懒打恒为 13 回合 = 撞兜底）");
+  A(lazy.foeHp >= bestFoe,
+    "懒打不会比理想打法更快解决对手（收官时对手剩血 ≥ 理想的最差局）",
+    "懒打剩 " + lazy.foeHp + " vs 理想最多剩 " + bestFoe +
+    " · 理想三局 " + runs.map((r) => r.foeHp).join("/") +
+    "（注：<=0 表示已打赢，所以这条不能按「剩得多=更差」读）");
 
   const noDodge = [playFull(false, false), playFull(false, false), playFull(false, false)];
   const totalLoss = noDodge.reduce((a, r) => a + r.lost, 0);
@@ -1476,36 +1483,35 @@ function stageStep(n) { for (let i = 0; i < n; i++) { api.step(); api.Stage.fram
      但别把它当成"组合拳有存在理由"的证据；这条数值问题已记进交接报告，
      等策划重调卡面数值时一并处理。 */
 {
-  const G = evalConstIn(html, "FIGHT_GRADE_MULT");
+  /* 招式经济（卡牌阶段口径）。
+     ⚠ 这一组原来守的是"连打曲线"（`bone(c) = ⌊(c-3)×2.6⌋`、`COMBO_BONUS_CAP`）——
+       连打已随推条一起删除，那条曲线与 `comboMash` 都成了死代码，
+       于是原来 5 条断言会**一直喂着死代码**（删了就红，等于用测试把死代码钉住）。
+       现在改成守新机制：组合拳两段的总伤必须**高于**直拳（否则这张牌没有存在意义 ——
+       这正是玩家最初问"连按很多下的意义是什么"的根因），且二段按 ×CHAIN_MULT 递进。 */
   const MV = evalConstIn(html, "FIGHT2_MOVES");
   const T2 = evalConstIn(html, "FIGHT2_TUNE");
-  const bone = (c) => Math.min(T2.COMBO_BONUS_CAP, Math.max(0, Math.floor((c - 3) * 2.6)));
-  const jabPerfect = Math.round(MV.jab.dmg * G.perfect);
-  const comboFirst = Math.round(MV.combo.dmg * G.perfect);
-  const comboFull = comboFirst + bone(30);
-  const comboNone = comboFirst + bone(0);
+  const first = MV.combo.dmg;
+  const second = Math.round(first * T2.CHAIN_MULT);
+  const comboTotal = first + second;
 
-  A(comboFull > jabPerfect,
-    "组合拳「完美一段 + 连打打满」必须**优于**完美直拳（否则连按没有意义）",
-    "组合拳 " + comboFull + " vs 直拳 " + jabPerfect + "（二段 " + bone(30) + "）");
-  A(comboNone < jabPerfect,
-    "组合拳不打连打时必须**劣于**完美直拳（有取舍，不是无脑最优）",
-    "组合拳 " + comboNone + " vs 直拳 " + jabPerfect);
-  /* 单调不降 + 每个台阶看得见：曲线形状本身也要守（第一版用了 `1-c+5⌊c/3⌋`，非单调） */
+  A(comboTotal > MV.jab.dmg,
+    "组合拳两段合计必须优于直拳（否则这张牌是负收益）",
+    "组合拳 " + first + "+" + second + "=" + comboTotal + " vs 直拳 " + MV.jab.dmg);
+  A(second > first,
+    "二段比一段重（接力重击，不是把一段拆成两半）",
+    "一段 " + first + " → 二段 " + second + "（×" + T2.CHAIN_MULT + "）");
+  A(comboTotal > MV.low.dmg,
+    "组合拳合计也要压过低扫（低扫的定位是「不吃手感、稳定」，不是「最赚」）",
+    "组合拳 " + comboTotal + " vs 低扫 " + MV.low.dmg);
+  /* 连打确实删干净了：源码里不该再有连打曲线与 comboMash 空壳 */
   {
-    const seq = [0, 3, 4, 6, 8, 10, 12, 15, 20].map(bone);
-    const mono = seq.every((v, i) => i === 0 || v >= seq[i - 1]);
-    A(mono, "连打的二段伤害单调不降（不会出现「多按反而更少」）", seq.join(" → "));
-    A(bone(6) > bone(3) && bone(3) === 0,
-      "连打 4 下起才开始有收益（3 下以下等于白按，取舍明确）",
-      "3 下→" + bone(3) + " · 4 下→" + bone(4) + " · 6 下→" + bone(6));
+    const body = html.slice(html.indexOf("function startFight2"));
+    A(body.indexOf("function comboMash") < 0,
+      "fight2 里不再有 comboMash（连打入口已随手速要素一起删除）", "已删");
+    A(body.indexOf("Math.floor((c - 3) * 2.6)") < 0,
+      "fight2 里不再有连打曲线（COMBO_BONUS_CAP 的那条公式）", "已删");
   }
-  A(bone(60) === T2.COMBO_BONUS_CAP && bone(12) === T2.COMBO_BONUS_CAP,
-    "连打收益有上限，且 12 下内就能摸到（目标 10 下是可达的）",
-    "12 下→" + bone(12) + " · 封顶 " + T2.COMBO_BONUS_CAP);
-  A(MV.low.precise === false && MV.jab.precise === true && MV.combo.precise === true,
-    "三招的判定类型与 UI 标签一致（低扫不吃判定）",
-    "直拳 " + MV.jab.precise + " / 组合拳 " + MV.combo.precise + " / 低扫 " + MV.low.precise);
   /* 每回合行动力要够出两次招，否则一局会被拖长 */
   A(T2.AP >= MV.jab.ap * 2, "每回合行动力够出两次主要招式（AP " + T2.AP + " ≥ " + MV.jab.ap + "×2）",
     "AP=" + T2.AP);
