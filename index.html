@@ -2826,8 +2826,8 @@ const FIGHT2_MOVES = {
      atk 攻击 / def 防守 / sk 技能 / heal 治疗
    kind 指向 FIGHT2_MOVES 里的动作，所以伤害、判定、体干都沿用已有那套，不新造数值。 */
 const FIGHT2_CARDS = {
-  jab:      { kind:"jab",      type:"atk",  cost:2, n:"直 拳",   v:"12",  t:"完美 ×1.9 · 吃反击加成" },
-  combo:    { kind:"combo",    type:"atk",  cost:2, n:"组合拳",  v:"8+",  t:"一段命中后连打换上限" },
+  jab:      { kind:"jab",      type:"atk",  cost:2, n:"直 拳",   v:"12",  t:"先扣装甲 · 连段第二手 ×1.5" },
+  combo:    { kind:"combo",    type:"atk",  cost:2, n:"组合拳",  v:"20",  t:"一段 8 + 二段 12 · 自动接" },
   low:      { kind:"low",      type:"atk",  cost:2, n:"低 扫",   v:"17",  t:"恒定伤害 · 不赌手感" },
   heavy:    { kind:"heavy",    type:"atk",  cost:3, n:"重 拳",   v:"26",  t:"命中后你下回合少 1 行动力" },
   guard:    { kind:"guard",    type:"def",  cost:1, n:"抱 架",   v:"+20", t:"格挡 20 · 体干 +12" },
@@ -4130,9 +4130,14 @@ function startFight2(it){
     return true;
   }
   const log = [];
-  $("fight2Sub").innerHTML = `生命 <b>${maxHp}</b>（体魄加成）· 每回合 ${FIGHT2_TUNE.AP} 行动力 · 带【精准】的招式触发时机判定` +
-    `（完美 ×<b>${FIGHT_GRADE_MULT.perfect}</b>）· 对手出招会先<b style="color:#ff4d6d">红闪</b>提示方向，` +
-    `按 <b>← / ↓ / ↑</b> 闪开 —— 闪对了不掉血、还会给你<b style="color:#ffd76e">反击窗口</b>`;
+  /* 开场说明：只讲**现在真实存在**的规则。
+     ⚠ 这里曾经写着"带【精准】的招式触发时机判定（完美 ×1.9）" —— 推条删掉之后
+       它变成了一条会误导玩家的死文案（玩家会去找早就不存在的绿带）。 */
+  $("fight2Sub").innerHTML = `生命 <b>${maxHp}</b>（体魄加成）· 每回合 ${FIGHT2_TUNE.AP} 行动力 · ` +
+    `每回合抽 <b>${FIGHT2_TUNE.HAND_SIZE}</b> 张牌（<b>背面朝上</b>，点一下翻开、再点一下打出）· ` +
+    `对手有 <b>${FIGHT2_TUNE.FOE_ARMOR}</b> 点装甲：普通攻击先扣装甲，「重拳」破甲 · ` +
+    `同回合第 2 张攻击牌吃连段 ×<b>${FIGHT2_TUNE.CHAIN_MULT}</b> · ` +
+    `对手出招会先<b style="color:#ff4d6d">红闪</b>提示方向，按 <b>← / ↓ / ↑</b> 闪开`;
   /* 起舞台：后面所有姿势/命中演出都通过它。
      顺手放下拉门 —— 点「开始战斗」时会播一段"化身进街机"的过场。 */
   Fight2Stage.begin($("fight2Cv"));
@@ -4186,13 +4191,14 @@ function startFight2(it){
     $("fight2Num").innerHTML = `你 <b>${Math.max(0,hp)}</b> / 对手 <b>${Math.max(0,foeHp)}</b> · 第 <b>${turn}</b> 回合 · 行动力 ` +
       "●".repeat(Math.max(0,ap)) + "○".repeat(Math.max(0,FIGHT2_TUNE.AP-ap)) + (badges.length ? " · " + badges.join(" · ") : "") +
       ` <span style="color:#ffd76e">▸ ${hintNow()}</span>`;
-    /* 判定条图例：原来占在卡牌上方的一整行，改成只在推条时显示在**状态行下方**，
-       这样卡牌地区不被挤压（屏内高度要留给 4 张牌 + 操作台）。 */
+    /* 判定条图例已随推条一起退役（永远隐藏，DOM 留着是为了不动老断言的结构）。 */
     $("fight2Legend").style.display = "none";
+    /* 状态行副标题：按阶段说清"现在这条规则怎么用"。
+       ⚠ 原来这里在教"游标扫进绿带"，推条删掉后就是死文案。 */
     $("fight2Sub").innerHTML = (phase === "defend")
-      ? `游标只看<b>方向</b>：按 <b>← / ↓ / ↑</b> 闪开（闪对完全免伤 + 反击窗口）`
-      : `抽到 <b>${hand.length}</b> 张手牌 · 点牌出招 · 游标扫进 <b style="color:var(--green)">绿带</b> 时点一下：` +
-        `<b style="color:var(--gold)">金色块</b>=完美 ×1.9 · 绿带其余=良好 ×1.3 · 扫过去没点=偏出 ×0.7`;
+      ? `只看<b>方向</b>：按 <b>← / ↓ / ↑</b> 闪开（闪对完全免伤 + 反击窗口 ×${FIGHT2_TUNE.COUNTER_MULT}）`
+      : `抽到 <b>${hand.length}</b> 张 · 背面牌点一下<b>翻开</b>（不花行动力）· 已翻开的点一下<b>打出</b>` +
+        ` · 对手装甲 <b>${foeArmor}</b>${chain > 0 ? ` · 已连段，下一张攻击牌 ×${FIGHT2_TUNE.CHAIN_MULT}` : ""}`;
     if(phase === "defend"){
       $("fight2Foe").innerHTML = `<span style="color:#ff4d6d">他出手了！</span> 按 <b>← / ↓ / ↑</b> 闪开` +
         `<span style="color:#8a87a3">（不按就是硬吃）</span>`;
@@ -5320,11 +5326,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260923-1141" data-fp="e140d6"
-     title="构建版本戳 · build 20260923-1141 · 内容指纹 e140d6（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260923-1157" data-fp="b1b943"
+     title="构建版本戳 · build 20260923-1157 · 内容指纹 b1b943（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1141 · ch e140d6 · bf 226K · mj 320K · idx 321K · map 68K</div>
-<script>window.__BUILD={"build":"20260923-1141","fingerprint":"e140d6","sizes":{"idx":321,"mj":320,"bf":226,"map":68},"files":{"index.html":328852,"mahjong.js":327444,"breakfast.js":231511,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1790134897212,"map3d.js":1789789317181},"idxContentHash":"c27f518562f87ca496a0e22b2b3385bb5da09190","idxContentBytes":327555,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1157 · ch b1b943 · bf 226K · mj 320K · jd 56K · idx 331K · map 68K</div>
+<script>window.__BUILD={"build":"20260923-1157","fingerprint":"b1b943","sizes":{"idx":331,"mj":320,"bf":226,"jd":56,"map":68},"files":{"index.html":338580,"mahjong.js":327444,"breakfast.js":231571,"jade.js":56837,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1790135869042,"jade.js":1790135281465,"map3d.js":1789789317181},"idxContentHash":"51840b9fcd6a2dd464cbdbe0d7996d4192d6c998","idxContentBytes":337232,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
