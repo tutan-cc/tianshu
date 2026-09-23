@@ -602,6 +602,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
         <button class="mbtn" data-act="skip">跳过战斗</button>
       </div>
       <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
+        <a href="javascript:void(0)" id="fight2End" style="color:var(--cyan);text-decoration:underline">结束回合（把剩下的交给对手）</a>
+        <span style="margin:0 8px;opacity:.4">·</span>
         <a href="javascript:void(0)" id="fight2Skip" style="color:var(--dim);text-decoration:underline">跳过战斗（按当前属性判胜负）</a>
       </div>
       <div id="fight2Num" style="font-size:11.5px;color:var(--dim);margin-top:8px"></div>
@@ -844,11 +846,13 @@ brawl2:{loc:"alley", name:"老城区 · 一打二（2.0 验证）", day:6, per:2
     {v:"video/chase_run.mp4", who:"花衬衫", t:"「小子，纸箱套得挺好啊。」两个人一左一右逼上来，脚下是砖头和碎玻璃。", bg:"radial-gradient(ellipse at 50% 50%,#141420,#050508 80%)"},
     {v:"video/chase_run.mp4#t=60", t:"上一世你在这里挨过一顿。这一世，雷姐教你的东西还在肌肉里。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"},
   ],
-  /* hp 是调平出来的（见 docs 打斗2.0 §13.4）：
-     玩家每回合 4 点行动力 ⇒ 约 2 次有效攻击 ⇒ 完美打法 DPR ≈ 46，
-     配 320 血正好落在"6–9 回合"的设计目标上。
-     改这个值会同时影响"体干机制来不来得及展开"，动之前先跑 tests/fight2.test.cjs 的调平断言。 */
-  inter:{type:"fight2", title:"一打二", hp:320,
+  /* hp 是调平出来的（见 docs 打斗2.0 §13.4、§14.12）：
+     ⚠ 卡牌阶段砍掉三档倍率（完美 ×1.9）之后，伤害上限掉了近一半：
+       12 回合 × 每回合 4 AP = 48 AP ⇒ 24 拳 × 12 = 288，再扣对手装甲 14 ⇒ **净上限 274**。
+       原来 320 血在数学上**永远打不死**（实测循环 301 次不结束）。
+       调到 260 后：只用直拳的完美打法刚好赢，但必须打出连段（×1.5）与破甲重拳才宽裕。
+     改这个值会同时影响"体干/装甲机制来不来得及展开"，动之前先跑 tests/fight2.test.cjs 的调平断言。 */
+  inter:{type:"fight2", title:"一打二", hp:260,
     perfect:{phy:14, cha:6, flags:["后巷立威"]}, ok:{phy:8, cha:3}, miss:{phy:4, cha:2}},
   after:[{v:"video/chase_end.mp4", t:"街对面餐馆里，一个年轻人放下筷子，死死盯着这边——他好像……认出你了。", bg:"radial-gradient(ellipse at 50% 50%,#1c1420,#080508 80%)"}],
   endTeaser:"<b>第二章预告</b> · 妹妹来了 / 深夜的投资大厦 / 公园里的大师<br>还有一个戴墨镜的人，在暗处数着你的每一步。",
@@ -2777,6 +2781,14 @@ const FIGHT2_TUNE = {
   /* 输入缓冲（毫秒）：判定条出现后的这段时间里点击也算数，按"还没开始动"判。
      手比眼快是常态，没有它就会出现"我点了，可是什么都没发生"。 */
   INPUT_GRACE:   120,
+  /* ── 无推条的战斗张力（玩家砍掉推条与连打后重建的核心）──────────────────
+     三样都是**明牌计算**，不需要反应速度也不需要手速：
+       FOE_ARMOR     对手装甲：普通攻击先扣它，破甲牌（重拳）无视
+       CHAIN_MULT    连段：同一回合内第 2 张及以后的攻击牌加伤
+       STAM_LOW_AP   体力见底时下回合只剩这么多行动力（低体力 = 决策空间被压缩） */
+  FOE_ARMOR:     14,
+  CHAIN_MULT:    1.5,
+  STAM_LOW_AP:   3,
   /* ── 组合拳连打尾段（"连按很多下"的意义就在这里）────────────────────────
      二段伤害 = clamp(⌊(连打数-3)×2.6⌋, 0, COMBO_BONUS_CAP) —— 3 下起步、10 下封顶、单调不降。
      为什么是这个形状：两头都得有取舍，否则这招要么没用、要么无脑最优 ——
@@ -2838,6 +2850,196 @@ function buildFight2Deck(stats){
   if(phy >= 20) deck.push("breathe");
   return deck;
 }
+/* ═══════════════ 卡牌绘制（CardArt）═══════════════
+   为什么单独抽成对象：卡牌样式要反复调，而"调样式"和"改战斗逻辑"是两件事。
+   抽出来之后 tools/dev/card-preview.js 能直接从 index.html 取这一份出设计图，
+   预览与实机用**同一套绘制代码**（不会出现"预览好看、实机不一样"）。
+
+   参考视觉：浅色卡面 + 粗描边 + 顶部圆徽记 + 底部名牌 + 数值胶囊。
+   背面刻意做成深色带斜纹、**不带类型色** —— 未翻开的牌不该透露是什么。 */
+const CardArt = {
+  TYPE_C:{ atk:"#ff4d6d", def:"#4dd8ff", sk:"#b07dff", heal:"#5dffa0" },
+  TYPE_N:{ atk:"攻", def:"守", sk:"技", heal:"疗" },
+  typeColor(t){ return this.TYPE_C[t] || "#8a87a3"; },
+  /** 圆角矩形路径（只建路径；fill / stroke 由调用方决定） */
+  rr(g, x, y, w, h, r){
+    r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+    g.beginPath();
+    g.moveTo(x + r, y); g.lineTo(x + w - r, y);
+    g.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+    g.lineTo(x + w, y + h - r);
+    g.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+    g.lineTo(x + r, y + h);
+    g.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+    g.lineTo(x, y + r);
+    g.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
+    g.closePath();
+  },
+  /** 技能徽记：每张牌一个不同的抽象图形。
+      为什么不用角色立绘：本项目没有那种素材（art/ 下只有头像与场景图），
+      而抽象徽记在 216×288 的卡面上辨识度反而更高。 */
+  mark(g, cx, cy, r, key, col){
+    g.save();
+    g.strokeStyle = col; g.fillStyle = col;
+    g.lineWidth = Math.max(3, r * 0.16); g.lineCap = "round"; g.lineJoin = "round";
+    const bars = (hs, wRatio) => {
+      const n = hs.length, w2 = r * (wRatio || 0.26);
+      hs.forEach((hh, i) => {
+        const bx = cx - (n * w2 + (n - 1) * 7) / 2 + i * (w2 + 7);
+        g.fillRect(bx, cy - r * hh / 2, w2, r * hh);
+      });
+    };
+    if(key === "jab"){
+      g.beginPath(); g.moveTo(cx - r * 0.7, cy); g.lineTo(cx + r * 0.45, cy); g.stroke();
+      g.beginPath(); g.moveTo(cx + r * 0.75, cy);
+      g.lineTo(cx + r * 0.2, cy - r * 0.34); g.lineTo(cx + r * 0.2, cy + r * 0.34);
+      g.closePath(); g.fill();
+    } else if(key === "combo"){
+      bars([0.45, 0.75, 1.05]);
+    } else if(key === "heavy"){
+      g.fillRect(cx - r * 0.22, cy - r * 0.82, r * 0.44, r * 1.64);
+      g.fillRect(cx - r * 0.72, cy - r * 0.95, r * 1.44, r * 0.16);
+      g.fillRect(cx - r * 0.72, cy + r * 0.79, r * 1.44, r * 0.16);
+    } else if(key === "low"){
+      g.beginPath(); g.moveTo(cx - r * 0.75, cy + r * 0.35); g.lineTo(cx + r * 0.4, cy + r * 0.35); g.stroke();
+      g.beginPath(); g.moveTo(cx + r * 0.72, cy + r * 0.35);
+      g.lineTo(cx + r * 0.18, cy + r * 0.03); g.lineTo(cx + r * 0.18, cy + r * 0.67);
+      g.closePath(); g.fill();
+      g.globalAlpha = 0.45; g.fillRect(cx - r * 0.8, cy + r * 0.72, r * 1.6, r * 0.12); g.globalAlpha = 1;
+    } else if(key === "guard"){
+      g.beginPath();
+      g.moveTo(cx, cy - r * 0.9); g.lineTo(cx + r * 0.72, cy - r * 0.45);
+      g.lineTo(cx + r * 0.72, cy + r * 0.2);
+      g.lineTo(cx, cy + r * 0.9); g.lineTo(cx - r * 0.72, cy + r * 0.2);
+      g.lineTo(cx - r * 0.72, cy - r * 0.45); g.closePath();
+      g.globalAlpha = 0.26; g.fill(); g.globalAlpha = 1; g.stroke();
+    } else if(key === "unload"){
+      [-1, 1].forEach((s) => {
+        const x = cx + s * r * 0.38;
+        g.beginPath(); g.moveTo(x, cy - r * 0.78); g.lineTo(x, cy + r * 0.28); g.stroke();
+        g.beginPath(); g.moveTo(x - r * 0.26, cy + r * 0.24); g.lineTo(x + r * 0.26, cy + r * 0.24);
+        g.lineTo(x, cy + r * 0.78); g.closePath(); g.fill();
+      });
+    } else if(key === "read"){
+      g.beginPath();
+      if(g.ellipse){ g.ellipse(cx, cy, r * 0.86, r * 0.48, 0, 0, Math.PI * 2); }
+      else { g.arc(cx, cy, r * 0.58, 0, Math.PI * 2); }
+      g.globalAlpha = 0.22; g.fill(); g.globalAlpha = 1; g.stroke();
+      g.beginPath(); g.arc(cx, cy, r * 0.23, 0, Math.PI * 2); g.fill();
+    } else if(key === "counterup"){
+      [-1, 1].forEach((s) => {
+        const x = cx + s * r * 0.38;
+        g.beginPath(); g.moveTo(x, cy + r * 0.78); g.lineTo(x, cy - r * 0.28); g.stroke();
+        g.beginPath(); g.moveTo(x - r * 0.26, cy - r * 0.24); g.lineTo(x + r * 0.26, cy - r * 0.24);
+        g.lineTo(x, cy - r * 0.78); g.closePath(); g.fill();
+      });
+    } else if(key === "breathe"){
+      [0.35, 0.62, 0.9].forEach((hh, i) => {
+        g.globalAlpha = 0.4 + i * 0.3;
+        g.beginPath(); g.arc(cx + (i - 1) * r * 0.45, cy + r * (0.45 - hh * 0.75), r * 0.2, 0, Math.PI * 2); g.fill();
+      });
+      g.globalAlpha = 1;
+    } else if(key === "bandage"){
+      const t = r * 0.3, L = r * 0.95;
+      g.fillRect(cx - t / 2, cy - L / 2, t, L);
+      g.fillRect(cx - L / 2, cy - t / 2, L, t);
+    } else {
+      g.beginPath(); g.moveTo(cx, cy - r * 0.8); g.lineTo(cx + r * 0.8, cy);
+      g.lineTo(cx, cy + r * 0.8); g.lineTo(cx - r * 0.8, cy); g.closePath(); g.fill();
+    }
+    g.restore();
+  },
+  /** 卡牌背面：深色 + 斜纹 + 中央徽记。不带类型色 —— 翻开前不透露是什么牌 */
+  back(g, x, y, w, h){
+    g.save();
+    this.rr(g, x, y, w, h, 14);
+    const bg = g.createLinearGradient ? g.createLinearGradient(x, y, x + w, y + h) : null;
+    if(bg){ bg.addColorStop(0, "#2a1f44"); bg.addColorStop(0.5, "#171128"); bg.addColorStop(1, "#2a1f44");
+      g.fillStyle = bg; } else g.fillStyle = "#1b1430";
+    g.fill();
+    g.save(); this.rr(g, x, y, w, h, 14); g.clip();
+    g.globalAlpha = 0.13; g.strokeStyle = "#8a6bff"; g.lineWidth = 8;
+    for(let i = -h; i < w; i += 22){ g.beginPath(); g.moveTo(x + i, y + h); g.lineTo(x + i + h, y); g.stroke(); }
+    g.globalAlpha = 1; g.restore();
+    const cx = x + w / 2, cy = y + h / 2 - 10, rr = Math.min(w, h) * 0.17;
+    g.globalAlpha = 0.85; g.strokeStyle = "#6b5aa8"; g.lineWidth = 4;
+    g.beginPath(); g.arc(cx, cy, rr * 1.55, 0, Math.PI * 2); g.stroke();
+    g.globalAlpha = 0.45; g.beginPath(); g.arc(cx, cy, rr * 1.95, 0, Math.PI * 2); g.stroke();
+    g.globalAlpha = 1;
+    g.fillStyle = "#ffd76e";
+    g.beginPath(); g.moveTo(cx, cy - rr); g.lineTo(cx + rr, cy);
+    g.lineTo(cx, cy + rr); g.lineTo(cx - rr, cy); g.closePath(); g.fill();
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = "bold 12px ui-monospace,Consolas,monospace";
+    g.fillStyle = "rgba(236,234,244,.45)";
+    g.fillText("点 击 翻 开", cx, y + h - 26);
+    g.strokeStyle = "#0a0812"; g.lineWidth = 4.5;
+    this.rr(g, x + 2, y + 2, w - 4, h - 4, 12); g.stroke();
+    g.strokeStyle = "rgba(255,215,110,.32)"; g.lineWidth = 2;
+    this.rr(g, x + 8, y + 8, w - 16, h - 16, 8); g.stroke();
+    g.restore();
+    g.textBaseline = "alphabetic";
+  },
+  /** 卡牌正面。c = FIGHT2_CARDS 里的一项 */
+  front(g, x, y, w, h, c){
+    const col = this.typeColor(c.type);
+    g.save();
+    this.rr(g, x, y, w, h, 14);
+    const bg = g.createLinearGradient ? g.createLinearGradient(x, y, x, y + h) : null;
+    if(bg){ bg.addColorStop(0, "#f2e4ee"); bg.addColorStop(0.55, "#e3d0de"); bg.addColorStop(1, "#d2bacb");
+      g.fillStyle = bg; } else g.fillStyle = "#eadbe6";
+    g.fill();
+    g.save(); this.rr(g, x, y, w, h, 14); g.clip();
+    g.fillStyle = col; g.globalAlpha = 0.9; g.fillRect(x, y, w, 9); g.globalAlpha = 1;
+    this.mark(g, x + w / 2, y + h * 0.40, Math.min(w, h) * 0.185, c.kind, col);
+    g.restore();
+    /* 左上类型徽记 */
+    g.fillStyle = col;
+    g.beginPath(); g.arc(x + 27, y + 31, 17, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#1a1420"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = "bold 17px 'Arial Black',sans-serif";
+    g.fillText(this.TYPE_N[c.type] || "?", x + 27, y + 32);
+    /* 右上费用（借参考图那个粉色圆徽记的位置） */
+    g.fillStyle = "#ff5c8a";
+    g.beginPath(); g.arc(x + w - 27, y + 31, 19, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "#ffffff"; g.lineWidth = 2.5; g.stroke();
+    g.fillStyle = "#fff"; g.font = "bold 19px 'Arial Black',sans-serif";
+    g.fillText(String(c.cost), x + w - 27, y + 32);
+    /* 底部名牌 */
+    const ph = 46, py = y + h - ph - 9;
+    g.fillStyle = "rgba(24,18,30,.9)";
+    this.rr(g, x + 9, py, w - 18, ph, 9); g.fill();
+    g.fillStyle = col; this.rr(g, x + 9, py, 5, ph, 3); g.fill();
+    g.textAlign = "left"; g.fillStyle = "#fff";
+    g.font = "bold 20px 'Arial Black',sans-serif";
+    g.fillText(c.n, x + 21, py + 17);
+    g.font = "11px ui-monospace,Consolas,monospace";
+    g.fillStyle = "rgba(236,234,244,.62)";
+    g.fillText(c.t.length > 12 ? c.t.slice(0, 12) + "…" : c.t, x + 21, py + 34);
+    /* 数值胶囊 */
+    g.fillStyle = "#ffd76e";
+    this.rr(g, x + 16, y + h * 0.60, 54, 26, 13); g.fill();
+    g.fillStyle = "#1a1420"; g.textAlign = "center";
+    g.font = "bold 15px 'Arial Black',sans-serif";
+    g.fillText(c.v, x + 43, y + h * 0.60 + 14);
+    /* 外框：粗黑边 + 类型色内描边 */
+    g.strokeStyle = "#0a0812"; g.lineWidth = 4.5;
+    this.rr(g, x + 2, y + 2, w - 4, h - 4, 12); g.stroke();
+    g.strokeStyle = col; g.lineWidth = 2;
+    this.rr(g, x + 8, y + 8, w - 16, h - 16, 8); g.stroke();
+    g.restore();
+    g.textBaseline = "alphabetic";
+  },
+  /** 预览图上的小标题 */
+  label(g, text, x, y, color, font){
+    g.save(); g.textAlign = "left"; g.textBaseline = "alphabetic";
+    g.font = font || "bold 18px 'Arial Black',sans-serif";
+    g.fillStyle = color || "#ffd76e";
+    g.fillText(text, x, y);
+    g.restore();
+  },
+};
+
 /* ═══════════════ 打斗 2.0 · 侧视对战舞台 ═══════════════
    机制仍是回合制（三档判定 / 体干 / 预判防守，见 startFight2），
    这一层只负责"看起来像街机格斗"：侧视透视地面 + 两个拳手 + 相机跟随推镜
@@ -3315,95 +3517,71 @@ const Fight2Stage = {
     if(this.arcadeOn) this.drawMachineOverlay(g);
   },
 
-  /** 手牌在屏幕上的矩形。为什么是 4 张：屏内一张卡 196px 宽，
-      4 张 + 3 个间隙 = 4×196 + 3×22 = 850，落在 1180 的屏内宽里，
-      左右还能留出边距（5 张会挤到 1070，几乎顶满、且决策成本过高）。 */
+  /** 手牌矩形。卡牌摆在**CRT 屏内的下半部**。
+      为什么改回屏内（原本想浮到屏外盖住机壳）：屏外只剩约 130px 高，
+      而卡面要放得下类型徽记+徽记+名牌+数值，低于 240px 就糊成一团；
+      挂在外面会被画布底边裁掉（实测只露出上半截）。
+      屏内下半部有 300px 以上可用，4 张 200×270 排下来正好居中。 */
   handRects(n){
-    const w = 196, h = 120, gap = 22;
+    const w = 200, h = 270, gap = 16;
     const cnt = Math.max(1, Math.min(n, 4));
     const total = cnt * w + (cnt - 1) * gap;
-    const x0 = (this.W - total) / 2;
-    /* ⚠ y 要基于**屏幕矩形**的底边往上排，不能用 this.H：
-       this.H 是画布高，屏幕底边之外是机壳与操作台 —— 卡牌画在那里会被机壳盖住
-       （实测第一版就是这么掉的：牌只露出上半截，压在摇杆上）。 */
     const R = this.screenRect();
-    const bottom = (this.arcadeMode || this.arcadeOn) ? R.y + R.h : this.H;
-    const y = bottom - h - 14;                   // 留一点下边距，别贴着地面线
+    const inMachine = this.arcadeMode || this.arcadeOn;
+    const cx = inMachine ? (R.x + R.w / 2) : (this.W / 2);
+    const bottom = inMachine ? (R.y + R.h - 10) : (this.H - 10);
+    const x0 = cx - total / 2, y = bottom - h;
     const out = [];
     for(let i = 0; i < n; i++){
-      /* 超过 4 张时后面的牌叠在最后一张上（略微右移），并降低不透明度 ——
-         这是"你手上有更多，但一次只看得到 4 张"的表达 */
       const over = Math.max(0, i - 3);
-      out.push({ x: x0 + Math.min(i, 3) * (w + gap) + over * 30, y, w, h,
+      out.push({ x: x0 + Math.min(i, 3) * (w + gap) + over * 34, y, w, h,
                  dim: over > 0 ? 0.62 : 1 });
     }
     return out;
   },
-  /** 画一手牌。drawn = 抽牌动画进度(0~1)，hover = 悬停下标，apNow = 当前行动力 */
-  drawCards(g, hand, drawn, hover, apNow){
+  /** 画一手牌。drawn = 抽牌动画进度(0~1)，hover = 悬停下标，apNow = 当前行动力
+      hidden = 与 hand 等长的布尔数组（true = 还没翻开，画背面）。 */
+  drawCards(g, hand, drawn, hover, apNow, hidden){
     if(!hand || !hand.length) return;
     const R = this.handRects(hand.length);
     hand.forEach((id, i) => {
       const c = FIGHT2_CARDS[id], r = R[i];
       if(!c || !r) return;
-      const affordable = apNow >= c.cost;
+      const faceDown = !!(hidden && hidden[i]);
+      const cost = faceDown ? c.cost : c.cost;
+      const affordable = apNow >= cost;
       const k = Math.max(0, Math.min(1, (drawn - i * 0.09) / 0.55));   // 依次飞入
       const ease = 1 - Math.pow(1 - k, 3);
       const y = r.y + (1 - ease) * 170;                                 // 从下方滑入
-      const lift = (hover === i ? -14 : 0) + (1 - ease) * 10;
+      const lift = (hover === i ? -16 : 0) + (1 - ease) * 10;
       g.save();
-      g.globalAlpha = ease * r.dim * (affordable ? 1 : 0.5);
-      /* 牌底：深色 + 类型色顶条 */
-      g.fillStyle = "#12101c";
-      Fight2Stage.roundRect(g, r.x, y + lift, r.w, r.h, 10);
-      g.strokeStyle = c.type === "atk" ? "#ff4d6d" : c.type === "def" ? "#4dd8ff"
-                    : c.type === "heal" ? "#5dffa0" : "#b07dff";
-      g.lineWidth = hover === i ? 3 : 2;
-      g.strokeRect(r.x + 1, y + lift + 1, r.w - 2, r.h - 2);
-      /* 类型条 */
-      g.fillStyle = g.strokeStyle; g.globalAlpha *= 0.85;
-      Fight2Stage.roundRect(g, r.x, y + lift, r.w, 7, 3);
-      g.globalAlpha = ease * r.dim * (affordable ? 1 : 0.5);
-      /* 费用：左上角圆点 + 数字 */
-      g.fillStyle = affordable ? "#ffd76e" : "#6b6480";
-      g.beginPath(); g.arc(r.x + 20, y + lift + 26, 13, 0, Math.PI * 2); g.fill();
-      g.fillStyle = "#12101c"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.font = "bold 15px 'Arial Black',sans-serif";
-      g.fillText(String(c.cost), r.x + 20, y + lift + 27);
-      /* 名字 + 数值。⚠ 名字要从 x+46 起排：费用圆点在 x+20、半径 13（占到 x+33），
-         原来是 x+40 —— 两三个字的名字会被圆点压住（实测"重拳"的"重"被吃掉）。 */
-      g.textAlign = "left";
-      g.font = "bold 19px 'Arial Black',sans-serif";
-      g.fillStyle = "#eceaf4";
-      g.fillText(c.n, r.x + 46, y + lift + 26);
-      g.textAlign = "right";
-      g.font = "bold 22px 'Arial Black',sans-serif";
-      g.fillStyle = affordable ? "#ffd76e" : "#6b6480";
-      g.fillText(c.v, r.x + r.w - 12, y + lift + 28);
-      /* 说明（两行内） */
-      g.textAlign = "left";
-      g.font = "12px ui-monospace,Consolas,monospace";
-      g.fillStyle = "rgba(236,234,244,.62)";
-      const line = c.t.length > 15 ? c.t.slice(0, 15) + "…" : c.t;
-      g.fillText(line, r.x + 12, y + lift + 62);
-      g.fillStyle = "rgba(236,234,244,.38)";
-      g.fillText(c.t.length > 15 ? c.t.slice(15) : "", r.x + 12, y + lift + 82);
-      /* 行动力不够：右下角标注，免得玩家以为是点击没生效 */
-      if(!affordable){
-        g.fillStyle = "#ff8fa3"; g.textAlign = "right";
-        g.font = "bold 12px ui-monospace,Consolas,monospace";
-        g.fillText("行动力不足", r.x + r.w - 12, y + lift + r.h - 14);
+      /* 背面牌不做"行动力不足"的变暗：翻开前玩家不该知道它要几点 */
+      g.globalAlpha = ease * r.dim * (faceDown || affordable ? 1 : 0.5);
+      if(faceDown) CardArt.back(g, r.x, y + lift, r.w, r.h);
+      else CardArt.front(g, r.x, y + lift, r.w, r.h, c);
+      /* 悬停高亮：一层外发光 */
+      if(hover === i){
+        g.strokeStyle = "rgba(255,215,110,.85)"; g.lineWidth = 3;
+        CardArt.rr(g, r.x - 3, y + lift - 3, r.w + 6, r.h + 6, 16); g.stroke();
+      }
+      /* 行动力不够（只对已翻开的牌提示 —— 别提前泄底） */
+      if(!faceDown && !affordable){
+        g.fillStyle = "rgba(10,8,16,.72)";
+        CardArt.rr(g, r.x, y + lift + r.h - 34, r.w, 34, 8); g.fill();
+        g.fillStyle = "#ff8fa3"; g.textAlign = "center"; g.textBaseline = "middle";
+        g.font = "bold 13px ui-monospace,Consolas,monospace";
+        g.fillText("行动力不足", r.x + r.w / 2, y + lift + r.h - 17);
       }
       g.restore();
     });
     g.textBaseline = "alphabetic";
   },
-  /** 卡牌点击：返回手牌下标，没命中返回 -1（命中判定按"最上面那张优先"） */
+  /** 卡牌点击：返回手牌下标，没命中返回 -1（从右往左找，命中"最上面那张"） */
   cardAt(px, py, n){
     const R = this.handRects(n);
     for(let i = R.length - 1; i >= 0; i--){
       const r = R[i];
-      if(px >= r.x && px <= r.x + r.w && py >= r.y - 14 && py <= r.y + r.h) return i;
+      if(px >= r.x - 4 && px <= r.x + r.w + 4 && py >= r.y - 18 && py <= r.y + r.h + 4) return i;
     }
     return -1;
   },
@@ -3527,7 +3705,7 @@ const Fight2Stage = {
       if(st && st.hand && st.hand.length && !this.ko){
         if(g.setTransform) g.setTransform(1, 0, 0, 1, 0, 0);
         this.handDrawn = Math.min(1.2, (this.handDrawn || 0) + 0.06);
-        this.drawCards(g, st.hand, this.handDrawn, this.hoverCard, st.ap || 0);
+        this.drawCards(g, st.hand, this.handDrawn, this.hoverCard, st.ap || 0, st.hidden);
       }
     }
     g.restore();
@@ -3904,12 +4082,18 @@ function startFight2(it){
      drawPile / hand / discard：抽牌堆 → 手牌 → 弃牌堆；抽牌堆空了把弃牌堆洗回来。
      heavyLag：重拳命中后的"下回合少 1 行动力"标记。unload：卸力层数（下次受击减半）。 */
   let drawPile = [], hand = [], discard = [], heavyLag = 0, unload = 0;
+  /* 卡牌阶段新增：
+     hidden —— 手牌里哪些还没翻开（背面朝上）。玩家点一张 → 翻开 → 立即生效。
+     foeArmor —— 对手装甲，普通攻击先扣它；破甲牌无视。
+     chain —— 本回合已出过攻击牌的张数，用于"连段"加伤。 */
+  let hidden = [], foeArmor = 0, chain = 0, lastAtkTag = "";
   function shuffle(a){
     for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1));
       const t = a[i]; a[i] = a[j]; a[j] = t; }
     return a;
   }
-  /** 抽 n 张进手牌（抽牌堆空了就洗弃牌堆）。手牌上限 6，超了直接进弃牌堆。 */
+  /** 抽 n 张进手牌（抽牌堆空了就洗弃牌堆）。手牌上限 6，超了直接进弃牌堆。
+      ⚠ 抽进来的牌**全部是背面朝上**（hidden），要玩家点开才亮 —— 这是"翻牌"的一半乐趣。 */
   function drawCards(n){
     for(let i = 0; i < n; i++){
       if(!drawPile.length){
@@ -3918,21 +4102,31 @@ function startFight2(it){
         push(`<span style="color:#8a87a3">弃牌堆洗回抽牌堆（${drawPile.length} 张）。</span>`);
       }
       const id = drawPile.pop();
-      if(hand.length < 6) hand.push(id); else discard.push(id);
+      if(hand.length < 6){ hand.push(id); hidden.push(true); } else discard.push(id);
     }
     render();
   }
-  /** 打出一张手牌：index 是手牌下标（不是牌 id —— 同一张牌可能出现多张） */
+  /** 点一张牌：
+      背面 → **翻开**（这一下不消耗行动力、也不生效，纯粹揭露）
+      正面 → **打出去**（消耗行动力，立即生效）
+      这样"翻牌"和"出牌"是两个动作，玩家可以先看完全部手牌再决定怎么花行动力。 */
   function playCard(idx){
     if(!alive || phase !== "act") return false;
     if(idx < 0 || idx >= hand.length) return false;
     const id = hand[idx], c = FIGHT2_CARDS[id];
     if(!c) return false;
+    if(hidden[idx]){                                  // 第一步：翻开
+      hidden[idx] = false;
+      try{ AudioSys.blip(520, 0.05, "square", 0.10); }catch(e){}
+      push(`<span style="color:#8a87a3">翻开一张牌：</span><b>${c.n}</b>`);
+      render();
+      return true;
+    }
     const mv = FIGHT2_MOVES[c.kind];
     /* 行动力不够就不打 —— 但要把原因写进日志，不然玩家以为是点击没生效 */
     if(ap < (mv ? mv.ap : c.cost)){ push(`<span style="color:#8a87a3">行动力不够，${c.n} 打不出去。</span>`); render(); return false; }
-    hand.splice(idx, 1); discard.push(id);
-    act(c.kind);                                        // 复用已有出招流程（判定/伤害/体干都在里面）
+    hand.splice(idx, 1); hidden.splice(idx, 1); discard.push(id);
+    act(c.kind);                                        // 复用已有出招流程（伤害/体干/演出都在里面）
     return true;
   }
   const log = [];
@@ -3945,7 +4139,10 @@ function startFight2(it){
   Fight2Stage.startArcade();
   /* 建牌堆并洗牌、抽起手牌。牌堆构成看角色属性（体魄/智慧），见 buildFight2Deck。 */
   drawPile = shuffle(buildFight2Deck(S.stats).slice());
-  hand = []; discard = [];
+  hand = []; discard = []; hidden = []; chain = 0;
+  /* 对手装甲：普通攻击先扣它，破甲牌（重拳）无视。替代了原来的"推条猜对才暴击" ——
+     现在张力来自"要不要留一张破甲牌对付他的装甲"，而不是反应速度。 */
+  foeArmor = FIGHT2_TUNE.FOE_ARMOR;
   drawCards(FIGHT2_TUNE.HAND_SIZE);
 
   function push(s){ log.push(s); }
@@ -3955,14 +4152,19 @@ function startFight2(it){
   function hintNow(){
     if(!alive) return "本场已结束";
     if(phase === "defend") return "他出招了 —— 看红闪提示按 ← / ↓ / ↑ 闪开（不按就是硬吃）";
-    if(stunMine) return "体干崩了：这回合动不了，点任意招式键把回合让给他";
-    if(ap <= 0) return "行动力用完了 —— 自动进入他的回合";
-    const can = FIGHT2_TUNE.AP - ap;                       // 已花掉的行动力
-    if(counter) return "反击窗口开着（伤害 ×2.2）—— 出一手重的（直拳/组合拳）";
-    if(ap >= 2) return can === 0
-      ? "该你出招：按「直 拳」等带【需推条】的招，游标进绿带时点一下"
-      : "还能再出一手（2 点）—— 低扫是确定伤害，不赌判定";
-    return "只剩 1 点：抱架格挡/回体干，读招看穿他的下一手，或直接结束回合";
+    if(stunMine) return "体力崩了：这回合动不了，点任意牌把回合让给他";
+    if(ap <= 0) return "行动力用完了 —— 点「结束回合」交给他";
+    /* 打不起任何一张牌就别让玩家干等：明确告诉他可以结束回合 */
+    const canAfford = hand.some((id, i) => {
+      if(hidden[i]) return true;                       // 背面牌先翻开（翻开不花行动力）
+      const c = FIGHT2_CARDS[id], mv = c && FIGHT2_MOVES[c.kind];
+      return mv && ap >= mv.ap;
+    });
+    if(!canAfford) return "剩下的牌都打不起了 —— 点「结束回合」交给他";
+    const faceDown = hidden.filter(Boolean).length;
+    if(faceDown === hand.length) return "点牌翻开看看这回合抽到什么（翻开不花行动力）";
+    if(chain > 0) return "已出过攻击牌 —— 再出一张就吃连段 ×" + FIGHT2_TUNE.CHAIN_MULT;
+    return "点已翻开的牌出招（背面牌先点一下翻开）";
   }
   function render(){
     /* 血条 / 体干条 / 回合数不再用 DOM 进度条，改由 canvas 舞台按街机格斗的样式画
@@ -3971,8 +4173,8 @@ function startFight2(it){
       stamMine:stamMine, stamFoe:stamFoe, turn:turn, ap:ap, counter:counter,
       stunMine:stunMine, foeStun:foeStun, phase:phase, guard:guard, read:read, alive:alive,
       unload:unload,
-      /* 手牌交给舞台画（卡牌在屏内，见 Fight2Stage.drawCards） */
-      hand:hand.slice(),
+      /* 手牌交给舞台画（卡牌浮在屏外、盖住下方机壳，见 Fight2Stage.handRects） */
+      hand:hand.slice(), hidden:hidden.slice(), foeArmor:foeArmor, chain:chain,
       /* 身份标签：玩家实测"不知道自己是哪个"，所以把名字送上 HUD。 */
       meName:"陈默", foeName:(it && it.foeName) || "花衬衫" }); }catch(e){}
     const badges = [];
@@ -4156,8 +4358,21 @@ function startFight2(it){
     if(!alive) return;
     phase = "act";
     turn++; ap = FIGHT2_TUNE.AP - heavyLag; heavyLag = 0;
+    /* 体力见底 → 下回合的**决策空间**被压缩，但绝不能压到"一张牌都打不起"：
+       实测 ap=1 时打不起任何 2AP 的牌，而 act() 因 ap 不足直接 return、不结束回合
+       → **死循环**（第 10 步之后永远卡在 ap=1）。所以下限取"最便宜的招式 + 1"，
+       保证至少还能出一张、从而自然推进回合。 */
+    if(stamMine <= 0.15){
+      const cheapest = Math.min.apply(null, Object.keys(FIGHT2_MOVES).map((k) => FIGHT2_MOVES[k].ap));
+      const floorAp = Math.max(cheapest + 1, FIGHT2_TUNE.STAM_LOW_AP, FIGHT2_MOVES.jab.ap);
+      if(ap > floorAp){
+        ap = floorAp;
+        push(`<span style="color:#ff4d6d">体力见底 —— 这个回合只有 ${ap} 点行动力。</span>`);
+      }
+    }
+    chain = 0;                                             // 连段每回合重置
     /* 回合结束手牌全弃（不做保留），再抽一手新的 —— 每回合都得重新做取舍 */
-    if(discard.length + hand.length > 0 || drawPile.length){ discard = discard.concat(hand); hand = []; }
+    if(discard.length + hand.length > 0 || drawPile.length){ discard = discard.concat(hand); hand = []; hidden = []; }
     drawCards(FIGHT2_TUNE.HAND_SIZE);
     read = Math.max(0, read - 1);
     stamMine = Math.min(1, stamMine + FIGHT2_TUNE.STAM_REGEN);
@@ -4171,79 +4386,59 @@ function startFight2(it){
     if(!alive) return;
     foeTurn();
   }
-  function precision(cb){
-    const left = 8 + Math.random()*(84-zonesW);
-    $("fight2ZonePerfect").style.display = "";   // 防守时被藏起来过，这里恢复
-    judgeBar({
-      owner:"fight2-precision", speed:FIGHT2_TUNE.BAR_SPEED, duration:1.4, width:zonesW, left:left, show:"block",
-      inputGrace:FIGHT2_TUNE.INPUT_GRACE,
-      els:{ bar:$("fight2Bar"), zone:$("fight2Zone"), cursor:$("fight2Cur"), perfect:$("fight2ZonePerfect") },
-      // 两条区间缺一不可：完美区（中央 30%）+ 良好区（整条绿区）
-      zones:[ {pct:[0.35,0.65], grade:"perfect", relTo:"zone"}, {pct:[0,1], grade:"good", relTo:"zone"} ],
-      onDone(grade){
-        try{
-          if(grade==="perfect"){ if(!AudioSys.play("sfx-fight-perfect")) AudioSys.good(); }
-          else if(grade==="good"){ if(!AudioSys.play("sfx-fight-hit")) AudioSys.ding(); }
-          else { if(!AudioSys.play("sfx-fight-whiff")) AudioSys.bad(); }
-        }catch(e){}
-        cb(grade);
-      },
-    });
-  }
-  /* 命中结算。mult = 三档倍率；反击窗口再乘 COUNTER_MULT（两者叠乘，所以"完美反击"最爽） */
-  function hitFoe(dmg, label, precise, cb){
+  /* ── 判定：不再有推条 ────────────────────────────────────────────────
+     玩家实测两次反馈都很直接："完美区还是太难瞄"、"不需要什么进入绿条点击，
+     鸡肋的很"。推条本质是**反应速度测试**，和"这一局怎么打"没关系，所以砍掉。
+     现在攻击牌一律按卡面数值结算，张力全部来自资源与取舍：
+       装甲（普通攻击先扣装甲，破甲牌免疫） / 连段（轻→重加伤） / 体力（见底掉行动力）。
+     ⚠ 旧 `fight` 面板（拳击馆剧情）仍保留 judgeBar，那条链路由
+       tests/fight-loop.test.cjs 与 tests/judge-bar.test.cjs 守着，不要一起改。 */
+  function precision(cb){ cb("flat"); }   // 保留函数名：调用点不必改，语义变成"确定命中"
+
+  /* 命中结算。明牌三态：打中 / 被装甲挡下一部分 / 破甲。
+     atkTag 是"这一手的性质"（normal / pierce），决定要不要先过装甲。 */
+  function hitFoe(dmg, label, precise, cb, atkTag){
     const apply = (mult, grade)=>{
-      const reversed = counter;                    // 这一手是否吃到反击加成
-      const total = mult * (reversed ? FIGHT2_TUNE.COUNTER_MULT : 1);
-      const d = Math.round(dmg*total); foeHp -= d;
-      /* 体干：命中推对手的，自己也要付一点（低消耗招式 = 养体干） */
+      const reversed = counter;                    // 是否吃到反击窗口加成
+      let d = Math.round(dmg * mult * (reversed ? FIGHT2_TUNE.COUNTER_MULT : 1));
+      /* 装甲：普通攻击先扣装甲值；破甲牌（pierce）无视装甲 */
+      let soaked = 0;
+      if(atkTag !== "pierce" && foeArmor > 0){
+        soaked = Math.min(foeArmor, d);
+        foeArmor -= soaked; d -= soaked;
+      }
+      foeHp -= d;
       stamFoe = Math.max(0, stamFoe - FIGHT2_TUNE.STAM_ON_HIT);
-      const tag = grade==="perfect" ? ` <span style="color:#ffd76e">完美命中 ×${FIGHT_GRADE_MULT.perfect}！</span>`
-                : grade==="good"    ? ` <span style="color:#5dffa0">命中 ×${FIGHT_GRADE_MULT.good}</span>`
-                : grade==="miss"    ? ` <span style="color:#8a87a3">偏出 ×${FIGHT_GRADE_MULT.miss}</span>` : "";
-      const ctag = reversed ? ` <span style="color:#ffd76e">反击 ×${FIGHT2_TUNE.COUNTER_MULT}！</span>` : "";
-      push(`${label} <span style="color:#5dffa0">造成 ${d} 伤害</span>${tag}${ctag}`);
-      /* 舞台演出：命中 → 火花 + 顿帧 + 对手受击；偏出 → 只有空挥 */
-      if(grade === "miss"){
+      const tag = soaked > 0 ? ` <span style="color:#8ab4ff">装甲吸收 ${soaked}</span>`
+                : (reversed ? ` <span style="color:#ffd76e">反击 ×${FIGHT2_TUNE.COUNTER_MULT}！</span>` : "");
+      push(`${label} <span style="color:#5dffa0">造成 ${d} 伤害</span>${tag}`);
+      /* 舞台演出：伤害为 0（全被装甲吃）时只有轻震，别放重火花 */
+      if(d <= 0){
+        Fight2Stage.hit("block", "foe");
         Fight2Stage.pose("me", "strike");
       } else {
-        Fight2Stage.hit(reversed ? "counter" : (grade === "perfect" ? "heavy" : "light"), "foe");
+        Fight2Stage.hit(reversed ? "counter" : (d >= 20 ? "heavy" : "light"), "foe");
         Fight2Stage.pose("foe", d >= 30 ? "stun" : "hit");
         Fight2Stage.pose("me", "strike");
         Fight2Stage.after.push({ t: 16, fn: ()=>{ Fight2Stage.pose("foe", "idle"); } });
       }
       if(reversed) counter = false;                // 反击窗口用掉就关
+      /* 连段：本回合先出过轻拳/低扫，再出重拳 → 重拳加伤（见 act 里的 chainHit） */
       if(stamFoe <= 0 && !foeStun){
         foeStun = true;
-        push(`<span style="color:#5dffa0">对手体干被打空 —— 下一回合他只能喘气</span>`);
+        push(`<span style="color:#5dffa0">对手体力被打空 —— 下一回合他只能喘气</span>`);
       }
       render();
       if(foeHp<=0) return finish(true);
       cb && cb(grade);
     };
-    if(precise) precision(g=>apply(FIGHT_GRADE_MULT[g]||1, g));
-    else apply(1);
+    apply(1, "flat");
   }
-  /* 组合拳尾段：连打次数决定二段伤害。
-     ⚠ 数值被玩家实测推翻过一次，记下来免得再调回去：
-       原来是"一段 8（吃三档×1.9=15）+ 二段最多 4" = **19**，而直拳完美是 **23** ——
-       连按 10 下换来的是**比一拳还少**的伤害，这个招式的存在意义是负的。
-       玩家原话："蓄力连按很多下的意义是什么"。
-       现在改成"用连打换上限"，并保证两头都有取舍：
-         连打  0~1 下 → 二段 0  ⇒ 合计 15（**不如**直拳 23，手残就吃亏）
-         连打  3 下   → 二段 5  ⇒ 合计 20
-         连打  6 下   → 二段 14 ⇒ 合计 29
-         连打  8+ 下  → 二段 18（上限）⇒ 合计 33（**明显优于**直拳）
-       两条边界都写成了断言（见 tests/fight2.test.cjs 的"招式经济"一组）。 */
+  /* 组合拳二段：不再靠连打，改成"连段"结算 ——
+     同一回合里先出过任意攻击牌，二段就必定接上并加伤。
+     玩家原话"蓄力连按很多下的意义是什么"，所以手速要素整个去掉。 */
   function comboMash(cb){
-    mashLoop({SECS:4, NEED:10, OK:6}, c=>{
-      try{
-        if(c>=10){ if(!AudioSys.play("sfx-fight-perfect")) AudioSys.good(); }
-        else if(c>=6){ if(!AudioSys.play("sfx-fight-hit")) AudioSys.ding(); }
-        else { if(!AudioSys.play("sfx-fight-whiff")) AudioSys.bad(); }
-      }catch(e){}
-      cb({ count:c, bonus: Math.min(FIGHT2_TUNE.COMBO_BONUS_CAP, Math.max(0, Math.floor((c - 3) * 2.6))), hit:c>=6 });
-    });
+    cb({ count: 0, bonus: FIGHT2_TUNE.COMBO_BONUS_CAP, hit: true });
   }
   /* ── 过场：点「开始战斗」= 化身进街机 ──
      进度 0→1 约 1.6 秒：机台升起 → 屏幕点亮 → 视角推进 → 收黑到战斗画面。
@@ -4342,23 +4537,41 @@ function startFight2(it){
       return endTurn();
     }
     if(kind==="heavy"){
+      /* 重拳是**破甲**牌：无视对手装甲（atkTag="pierce"）。代价是下回合少 1 行动力。 */
+      chain++;                                     // 重拳也是一手攻击 → 计入连段
       hitFoe(mv.dmg, `你：<b>重拳</b>`, true, g=>{
         if(!alive) return;
-        if(g !== "miss"){ heavyLag = 1; push(`<span style="color:#8a87a3">重拳发力过猛 —— 下回合少 1 点行动力。</span>`); }
+        heavyLag = 1;
+        push(`<span style="color:#8a87a3">重拳发力过猛 —— 下回合少 1 点行动力。</span>`);
         after();
-      });
+      }, "pierce");
       return;
     }
     if(kind==="combo"){
-      hitFoe(mv.dmg, "你：<b>组合拳 · 一段</b>", true, g=>{
+      /* 组合拳：两段**在同一次结算里**算完，二段 = 一段 × CHAIN_MULT。
+         ⚠ 这里有两次踩坑，都记下来：
+           ① 二段原来写 `round(dmg × (CHAIN_MULT-1))` = 只加 4 点，两段合计 12，
+              被低扫（17/2AP）**完全压制**，等于这张牌不存在。二段应该是"接力重击"：
+              一段 8 → 二段 12，合计 20；同回合后面再出牌还能吃到全局连段。
+           ② `chain++` 原来写在 `hitFoe` **之前**，于是二段的倍率基于"已经自增过"的 chain，
+              算法随调用顺序漂移。现在先取 `wasChained`，段内固定 ×CHAIN_MULT，
+              段外（本回合已出过别的攻击牌）再叠一层。 */
+      const wasChained = chain > 0;
+      chain++;
+      const first  = wasChained ? Math.round(mv.dmg * FIGHT2_TUNE.CHAIN_MULT) : mv.dmg;
+      const second = Math.round(first * FIGHT2_TUNE.CHAIN_MULT);
+      hitFoe(first, "你：<b>组合拳 · 一段</b>", true, g=>{
         if(!alive) return;
-        if(g==="miss"){ push(`<span style="color:#8a87a3">一段偏出，连打没接上。</span>`); return after(); }
-        comboMash(r=>{
-          if(!alive) return;
-          if(r.bonus>0) hitFoe(r.bonus, "你：<b>组合拳 · 二段</b>", false, after);
-          else { push(`<span style="color:#8a87a3">连打只中了 ${r.count} 下，二段没打出去。</span>`); after(); }
-        });
+        hitFoe(second, "你：<b>组合拳 · 二段</b>", false, after);
       });
+      return;
+    }
+    /* 普通攻击牌：连段加伤（本回合已出过攻击牌 → 这一手 ×CHAIN_MULT） */
+    chain++;
+    if(chain > 1){
+      const boosted = Math.round(mv.dmg * FIGHT2_TUNE.CHAIN_MULT);
+      push(`<span style="color:#ffd76e">连段 ×${FIGHT2_TUNE.CHAIN_MULT}</span>`);
+      hitFoe(boosted, `你：<b>${mv.n}</b>`, mv.precise, after);
       return;
     }
     hitFoe(mv.dmg, `你：<b>${mv.n}</b>`, mv.precise, after);
@@ -4386,6 +4599,10 @@ function startFight2(it){
   /* 「跳过战斗」从按钮改成一行小链接（按钮区已被手牌取代）。
      保留这个出口：纯剧情流玩家需要它，而且好几条测试断言依赖它存在。 */
   { const sk = $("fight2Skip"); if(sk) sk.onclick = ()=>act("skip"); }
+  /* 「结束回合」：玩家主动把剩余行动力作废、让对手出手。
+     为什么需要：卡牌阶段可能出现"剩下的牌都打不起"的局面（体力惩罚/重拳后遗症），
+     原来只能靠"点一张打不出去的牌"变相结束，很不直观。 */
+  { const en = $("fight2End"); if(en) en.onclick = ()=>{ if(phase === "act" && alive) endTurn(); }; }
   // 测试接口：与旧 fight 同风格，另加 state() 全量快照，方便断言不必读 DOM
   window.__cs2.fight2 = {
     get hp(){ return hp; }, get foeHp(){ return foeHp; }, get ap(){ return ap; },
@@ -4424,16 +4641,12 @@ function startFight2(it){
                     所以判定条、伤害、体干、演出全都一样会走到。
        setHand(ids)：把抽牌堆顶部换成指定牌，用来构造"这一手一定有某张牌"的局面 ——
                     否则随机抽牌会让测试变成抛硬币。 */
-    deck: ()=>({ hand:hand.slice(), draw:drawPile.slice(), discard:discard.slice(),
-                 unload:unload, heavyLag:heavyLag }),
+    deck: ()=>({ hand:hand.slice(), hidden:hidden.slice(), draw:drawPile.slice(), discard:discard.slice(),
+                 unload:unload, heavyLag:heavyLag, foeArmor:foeArmor, chain:chain }),
     playCard: (i)=> playCard(i),
-    /* ⚠ 必须同时重置 hidden：hand 与 hidden 是两个平行数组，只改 hand 会让长度不一致 ——
-       于是"构造出来的牌"第一次点只会被翻开、行动力不掉、牌不进弃牌堆，
-       所有"固定手牌"的测试与调平工具都会被它坑（实测就是这条让 5 条断言假失败）。
-       faceDown 默认 false：调用方要的是"手里有这张牌、可以立刻打出"；
-       想验证翻牌流程请显式传 true。 */
-    setHand: (ids, faceDown)=>{ hand = (ids || []).slice();
-      hidden = hand.map(()=> !!faceDown); render(); return hand.slice(); },
+    /** 主动结束回合（与界面上「结束回合」链接同一条路径；测试与调平工具要用） */
+    endTurn: ()=>{ if(alive && phase === "act") endTurn(); },
+    setHand: (ids)=>{ hand = (ids || []).slice(); render(); return hand.slice(); },
     setDraw: (ids)=>{ drawPile = (ids || []).slice(); return drawPile.slice(); },
     /** 本局牌堆总张数（含体魄/智慧加成），供测试算"牌张守恒" */
     deckSize: ()=> buildFight2Deck(S.stats).length,
@@ -5107,11 +5320,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260923-1106" data-fp="68bf22"
-     title="构建版本戳 · build 20260923-1106 · 内容指纹 68bf22（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260923-1141" data-fp="e140d6"
+     title="构建版本戳 · build 20260923-1141 · 内容指纹 e140d6（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1106 · ch 68bf22 · bf 216K · mj 320K · idx 309K · map 68K</div>
-<script>window.__BUILD={"build":"20260923-1106","fingerprint":"68bf22","sizes":{"idx":309,"mj":320,"bf":216,"map":68},"files":{"index.html":316904,"mahjong.js":327444,"breakfast.js":221039,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1790132800792,"map3d.js":1789789317181},"idxContentHash":"f47e2c4c1e76f7cd1e2978f7cbe4cd5593c7bb6f","idxContentBytes":315607,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1141 · ch e140d6 · bf 226K · mj 320K · idx 321K · map 68K</div>
+<script>window.__BUILD={"build":"20260923-1141","fingerprint":"e140d6","sizes":{"idx":321,"mj":320,"bf":226,"map":68},"files":{"index.html":328852,"mahjong.js":327444,"breakfast.js":231511,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1790134897212,"map3d.js":1789789317181},"idxContentHash":"c27f518562f87ca496a0e22b2b3385bb5da09190","idxContentBytes":327555,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>

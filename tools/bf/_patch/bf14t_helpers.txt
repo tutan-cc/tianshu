@@ -1,0 +1,28 @@
+/** 只看「锅里火候」的小局：**按住看火（manual）**—— bf-14 起默认那条路会在「恰好」定格等起锅，
+    只有 manual 不开起锅窗口，食物才留在锅里走完 生 → 恰好 → 过火 → 糊 这条完整曲线。 */
+function wokState(cfg) { const st = R.newState(Object.assign({ duration: 12, goal: 99 }, cfg || {})); st.running = true; return st; }
+/** 走**页面口径**的小局（bf-14）：9 列各 1 专属盘、autoPlate **不传（默认关闭）**、盘上永久保鲜。
+    锅里熟了要自己点锅起锅（用 pickOut()）；没人管就超时糊、糊了必须双击才清。
+    nextIn 拉大 → 不自动进店，只有测试自己 spawn 的顾客在场。 */
+function plateState(cfg) { const st = R.newState(Object.assign({ duration: 999, goal: 99 }, cfg || {})); st.running = true; st.nextIn = 1e6; return st; }
+/** bf-14：推进到某一列进入「起锅窗口」为止（不起锅）。返回用掉的秒数，超时 / 先糊了返回 -1。 */
+function advToWindow(st, col, maxSec) {
+  const max = Math.round((maxSec === undefined ? 12 : maxSec) * 60);
+  for (let i = 0; i < max && !st.over; i++) {
+    if (st.stations[col].state === "perfect" && st.stations[col].serveWin > 0) return i / 60;
+    R.step(st, 1 / 60);
+  }
+  return -1;
+}
+/** bf-14：**单击锅起锅**（把某列锅里那份放进本列专属盘）。
+    先推进到窗口内，再调 takeOut —— 盘被占 / 已糊都会如实返回 { ok:false, why }。 */
+function pickOut(st, col, maxSec) {
+  const max = Math.round((maxSec === undefined ? 12 : maxSec) * 60);
+  for (let i = 0; i < max && !st.over; i++) {
+    const s = st.stations[col];
+    if (s.state === "burnt") return { ok:false, why:"burnt" };
+    if (s.state === "perfect" && s.serveWin > 0) return R.takeOut(st, col);
+    R.step(st, 1 / 60);
+  }
+  return { ok:false, why:"timeout" };
+}

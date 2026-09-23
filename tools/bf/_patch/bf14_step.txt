@@ -1,0 +1,9 @@
+          /* bf-14：锅里一到「恰好」就开「起锅窗口」—— 玩家必须在 SERVE_WINDOW 秒内单击锅起锅。
+             两个例外（都不开窗口，保持旧手感）：
+               · manual（按住看火 / debug.place / setCook）：一路烧到过火、糊，单测验完整曲线；
+               · cfg.autoPlate:true（旧口径 · 调试 / 老回归）：同一帧由 autoPlateStations 落盘。 */
+          if (!s.manual && !st.cfg.autoPlate) {
+            ev.push(openServeWindow(st, i));
+            var wb0 = stationBox(i);
+            addFloat(st, "熟了 · 起锅！", PAL.green, 22, wb0.x + wb0.w / 2, wb0.y + wb0.h - 26);
+          }

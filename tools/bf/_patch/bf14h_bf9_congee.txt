@@ -1,0 +1,4 @@
+    d.drop("congee", null);
+    for (let k = 0; k < 300 && !d.stations()[0].windowOpen; k++) d.tick(1 / 60);
+    d.takeOut(0);                                          // bf-14：点锅起锅才进盘
+    d.setPatience(idFull, 1.0);                            // = 初始耐心（满）

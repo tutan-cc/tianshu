@@ -1,0 +1,4 @@
+  /* ⑤ 盘里又有了一份（第二份）：再下一份 → 熟了没地方放 → 窗口走完就糊（本轮主线）*/
+  assert.equal(R.placeFood(st, "egg", null), true, "盘被第二份占着，照样能下料");
+  const po2 = pickOut(st, col);
+  assert.equal(po2.why, "plate-occupied", "盘被占（这次是第二份占着）");

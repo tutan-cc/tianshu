@@ -1,0 +1,4 @@
+    d.drop("egg", null);
+    for (let k = 0; k < 300 && !d.stations()[3].windowOpen; k++) d.tick(1 / 60);
+    d.takeOut(3);                                          // bf-14：点锅起锅才进盘
+    const fAbs = abs(idFirst, 8), oAbs = abs(idOther, 9);

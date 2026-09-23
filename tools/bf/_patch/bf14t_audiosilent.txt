@@ -1,0 +1,4 @@
+  /* 玩法账照记：下料 / 起锅 / 出餐一条都不少 */
+  assert.equal(pickOut(st, 8, 6).ok, true, "果汁照样能起锅落盘（窗口内点锅）");
+  assert.equal(R.plateOfStation(st, 8).food, "juice", "果汁落到第 8 列的盘上");
+  assert.equal(st.made, 2, "两次下料都记在账上");

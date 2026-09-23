@@ -1,0 +1,28 @@
+  let guard = 0;
+  while (!d2.state().over && guard++ < 4000) {
+    /* ① 起锅：锅里进窗口的那份 → 单击锅（盘被占就先点盘把旧的送出去）（bf-14）*/
+    d2.stations().forEach((s, i) => {
+      if (s.state === "perfect" && s.windowOpen) {
+        if (s.plate) { const r = d2.serveCol(i); if (!r.ok) d2.trash(i); }
+        else d2.takeOut(i);
+      }
+    });
+    /* ② 盘上的存货 → 单击盘送给要的人；糊的 / 没人要的丢掉，别堵着某一列 */
+    d2.stations().forEach((s, i) => {
+      if (s.state === "burnt" || s.plateState === "burnt") { d2.trash(i); return; }
+      if (s.plate) { const r = d2.serveCol(i); if (!r.ok && r.why === "no-want") d2.trash(i); }
+    });
+    /* ③ 看单下料（每样只进自己那一列）*/
+    for (const c of d2.orders()) for (const f of c.order) {
+      if (c.done.indexOf(f) >= 0) continue;
+      if (d2.stations().some(s => s.food === f)) continue;
+      if (d2.plates().some(p => p.food === f && p.state !== "burnt")) continue;
+      d2.drop(f, null);
+    }
+    for (let n = 0; n < 60 && !d2.state().over; n++) {
+      d2.tick(1 / 60);
+      if (d2.stations().some(s => s.windowOpen)) break;
+    }
+    if (d2.state().over) break;
+    d2.tick(0.15);
+  }

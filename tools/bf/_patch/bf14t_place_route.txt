@@ -1,0 +1,23 @@
+  // bf-14：熟了**不再自动落盘** → 进起锅窗口；单击锅起锅才进盘
+  advance(st, 3.2);
+  assert.equal(st.plates.length, 0, "熟了不再自动落盘（原口径：同一帧落到专属盘）");
+  assert.equal(st.stations[3].state, "perfect", "停在「恰好」等起锅");
+  assert.ok(st.stations[3].serveWin > 0, "起锅窗口开着（剩余 " + st.stations[3].serveWin.toFixed(2) + "s）");
+  const got3 = R.takeOut(st, 3);
+  assert.equal(got3.ok, true); assert.equal(got3.kind, "plated", "窗口内单击锅 → 起锅入盘");
+  assert.equal(R.plateOfStation(st, 3).food, "egg", "落到第 3 列的专属盘");
+  assert.equal(st.stations[3].food, null, "锅里立刻空出来");
+  // bf-14 新口径：盘里还有一份**也允许下料**（用户原话「锅里也可以同时煮着」）——
+  //   代价是这份熟了**没地方放**：窗口内点锅被拒（plate-occupied），窗口继续走 → 糊
+  const pbusy = R.placeFoodEx(st, "egg", null);
+  assert.equal(pbusy.ok, true, "盘占着照样能下料（原口径：下料就被 plate-occupied 拒掉）");
+  const pick3 = pickOut(st, 3);
+  assert.equal(pick3.ok, false); assert.equal(pick3.why, "plate-occupied", "起锅被拒：盘里还有一份，没地方放");
+  assert.match(pick3.hint, /盘里还有一份，先送出去/);
+  assert.ok(pick3.left > 0, "被拒那一刻窗口还在走（剩余 " + pick3.left.toFixed(2) + "s，不是「没窗口」）");
+  // 把盘上那份送出去 → 盘空了，窗口还在 → 这一下起锅就成
+  longPatience(R.spawnCustomer(st, ["egg"]));
+  assert.equal(R.serveFromColumn(st, 3).ok, true, "盘上那份送给顾客");
+  assert.equal(R.plateOfStation(st, 3), null, "盘空了");
+  assert.equal(R.takeOut(st, 3).ok, true, "盘一空，窗口内再点锅 → 起锅成功");
+  assert.equal(R.plateOfStation(st, 3).food, "egg", "第二份也进盘了");

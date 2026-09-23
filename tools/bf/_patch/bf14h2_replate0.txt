@@ -1,0 +1,8 @@
+  d4.trash(0);
+  /* 回到「盘上永久保鲜」那条线：重新做一份放回第 0 列的盘上（下面按盘龄验档位）*/
+  A(d4.placeEx("congee", null).ok === true, "再下一份白粥");
+  for (let i = 0; i < 400 && !d4.stations()[0].windowOpen; i++) d4.tick(1 / 60);
+  A(d4.takeOut(0).ok === true, "窗口内点锅起锅 → 放回盘上");
+  A(d4.plates().length === 1 && d4.plates()[0].station === 0 && d4.plates()[0].tier === "hot",
+    "盘上 1 份（第 0 列 · 热乎）—— 本段后续断言的对象");
+  /* bf-13 盘上永久保鲜：旧断言是「停 1.7s → 温 / 停 3.2s → 凉」，现在改成

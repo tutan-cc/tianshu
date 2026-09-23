@@ -33,6 +33,41 @@ const { styleOf } = (() => {
   return { styleOf };
 })();
 
+/**
+ * 5×7 点阵字体（只有 ASCII）。
+ * 为什么需要：最小 canvas 没有字体，原先 fillText 用"实心色块"占位 ——
+ * 那让所有预览图里的文字都变成砖头（卡牌名、血量、KO 文案全糊成方块）。
+ * 有了它，预览图里的英文与数字能认出来；**中文仍然是色块**（点阵表不可能覆盖汉字），
+ * 实机走浏览器字体不受影响。
+ */
+const FONT5x7 = {
+  "0":"01110 10001 10011 10101 11001 10001 01110", "1":"00100 01100 00100 00100 00100 00100 01110",
+  "2":"01110 10001 00001 00010 00100 01000 11111", "3":"11111 00010 00100 00010 00001 10001 01110",
+  "4":"00010 00110 01010 10010 11111 00010 00010", "5":"11111 10000 11110 00001 00001 10001 01110",
+  "6":"00110 01000 10000 11110 10001 10001 01110", "7":"11111 00001 00010 00100 01000 01000 01000",
+  "8":"01110 10001 10001 01110 10001 10001 01110", "9":"01110 10001 10001 01111 00001 00010 01100",
+  A:"01110 10001 10001 11111 10001 10001 10001", B:"11110 10001 10001 11110 10001 10001 11110",
+  C:"01110 10001 10000 10000 10000 10001 01110", D:"11110 10001 10001 10001 10001 10001 11110",
+  E:"11111 10000 10000 11110 10000 10000 11111", F:"11111 10000 10000 11110 10000 10000 10000",
+  G:"01110 10001 10000 10111 10001 10001 01111", H:"10001 10001 10001 11111 10001 10001 10001",
+  I:"01110 00100 00100 00100 00100 00100 01110", J:"00111 00010 00010 00010 00010 10010 01100",
+  K:"10001 10010 10100 11000 10100 10010 10001", L:"10000 10000 10000 10000 10000 10000 11111",
+  M:"10001 11011 10101 10101 10001 10001 10001", N:"10001 11001 10101 10011 10001 10001 10001",
+  O:"01110 10001 10001 10001 10001 10001 01110", P:"11110 10001 10001 11110 10000 10000 10000",
+  Q:"01110 10001 10001 10001 10101 10010 01101", R:"11110 10001 10001 11110 10100 10010 10001",
+  S:"01111 10000 10000 01110 00001 00001 11110", T:"11111 00100 00100 00100 00100 00100 00100",
+  U:"10001 10001 10001 10001 10001 10001 01110", V:"10001 10001 10001 10001 10001 01010 00100",
+  W:"10001 10001 10001 10101 10101 11011 10001", X:"10001 10001 01010 00100 01010 10001 10001",
+  Y:"10001 10001 01010 00100 00100 00100 00100", Z:"11111 00001 00010 00100 01000 10000 11111",
+  "+":"00000 00100 00100 11111 00100 00100 00000", "-":"00000 00000 00000 11111 00000 00000 00000",
+  "!":"00100 00100 00100 00100 00100 00000 00100",
+  ".":"00000 00000 00000 00000 00000 01100 01100", ":":"00000 01100 01100 00000 01100 01100 00000",
+  "/":"00001 00010 00010 00100 01000 01000 10000", "%":"11001 11010 00010 00100 01000 01011 10011",
+  "(":"00010 00100 01000 01000 01000 00100 00010", ")":"01000 00100 00010 00010 00010 00100 01000",
+  " ":"00000 00000 00000 00000 00000 00000 00000",
+};
+const glyph = (ch) => FONT5x7[ch] || FONT5x7[String(ch).toUpperCase()] || null;
+
 /** @param {number} W 画布宽 @param {number} H 画布高 @param {number} scale 全局显示缩放
  *  @param {{alphaTrack?:boolean}} [opts] alphaTrack：额外维护一份"每像素被写过的最大 alpha"。
  *    立绘对照图必须靠它把**地面倒影**（globalAlpha 0.18 画的）从量测里排除 ——
@@ -138,13 +173,37 @@ function makeSink(W, H, scale = 1, opts = {}) {
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + h);
       ctx.lineTo(x, y + h); ctx.lineTo(x, y); ctx.stroke();
     },
-    beginPath() { path.length = 0; arc = null; ell = null; rectP = null; },
+    /** 路径：moveTo / lineTo / arc / ellipse 都往这里**采样成多边形点**。
+        ⚠ 为什么必须采样而不是只记"最后一个 arc"：卡牌的圆角矩形是
+          `moveTo/lineTo/arc×4/closePath + fill` 拼出来的，
+          只认最后一个 arc 的话整张卡底都画不出来（实测预览图里卡只剩几个小圆弧）。 */
+    beginPath() { path.length = 0; arc = null; ell = null; rectP = null; pathClosed = false; },
     moveTo(x, y) { path.push([x, y]); },
     lineTo(x, y) { path.push([x, y]); },
-    rect(x, y, w, h) { rectP = [x, y, w, h]; },
-    arc(x, y, r) { arc = [x, y, r]; ell = null; },
-    ellipse(x, y, rx, ry) { ell = [x, y, rx, ry]; arc = null; },
-    closePath() { },
+    rect(x, y, w, h) {
+      rectP = [x, y, w, h];
+      path.push([x, y], [x + w, y], [x + w, y + h], [x, y + h]);   // 也进路径，便于 fill
+      pathClosed = true;
+    },
+    arc(x, y, r, a0, a1) {
+      arc = [x, y, r]; ell = null;
+      const s = (a0 === undefined ? 0 : a0), e2 = (a1 === undefined ? Math.PI * 2 : a1);
+      const steps = Math.max(6, Math.ceil(Math.abs(e2 - s) / (Math.PI / 16)));
+      for (let i = 0; i <= steps; i++) {
+        const t = s + (e2 - s) * (i / steps);
+        path.push([x + Math.cos(t) * r, y + Math.sin(t) * r]);
+      }
+    },
+    ellipse(x, y, rx, ry, rot, a0, a1) {
+      ell = [x, y, rx, ry]; arc = null;
+      const s = (a0 === undefined ? 0 : a0), e2 = (a1 === undefined ? Math.PI * 2 : a1);
+      const steps = Math.max(6, Math.ceil(Math.abs(e2 - s) / (Math.PI / 16)));
+      for (let i = 0; i <= steps; i++) {
+        const t = s + (e2 - s) * (i / steps);
+        path.push([x + Math.cos(t) * rx, y + Math.sin(t) * ry]);
+      }
+    },
+    closePath() { pathClosed = true; },
     /** 矩形裁剪：与已有裁剪求交（只支持矩形，够 stage 用） */
     clip() {
       if (!rectP) return;
@@ -156,28 +215,49 @@ function makeSink(W, H, scale = 1, opts = {}) {
     },
     stroke() {
       const c = styleOf(ctx.strokeStyle), w = num(ctx.lineWidth) || 1;
+      const pt0 = path.map(([x, y]) => tf(x, y));
+      /* 路径优先（圆角矩形/多边形都走这条）；路径太短才回落到单独的圆 */
+      if (pt0.length >= 2) {
+        const pt = pathClosed && pt0.length > 2 ? pt0.concat([pt0[0]]) : pt0;
+        for (let i = 0; i < pt.length - 1; i++) {                       // 沿法线铺宽度
+          const [x0, y0] = pt[i], [x1, y1] = pt[i + 1];
+          const len = Math.hypot(x1 - x0, y1 - y0); if (len < 0.01) continue;
+          const nx = -(y1 - y0) / len, ny = (x1 - x0) / len;
+          const steps = Math.max(1, Math.ceil(len));
+          for (let s = 0; s <= steps; s++) {
+            const bx = x0 + (x1 - x0) * s / steps, by = y0 + (y1 - y0) * s / steps;
+            for (let o = -w / 2; o <= w / 2; o += 0.9) setPx(bx + nx * o, by + ny * o, c, ctx.globalAlpha);
+          }
+        }
+        return;
+      }
       if (arc) {
         const [ax, ay] = tf(arc[0], arc[1]);
         const rr = arc[2] * Math.abs(M.m[0]);
         const step = Math.max(0.006, 1.3 / Math.max(2, rr));
         for (let t = 0; t < Math.PI * 2; t += step)
           for (let o = -w / 2; o <= w / 2; o += 0.8) setPx(ax + Math.cos(t) * (rr + o), ay + Math.sin(t) * (rr + o), c, ctx.globalAlpha);
-        return;
-      }
-      const pt = path.map(([x, y]) => tf(x, y));
-      for (let i = 0; i < pt.length - 1; i++) {                       // ② 沿法线铺宽度
-        const [x0, y0] = pt[i], [x1, y1] = pt[i + 1];
-        const len = Math.hypot(x1 - x0, y1 - y0); if (len < 0.01) continue;
-        const nx = -(y1 - y0) / len, ny = (x1 - x0) / len;
-        const steps = Math.max(1, Math.ceil(len));
-        for (let s = 0; s <= steps; s++) {
-          const bx = x0 + (x1 - x0) * s / steps, by = y0 + (y1 - y0) * s / steps;
-          for (let o = -w / 2; o <= w / 2; o += 0.9) setPx(bx + nx * o, by + ny * o, c, ctx.globalAlpha);
-        }
       }
     },
     fill() {
       const c = styleOf(ctx.fillStyle);
+      /* 路径优先：扫描线填充多边形（圆角矩形、三角、任意路径都能画） */
+      if (path.length >= 3) {
+        const pt = path.map(([x, y]) => tf(x, y));
+        let minY = 1e9, maxY = -1e9;
+        pt.forEach((p) => { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); });
+        for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
+          const xs = [];
+          for (let i = 0; i < pt.length; i++) {
+            const [x1, y1] = pt[i], [x2, y2] = pt[(i + 1) % pt.length];
+            if ((y1 <= y && y2 > y) || (y2 <= y && y1 > y)) xs.push(x1 + (y - y1) / (y2 - y1) * (x2 - x1));
+          }
+          xs.sort((a, b) => a - b);
+          for (let k = 0; k + 1 < xs.length; k += 2)
+            for (let x = Math.floor(xs[k]); x <= Math.ceil(xs[k + 1]); x++) setPx(x, y, c, ctx.globalAlpha);
+        }
+        return;
+      }
       if (arc) {
         const [ax, ay] = tf(arc[0], arc[1]);
         const rr = arc[2] * Math.abs(M.m[0]);
@@ -191,29 +271,42 @@ function makeSink(W, H, scale = 1, opts = {}) {
         if (rx < 0.5 || ry < 0.5) return;
         for (let yy = -ry; yy <= ry; yy++) for (let xx = -rx; xx <= rx; xx++)
           if ((xx * xx) / (rx * rx) + (yy * yy) / (ry * ry) <= 1) setPx(ax + xx, ay + yy, c, ctx.globalAlpha);
-        return;
-      }
-      const pt = path.map(([x, y]) => tf(x, y));
-      if (pt.length < 3) return;
-      let minY = 1e9, maxY = -1e9;
-      pt.forEach((p) => { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); });
-      for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
-        const xs = [];
-        for (let i = 0; i < pt.length; i++) {
-          const [x1, y1] = pt[i], [x2, y2] = pt[(i + 1) % pt.length];
-          if ((y1 <= y && y2 > y) || (y2 <= y && y1 > y)) xs.push(x1 + (y - y1) / (y2 - y1) * (x2 - x1));
-        }
-        xs.sort((a, b) => a - b);
-        for (let k = 0; k + 1 < xs.length; k += 2)
-          for (let x = Math.floor(xs[k]); x <= Math.ceil(xs[k + 1]); x++) setPx(x, y, c, ctx.globalAlpha);
       }
     },
     fillText(t, x, y) {
       const c = styleOf(ctx.fillStyle);
       const size = ((/(\d+)px/.exec(ctx.font) || [0, 16])[1] | 0) * Math.abs(M.m[0]);
       const [cx, cy] = tf(x, y);
-      const w = Math.max(3, String(t).length * size * 0.62), h = size * 0.92;
-      for (let yy = -h / 2; yy <= h / 2; yy++) for (let xx = -w / 2; xx <= w / 2; xx++) setPx(cx + xx, cy + yy, c, ctx.globalAlpha * 0.95);
+      const str = String(t);
+      /* 有字模就点阵绘制（能认出字），没有的字符（汉字）才回落到色块 */
+      const px0 = Math.max(1, Math.round(size / 9));          // 点阵单元边长
+      const adv = 6 * px0;                                    // 5 列 + 1 列间距
+      const total = str.length * adv;
+      const al = ctx.textAlign || "left";
+      /* 尊重 textAlign：Canvas 里 left/center/right 的 x 含义不同，
+         全按中心算的话所有左对齐文字会整体偏到反方向（实测血量标签错位）。 */
+      let ox = al === "center" ? -total / 2 : al === "right" ? -total : 0;
+      let drew = false;
+      for (const ch of str) {
+        const gm = glyph(ch);
+        if (gm) {
+          const rows = gm.split(" ");
+          for (let r = 0; r < 7; r++) for (let col = 0; col < 5; col++) {
+            if (rows[r][col] !== "1") continue;
+            for (let dy = 0; dy < px0; dy++) for (let dx = 0; dx < px0; dx++)
+              setPx(cx + ox + col * px0 + dx, cy - 3.5 * px0 + r * px0 + dy, c, ctx.globalAlpha);
+          }
+          drew = true;
+        } else {
+          /* 汉字：仍然用色块占位（点阵表不可能覆盖汉字）。
+             宽度按 1 个字约 5 个单元算，让排版不至于挤在一起。 */
+          for (let yy = -3.5 * px0; yy <= 3.5 * px0; yy++)
+            for (let xx = 0; xx < 5 * px0; xx++) setPx(cx + ox + xx, cy + yy, c, ctx.globalAlpha * 0.92);
+          drew = true;
+        }
+        ox += adv;
+      }
+      if (!drew) return;
     },
     strokeText(t, x, y) { ctx.fillText(t, x, y); },
     measureText(t) { return { width: String(t).length * 8 }; },

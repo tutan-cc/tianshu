@@ -1,0 +1,189 @@
+{
+ "jobs": [
+  {
+   "file": "breakfast.js",
+   "from": "   2) 「熟了之后点一下就可以给顾客」：完美窗口一到自动落到本列专属盘；\n      单击该盘 → 自动送给「正在需要这份、且耐心最少」的顾客；\n      此刻没人需要 → 不消耗、留在盘上（盘上永久保鲜，没有任何倒计时）并提示「现在没人要这份」。",
+   "to": "   3) 「点两下是扔进垃圾桶」：双击盘（或双击锅内成品）→ 丢垃圾桶，清空锅与盘，不扣分。",
+   "textFile": "tools/bf/_patch/bf14_h_rule2.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      压力全部留在锅里（生 → 恰好 → 过火 → 糊），见上面那条火候状态机。",
+   "to": "   5) 顾客陆续进店（同时最多 3 位），每位 1–3 样早餐；订单卡有耐心倒计时条",
+   "textFile": "tools/bf/_patch/bf14_h_rule4.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "   6) 糊菜端给顾客 → 该顾客直接不满离开（扣分）；糊掉的可丢垃圾桶（不扣分，只浪费时间；\n      **锅里**的糊残骸留 14 秒自动清 —— 盘上不会自动清，放多久都还在）",
+   "to": "   7) 规定时间内（默认 75s）服务满 N 位（默认 8 位）即通过，否则失败",
+   "textFile": "tools/bf/_patch/bf14_h_rule6.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /* ── 盘上永久保鲜（bf-13 用户要求）────────────────────────────────────────",
+   "to": "  var BURNT_LIFE_MS = 14000;// 烧糊的残骸在**锅里**留 14 秒自动清（盘上不会自动清：盘上放多久都在）",
+   "textFile": "tools/bf/_patch/bf14_const.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "     压力只留在锅里（忘出锅 → 糊），盘上不再承担任何计时压力。 */",
+   "to": "  var PLATES_TOTAL = COL_N;                  // 盘数 = 列数 = 9",
+   "textFile": "tools/bf/_patch/bf14_plate_note.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 出餐窗口（旧机制的兼容保留）：现在食物一到「恰好」就自动落到专属盘，\n      锅内窗口不再打开，所以这个判定恒为 false；纯函数保留给单测 / 旧调用方。 */\n  function isServeWindowOpen(s) { return !!(s && s.food && s.state === \"perfect\" && (s.serveWin || 0) > 0); }",
+   "textFile": "tools/bf/_patch/bf14_iswin.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "             /* 自动落盘（要求 A3：熟了自动落到本列专属盘）——\n                bf-3 起这是核心规则，所以默认打开；显式传 autoPlate:false 才关掉\n                （关掉是「按住看火」的调试手感：食物留在锅里，手动 takePlate 才落盘）。 */\n             autoPlate: cfg.autoPlate !== false,",
+   "textFile": "tools/bf/_patch/bf14_newstate.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 灶位是否空着可用（锅空 + 本列的专属盘也空）—— 盘占着就不能再下料 */\n  function stationFree(st, stationIdx) {\n    var s = stationByIdx(st, stationIdx);\n    if (!s || s.food) return false;\n    if (isServeWindowOpen(s)) return false;\n    return plateIdxOfStation(st, stationIdx) < 0;\n  }",
+   "textFile": "tools/bf/_patch/bf14_stationfree.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    if (s.food) return no(\"station-occupied\");                 // 锅里还在做：生的 / 熟的 / 糊的残骸\n    if (plateIdxOfStation(st, si) >= 0) return no(\"plate-occupied\");   // 本列盘里还有一份 → 不准再下料",
+   "textFile": "tools/bf/_patch/bf14_place.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 手动出餐：把锅里做好的食物拾到它自己的专属盘上（自动落盘模式下由 step 代劳）。\n      每列都有盘（要求 A5），所以任何一列都能落盘。\n      注意：这里**也接糊的份**（s.state === \"burnt\" 时不算 raw / idle）—— 这正是\n      「糊盘」唯一的来源（锅里糊了再端上盘）；盘上自己永远不会变糊（bf-13 永久保鲜）。 */",
+   "textFile": "tools/bf/_patch/bf14_takeplate_doc.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 自动落盘（要求 A3：熟了自动落到本列专属盘）：\n      锅里一到「恰好」就落到本列的盘上，不用手动出锅、锅位立刻空出来。\n      9 列都生效（不再分「预备盘 / 现做」）；manual（按住看火）时不落盘。 */",
+   "textFile": "tools/bf/_patch/bf14_autoplate_doc.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /* ── 出餐窗口（现做灶位）：出一份就要立刻送，超时即糊 ────────────────────\n     openServeWindow：锅内刚到「恰好」→ 打开 SERVE_WINDOW 秒的窗口，并让火候暂停\n       （step 里对处于窗口中的那份不再累加火候），所以这 3 秒是玩家真正能用的时间。\n     expireServeWindows：窗口走完还没端走 → 那份糊掉（锅体焦黑 + 冒烟），必须丢垃圾桶才能再用。\n     取出并立刻送往顾客由 takeReady 负责（服务记账走 serveFoodToCustomer，与盘上出餐同源）。 */\n  function openServeWindow(st, stationIdx) {\n    var s = stationByIdx(st, stationIdx);\n    if (!st || !s || !s.food) return null;\n    s.serveWin = SERVE_WINDOW;\n    s.readyAt = st.elapsed;\n    return { t:\"window\", idx:stationIdx, food:s.food, left:SERVE_WINDOW };\n  }\n  /** 独立跑一次「窗口超时结算」（step 每帧已内联同样逻辑；这个入口供单测 / 外部调用）。\n      调用前应先把 serveWin 递减到 0（例如 step 的帧推进）。 */\n  function expireServeWindows(st) {\n    var ev = [];\n    if (!st) return ev;\n    for (var i = 0; i < st.stations.length; i++) {\n      var s = st.stations[i];\n      if (!s.food || s.state === \"burnt\") continue;\n      if (!(s.serveWin > 0)) continue;\n      /* 窗口只属于「恰好」那一刻：一旦这份食物越过完美窗口（变过火），就没得端了 */\n      if (s.state !== \"perfect\") { s.serveWin = 0; continue; }\n      if (s.serveWin > 0) continue;                      // 窗口还没走完 → 继续等玩家出手\n      s.state = \"burnt\";                                 // 窗口走完还没端走 → 忘出锅，糊\n      st.burnt++; st.expire++;\n      st.smoke.push({ x:i, t:0, life:1.6 });\n      var bb = stationBox(i);\n      addFloat(st, \"忘出锅 · 糊了！\", \"#ff4d6d\", 28, bb.x + bb.w / 2, bb.y + bb.h / 2);\n      ev.push({ t:\"burnt\", idx:i, food:s.food, why:\"window-expired\" });\n    }\n    return ev;\n  }",
+   "textFile": "tools/bf/_patch/bf14_window.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    if (k < 0) return { ok:false, why:\"no-plate\", hint:\"盘里还空着 —— 先点下面的食材下锅\", station:stationIdx };",
+   "textFile": "tools/bf/_patch/bf14_servecol.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "          /* 旧机制的兼容保留：只有「没有专属盘」的灶位才会在锅内开「出餐窗口」。\n             现在 9 列都有盘（hasPlate 恒为 true），所以这一步永远不触发；\n             autoPlateStations 会在同一帧里把这份直接落到本列专属盘上。\n             注意 manual 只表示「别自动落盘」（按住看火 / 调试用），与窗口无关。 */\n          if (!hasPlate(i)) ev.push(openServeWindow(st, i));",
+   "textFile": "tools/bf/_patch/bf14_step.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      /* 出餐窗口倒计时（现做灶位）：窗口走完还没端走 → 当场糊 */\n      if (!hasPlate(i) && s.state === \"perfect\" && s.serveWin > 0) {\n        s.serveWin = Math.max(0, s.serveWin - dt);\n        if (s.serveWin <= 0) {\n          s.state = \"burnt\"; st.burnt++; st.expire++;\n          st.smoke.push({ x:i, t:0, life:1.6 });\n          var wb = stationBox(i);\n          addFloat(st, \"忘出锅 · 糊了！\", \"#ff4d6d\", 28, wb.x + wb.w / 2, wb.y + wb.h / 2);\n          ev.push({ t:\"burnt\", idx:i, food:s.food, why:\"window-expired\" });\n        }\n      } else if (!hasPlate(i) && s.state !== \"perfect\" && s.serveWin > 0) {\n        s.serveWin = 0;                                  // 越过完美窗口 → 窗口作废\n      }\n      /* 糊了又放着不管：残骸按壁钟时间留 14 秒自动清（连它的盘一起清），不至于永久堵灶 */\n      if (s.state === \"burnt\" && !s.burntAt) s.burntAt = st.elapsed;\n      if (s.state === \"burnt\" && st.elapsed - s.burntAt > BURNT_LIFE_MS / 1000) {\n        s.food = null; s.t = 0; s.state = \"idle\"; s.serveWin = 0; s.readyAt = 0; s.burntAt = 0;\n        var kb = plateIdxOfStation(st, i);\n        if (kb >= 0) st.plates.splice(kb, 1);\n      }",
+   "textFile": "tools/bf/_patch/bf14_step2.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      autoPlate: opts.autoPlate !== false,           // 页面默认打开「做好自动落入专属盘」",
+   "textFile": "tools/bf/_patch/bf14_start.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    st.cfg.autoPlate = cfg.autoPlate;                // 9 列都是「熟了自动落到本列专属盘」",
+   "textFile": "tools/bf/_patch/bf14_start2.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      \"① 点食材 → 自动进它正上方那一列的锅 ｜ ② 点上方专属盘 → 自动送给最急的顾客（耐心最少 / 快走的那位优先） ｜ \" +\n      \"③ 双击盘 → 丢垃圾桶（不扣分）· 盘上永久保鲜：没有倒计时、不会凉、不会糊，放多久都能上\"",
+   "textFile": "tools/bf/_patch/bf14_tip.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    /** 点锅（这一列的灶位）：锅里那份是什么状态就给什么提示；\n        已经在盘上的（自动落盘后）点锅 = 提示去点上方的盘；\n        锅内若有做好的（manual 模式）→ 手动落到本列盘上。 */\n    function actStation(i) {\n      var s = st.stations[i];\n      if (!s) return;\n      var p = plateOfStation(st, i);\n      var label = colNameOf(i);\n      if (!s.food) {\n        if (p) flash(label + \" 的盘里还有一份 —— 先点它送出去（双击丢垃圾桶）\", PAL.steelHot);\n        else flash(label + \" 空着 —— 点下面它那一列的食材下锅\", PAL.dim);\n        return;\n      }\n      if (s.state === \"burnt\") { flash(\"糊了，只能丢掉（双击这一列）\", PAL.red); return; }\n      if (s.state === \"raw\") { flash(\"锅里还在做 —— \" + (FOOD[s.food] || {}).n + \" 要 \" + FOOD[s.food].dur.toFixed(1) + \"s\"); return; }\n      /* 锅里做好的（autoPlate 关掉时的调试手感）：点一下 = 落到本列专属盘 */\n      if (takePlate(st, i)) {\n        var pp = plateOfStation(st, i);\n        if (pp) { st.selected = { kind:\"plate\", idx:i }; flash(\"熟了 · 落到\" + plateNameOf(i) + \" —— 点盘送出去\", PAL.green); }\n        return;\n      }\n      if (p) flash(label + \" 的盘里还有一份，先送出去\", PAL.steelHot);\n    }",
+   "textFile": "tools/bf/_patch/bf14_actstation.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      g.fillText(\"完美 \" + st.perfect + \" · 温 \" + (st.heat.warm || 0) + \" · 凉 \" + (st.heat.cold || 0) +\n                 \" · 糊 \" + st.burnt + \"（忘取 \" + (st.expire || 0) + \"）· 跑单 \" + st.angry + \" · 上错 \" + st.wrong +\n                 \" · 盘上 \" + st.plates.length + \"/\" + PLATES_TOTAL + \" · 盘上永久保鲜（无倒计时）\", 18, 50);",
+   "textFile": "tools/bf/_patch/bf14_topbar.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      var left = Math.max(0, s.serveWin || 0);           // 旧机制：锅内出餐窗口剩余（现在恒为 0）\n      var frac = SERVE_WINDOW > 0 ? Math.max(0, Math.min(1, left / SERVE_WINDOW)) : 0;\n      var lastSec = ready && left <= SERVE_WARN_SEC;\n      var blink = Math.floor(nowMs() / 200) % 2 === 0;",
+   "textFile": "tools/bf/_patch/bf14_drawpan_a.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      if (busy) g.globalAlpha = 0.42;                       // 盘里还有一份 → 锅位半透明",
+   "textFile": "tools/bf/_patch/bf14_drawpan_b.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      /* 旧机制的锅内出餐窗口环（兼容保留：现在食物一到「恰好」就落盘，不会开窗口）*/\n      if (ready && left > 0) {",
+   "textFile": "tools/bf/_patch/bf14_drawpan_c.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      g.font = fontOf(FONT.micro, false); g.fillStyle = \"rgba(255,255,255,.34)\";\n      g.fillText(busy ? \"盘里还有一份\" : (fd ? \"在烧\" : \"空着 · 点食材\"), cx, b.y + 29);",
+   "textFile": "tools/bf/_patch/bf14_drawpan_d.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "        var txt = s.state === \"burnt\" ? \"糊了 · 双击丢掉\"\n                : (s.state === \"perfect\" ? \"恰好 · 落盘\"\n                : (s.state === \"over\" ? \"过火 · 可上\" : \"生 \" + (s.t / 1000).toFixed(1) + \"s\"));\n        g.fillStyle = s.state === \"burnt\" ? \"#ffd0d8\" : (s.state === \"perfect\" ? \"#ddffe9\" : \"rgba(255,255,255,.60)\");",
+   "textFile": "tools/bf/_patch/bf14_drawpan_e.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      g.fillText(\"9 列 × 每列 1 锅 1 专属盘 · 盘上永久保鲜：没有倒计时 / 不会凉 / 不会糊，放多久都能上\",\n                 W - LAY.buckets.x0, LAY.buckets.y + LAY.bucketLabelDy);",
+   "textFile": "tools/bf/_patch/bf14_plates_label.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      g.fillText(\"① 点食材 → 自动下锅　｜　② 点专属盘 → 送给正在等的顾客　｜　③ 双击盘 → 丢垃圾桶（不扣分）　｜　④ 盘上永久保鲜：不会凉 · 不会糊\",\n                 x + w / 2, y + h / 2);",
+   "textFile": "tools/bf/_patch/bf14_legend.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "        g.fillText(\"顾客马上进门 —— 可以先把 \" + COL_N + \" 列里的食材点上，熟了各自落到本列的盘上等着（盘上 4.5 秒内要送出去）\", b0.x + wAll / 2, b0.y + LAY.cards.h / 2);",
+   "textFile": "tools/bf/_patch/bf14_newbie.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "          row(\"烧糊份数\", String(r.burnt) + (r.expire ? (\"（忘取 \" + r.expire + \"）\") : \"\")) +",
+   "textFile": "tools/bf/_patch/bf14_panel.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    PLATE_KEEP: PLATE_KEEP, PLATE_NO_TIMER: PLATE_NO_TIMER, PLATE_KEEP_TEXT: PLATE_KEEP_TEXT,",
+   "textFile": "tools/bf/_patch/bf14_rules_exp2.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    takePlate: takePlate, autoPlateStations: autoPlateStations, trashStation: trashStation, trashPlate: trashPlate,",
+   "textFile": "tools/bf/_patch/bf14_rules_exp3.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW,\n    PLATE_KEEP: PLATE_KEEP, PLATE_NO_TIMER: PLATE_NO_TIMER,",
+   "textFile": "tools/bf/_patch/bf14_api_exp.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "          serveWindow:SERVE_WINDOW, plateLife:PLATE_NO_TIMER, plateKeep:PLATE_KEEP,\n          expire:st.expire || 0, tossed:st.tossed || 0,",
+   "textFile": "tools/bf/_patch/bf14_dbg_state.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "                   serveWin:Math.round((s.serveWin || 0) * 1000) / 1000,\n                   windowOpen:isServeWindowOpen(s) };",
+   "textFile": "tools/bf/_patch/bf14_dbg_stations.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "        /* plate = 单击盘 → 出餐（要求 A3）；station = 锅内做好的手动落盘（autoPlate 关掉时才用得上） */\n        if (kind === \"plate\") return serveFromColumn(st, idx).ok;\n        if (kind === \"station\") return takePlate(st, idx);",
+   "textFile": "tools/bf/_patch/bf14_dbg_tap.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      /** 单击某一列的盘 → 送给「正在需要 + 耐心最少」的顾客（返回完整结果，测试读 why / delta）*/\n      serveCol: function (idx) { var st = curState(); if (!st) return { ok:false, why:\"no-run\" }; return serveFromColumn(st, idx); },",
+   "textFile": "tools/bf/_patch/bf14_dbg_takeout.txt"
+  }
+ ]
+}

@@ -1,0 +1,29 @@
+{
+ "jobs": [
+  {
+   "file": "breakfast.js",
+   "from": "    st.plates.splice(pi, 1);\n    /* 盘被取走 → 归属灶位立刻可用（糊的也算，见下面 burnt 分支） */\n    var owner = stationByIdx(st, p.station);\n    if (owner) { owner.food = null; owner.t = 0; owner.state = \"idle\"; owner.doneAt = 0; owner.serveWin = 0; owner.burntAt = 0; }\n    var tier = p.tier || heatTierOf(p.state, st.elapsed - p.at);",
+   "textFile": "tools/bf/_patch/bf14b_serve_owner.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    return { station:stationIdx, food:foodId, state:state, tier:tier, hot:(tier === \"hot\"),\n             at:st.elapsed, left:PLATE_NO_TIMER, burning:false, burntAt:0,",
+   "textFile": "tools/bf/_patch/bf14b_mkplate_age.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  // 自动落盘：真实帧推进下，一到「恰好」就离开锅、落到本列专属盘（要求 A3）\n  st = plateState();\n  longPatience(R.spawnCustomer(st, [\"egg\"]));\n  assert.equal(R.placeFood(st, \"egg\", null), true, \"点一下食材 → 自动进它那一列\");\n  advance(st, R.FOOD.egg.dur + 0.1);\n  assert.equal(st.stations[3].food, null, \"熟了以后锅里立刻空出来\");\n  assert.equal(R.plateOfStation(st, 3).food, \"egg\", \"那份煎蛋在自己的专属盘上\");\n  assert.equal(R.phaseOf(st, 3), \"plated\", \"状态机：cooking → plated\");\n  const rAgain = R.serveFromColumn(st, 3);\n  assert.equal(rAgain.ok, true); assert.equal(rAgain.delta, 14, \"单击盘出餐 = 热乎 14\");\n  assert.equal(st.hot, 1);",
+   "textFile": "tools/bf/_patch/bf14b_score_plate.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  R.trashStation(st, col);                        // 清掉锅里那份（顺带清盘），再原样做一份放回盘上\n  assert.equal(pickOut(st, col, 12).ok, true, \"重做一份放回盘上\");",
+   "textFile": "tools/bf/_patch/bf14b_keep2_place.txt"
+  },
+  {
+   "file": "tests/breakfast.test.cjs",
+   "from": "  assert.equal(st.stations[col].state, \"perfect\", \"锅里那份还在（窗口继续走）\");\n  assert.ok(st.stations[col].serveWin > 0, \"被拒**不会**重置窗口（剩余 \" + st.stations[col].serveWin.toFixed(2) + \"s）\");\n  const left = st.stations[col].serveWin;\n  advance(st, left - 0.01);",
+   "textFile": "tools/bf/_patch/bf14b_serve_keeps_pan.txt"
+  }
+ ]
+}

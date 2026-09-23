@@ -1,0 +1,14 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "      var col = d.columnOf(want), s = d.stations()[col];\n      if (s.plate && s.plateState === \"burnt\") d.trashCol(col);      // 糊了就丢掉重来\n      if (!s.food && !s.plate) d.drop(want, col);\n      d.tick(1 / 60);\n      var s2 = d.stations()[col];\n      if (s2.plate && s2.plateState !== \"burnt\") { var r = d.serveCol(col); if (r && r.ok) served = true; }",
+   "textFile": "tools/bf/_patch/bf14e_happy_bot.txt"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    var col = d.columnOf(\"egg\");\n    if (!d.stations()[col].plate && !d.stations()[col].food) d.drop(\"egg\", col);\n    /* 用游戏时钟把这份煎蛋推到落盘（与无头用例同一口径；墙钟在这里只有 ~1/5 速） */\n    for (var k = 0; k < 400 && !d.stations()[col].plate; k++) d.tick(1 / 60);\n    var plated = !!d.stations()[col].plate;",
+   "textFile": "tools/bf/_patch/bf14e_pick_bot.txt"
+  }
+ ]
+}

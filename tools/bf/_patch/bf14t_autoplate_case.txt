@@ -1,0 +1,43 @@
+test("bf-14：autoPlate 默认**关闭**（不传也关）；manual 按住看火不开窗口、照样烧到糊；显式 true 才回旧口径", () => {
+  /* ① 默认（不传 autoPlate）：绝不自动落盘 —— 一到「恰好」就进起锅窗口等玩家点锅 */
+  const st = R.newState({ duration:999, goal:99 });
+  assert.equal(st.cfg.autoPlate, false, "默认**关闭**（原口径：cfg.autoPlate !== false → 打开）");
+  st.running = true; st.nextIn = 1e6;
+  const col = R.columnOf("bacon");                       // 2.8s 熟（bf-9 新表）
+  assert.equal(R.placeFood(st, "bacon", null), true);
+  advance(st, 2.0);
+  assert.equal(st.plates.length, 0, "还没熟 → 锅里烧着");
+  assert.equal(R.phaseOf(st, col), "cooking");
+  advance(st, R.FOOD.bacon.dur - 2.0 + 0.02);
+  assert.equal(st.plates.length, 0, "进「恰好」**也不落盘**（原口径：同一帧自动落盘）");
+  assert.equal(st.stations[col].state, "perfect", "停在恰好");
+  assert.ok(st.stations[col].serveWin > 0, "起锅窗口开着（剩余 " + st.stations[col].serveWin.toFixed(2) + "s）");
+  assert.equal(R.phaseOf(st, col), "window", "状态机：window（还没落盘）");
+  assert.equal(R.takeOut(st, col).ok, true, "单击锅 → 起锅");
+  assert.equal(st.plates.length, 1, "起锅后落到本列专属盘");
+  assert.equal(st.stations[col].food, null, "起锅后锅位立刻空出来");
+  assert.equal(R.phaseOf(st, col), "plated");
+  assert.equal(st.prepped, 1, "记账：备好 1 份");
+  /* ② manual（按住看火）→ **不开**起锅窗口，食物留在锅里一路 over → burnt（完整曲线仍可观察） */
+  const st2 = plateState();
+  assert.equal(R.placeFoodEx(st2, "bacon", null, { manual:true }).ok, true);
+  advance(st2, R.FOOD.bacon.dur + 0.2);                  // 完美窗口内（2.8 + 0.8 = 3.6 出窗口）
+  assert.equal(st2.plates.length, 0, "manual 不落盘");
+  assert.equal(st2.stations[4].state, "perfect");
+  assert.equal(st2.stations[4].serveWin, 0, "manual **不开**起锅窗口（所以才会自然过火）");
+  advance(st2, R.FOOD.bacon.pw + 0.2);
+  assert.equal(st2.stations[4].state, "over", "过火这一档只有 manual 这条路上看得到");
+  advance(st2, 1.5);
+  assert.equal(st2.stations[4].state, "burnt", "按住不管 → 真的会糊（看火的压力还在）");
+  assert.equal(st2.burnt, 1);
+  /* ③ 显式 autoPlate:true → 旧口径仍在（调试 / 老回归通道）：一到「恰好」同帧落盘、不开窗口 */
+  const st3 = R.newState({ duration:999, goal:99, autoPlate:true }); st3.running = true; st3.nextIn = 1e6;
+  assert.equal(st3.cfg.autoPlate, true, "显式 true 时才打开");
+  R.placeFood(st3, "congee", null);
+  advance(st3, R.FOOD.congee.dur + 0.1);
+  assert.equal(st3.plates.length, 1, "autoPlate:true → 自动落盘（旧口径）");
+  assert.equal(st3.stations[0].food, null, "锅里立刻空出来");
+  assert.equal(st3.stations[0].serveWin, 0, "这条路上不开起锅窗口");
+  assert.equal(st3.burnt, 0, "旧口径下锅里不会糊");
+  assert.equal(R.takePlate(st3, 0), true, "手动落盘照旧（幂等：盘上已有 → true）");
+});

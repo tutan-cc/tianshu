@@ -1,0 +1,19 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/shots/panel.js",
+   "from": "  const cntPick = panTexts.filter(x => /起锅！点一下这口锅/.test(x)).length;\n  const cntRing = panTexts.filter(x => /恰好 · 起锅 \\d+\\.\\d+s/.test(x)).length;\n  const cntBurnt = panTexts.filter(x => /糊了 · 双击丢掉/.test(x)).length;\n  const cntBlocked = panTexts.filter(x => /盘占着 · 没地方放/.test(x)).length;\n  const cntKeep = panTexts.filter(x => /可一直放着/.test(x)).length;",
+   "textFile": "tools/bf/_patch/bf14p2_counters.txt"
+  },
+  {
+   "file": "tools/bf/shots/panel.js",
+   "from": "  put(\"本帧实测：起锅提示 \" + cntPick + \" 口 · 窗口倒计时 \" + cntRing + \" 口（煎蛋剩 \" + (S3.serveWin || 0).toFixed(1) + \"s）· \" +\n      \"已糊 \" + cntBurnt + \" 口（培根 · burnt=\" + d.state().burnt + \"）· 盘占着 \" + cntBlocked + \" 口（三明治）· \" +\n      \"盘上 \" + cntKeep + \" 份（三明治·热乎）\",\n      24, bandY + 186, 26, \"#ffd76e\");",
+   "textFile": "tools/bf/_patch/bf14p2_labels.txt"
+  },
+  {
+   "file": "tools/bf/shots/panel.js",
+   "from": "  console.log(\"    [锅内起锅] 起锅提示 \" + cntPick + \" 口 · 倒计时 \" + cntRing + \" 口 · 已糊 \" + cntBurnt +\n              \" 口 · 盘占着 \" + cntBlocked + \" 口 · 盘上保鲜文案 \" + cntKeep + \" 处 · burnt=\" + d.state().burnt);",
+   "textFile": "tools/bf/_patch/bf14p2_consolelog.txt"
+  }
+ ]
+}

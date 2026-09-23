@@ -1,0 +1,36 @@
+  /* bf-14：盘里有东西**也能下料**（用户原话「餐盘可以一直放着，锅里也可以同时煮着」）——
+     原因码 plate-occupied 从「下料被拒」搬到「起锅被拒」：这份熟了没地方放，窗口走完就糊。 */
+  const rej = d4.placeEx("congee", null);
+  A(rej.ok === true, "盘里有东西时**照样能下料**（原断言：plate-occupied 拦在下料这一步）", rej.why);
+  for (let i = 0; i < 320 && !d4.stations()[0].windowOpen; i++) d4.tick(1 / 60);
+  const rej2 = d4.takeOut(0);
+  A(rej2.ok === false && rej2.why === "plate-occupied", "起锅被拒：盘里还有一份，没地方放", rej2.why);
+  A(/盘里还有一份/.test(rej2.hint || ""), "提示语：盘里还有一份，先送出去", rej2.hint);
+  A(d4.stations()[0].windowOpen === true, "被拒之后窗口**继续走**（没被重置、也没暂停）",
+    "剩 " + d4.stations()[0].serveWin + "s");
+  A(d4.plates().length === 1 && d4.stations()[0].plate === "congee", "盘上那份没被动过");
+  /* 把盘上那份送出去 → 盘一空，窗口内再点锅就能起锅（顺带验「出餐不会清锅」，真机修复过） */
+  d4.pushCustomer(["congee"]);
+  A(d4.serveCol(0).ok === true, "盘上那份送给顾客");
+  A(d4.plates().length === 0, "盘空了");
+  A(d4.stations()[0].food === "congee" && d4.stations()[0].windowOpen === true,
+    "出餐**没有**把锅里那份清掉（bf-14 真机修复：以前点盘会把等起锅的那份抹掉）");
+  A(d4.takeOut(0).ok === true, "盘一空，窗口内点锅 → 起锅成功");
+  A(d4.stations()[0].plate === "congee" && d4.stations()[0].food === null, "第二份进盘、锅位空出来");
+  /* 窗口超时 → 糊 + 记账 + 不自动清（必须双击） */
+  d4.trash(0);
+  A(d4.placeEx("congee", null).ok === true, "重新下一份白粥");
+  for (let i = 0; i < 400 && d4.stations()[0].state !== "burnt"; i++) d4.tick(1 / 60);
+  A(d4.stations()[0].state === "burnt", "没人起锅 → 窗口走完那份**糊在锅里**（本轮唯一的报废来源）");
+  A(d4.state().burnt === 1 && d4.state().expire === 1, "记账：burnt=1 / expire=1（忘起锅）",
+    "burnt=" + d4.state().burnt + " expire=" + d4.state().expire);
+  A(d4.placeEx("congee", null).why === "station-occupied", "糊着的时候不能再下料（station-occupied）");
+  d4.tick(20);
+  A(d4.stations()[0].state === "burnt" && d4.stations()[0].food === "congee",
+    "糊残骸**不会自动清**（bf-14：以前 14 秒自己消失）—— 必须双击", d4.stations()[0].state);
+  const scToss = d4.state().score;
+  A(d4.trashCol(0) === true, "双击第 0 列 → 丢掉糊的（锅 + 盘）");
+  A(d4.state().score === scToss, "丢垃圾桶不扣分");
+  A(d4.stations()[0].food === null, "锅清空");
+  A(d4.placeEx("congee", null).ok === true, "丢掉后这一列马上能再用");
+  d4.trash(0);

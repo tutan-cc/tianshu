@@ -1,0 +1,6 @@
+        var txt = s.state === "burnt" ? PAN_BURNT_TEXT
+                : (s.state === "perfect" ? (busy ? PAN_BLOCKED_TEXT : (PAN_PICK_TEXT + " " + left.toFixed(1) + "s"))
+                : (s.state === "over" ? "过火 · 可上" : "生 " + (s.t / 1000).toFixed(1) + "s"));
+        g.fillStyle = s.state === "burnt" ? "#ffd0d8"
+                    : (s.state === "perfect" ? (busy ? "#ffd0d8" : (lastSec && blink ? "#ffffff" : "#ddffe9"))
+                    : "rgba(255,255,255,.60)");

@@ -1,0 +1,12 @@
+      /* bf-14：锅里「恰好」→ 这行小字变成起锅指令（盘占着就明说「没地方放」，红闪）*/
+      g.font = fontOf(FONT.micro, true);
+      if (picking && busy) {
+        g.fillStyle = lastSec && blink ? "#ffffff" : PAL.red;
+        g.fillText("盘占着 · 没地方放", cx, b.y + 29);
+      } else if (picking) {
+        g.fillStyle = lastSec && blink ? "#ffffff" : PAL.green;
+        g.fillText("起锅！点一下这口锅", cx, b.y + 29);
+      } else {
+        g.font = fontOf(FONT.micro, false); g.fillStyle = "rgba(255,255,255,.34)";
+        g.fillText(busy ? "盘里还有一份" : (fd ? "在烧" : "空着 · 点食材"), cx, b.y + 29);
+      }

@@ -21,9 +21,16 @@
       绑定写死：FOOD_IDS[i] ↔ 灶位 i ↔ 盘 i，一一对应、终身不可互换（columnOf 纯函数）。
    1) 「点一下食物，食物会自动进入它对应的锅」：单击食材桶 → 自动进它那一列下锅。
       该列锅正忙 / 该列盘里还有一份 → 拒绝并给原因码（station-occupied / plate-occupied）。
-   2) 「熟了之后点一下就可以给顾客」：完美窗口一到自动落到本列专属盘；
-      单击该盘 → 自动送给「正在需要这份、且耐心最少」的顾客；
+   2) 「锅里熟了必须在规定时间内起锅」（bf-14 用户要求）：完美一到**不再自动落盘**，
+      锅内立刻进入 SERVE_WINDOW 秒的「起锅窗口」（火候暂停 + 倒计时环）：
+        · 窗口内**单击锅** = 起锅 → 落进本列专属盘（盘上从此永久保鲜）；
+        · 该列盘里已经有一份（「备用餐盘里放着」）→ 没地方放：提示「盘里还有一份，先送出去」，
+          窗口**继续走**，走完这份就糊在锅里（这是本作唯一的报废来源）；
+        · 糊了 → 这口锅被那份占死，**双击锅（或该列盘）丢掉**才能再用（不扣分）。
+      单击盘 → 自动送给「正在需要这份、且耐心最少」的顾客；
       此刻没人需要 → 不消耗、留在盘上（盘上永久保鲜，没有任何倒计时）并提示「现在没人要这份」。
+      ⚠ 与 bf-3 的**有意改动**：盘里有一份时**允许继续下锅**（用户原话「餐盘可以一直放着，
+      锅里也可以同时煮着」）—— 否则「起锅没地方放 → 糊」这条规则永远触发不到。
    3) 「点两下是扔进垃圾桶」：双击盘（或双击锅内成品）→ 丢垃圾桶，清空锅与盘，不扣分。
       糊掉的那份单击被拒（原因码 burnt，提示「糊了，只能丢掉」）→ 只能双击丢掉；
       糊的若硬端给顾客（点顾客卡自动配盘那条路）→ 顾客当场离开（现有规则不变）。
@@ -32,12 +39,11 @@
       可以一直放着不会冷掉」）**：落盘那一刻是什么档就永远是什么档
       （完美份恒为「热乎」14 分），盘上没有倒计时、不会变凉、不会变糊，
       也不会自己消失 —— 放多久都能上餐，得分一分不减。
-      压力全部留在锅里（生 → 恰好 → 过火 → 糊），见上面那条火候状态机。
-
+      压力全部留在锅里（生 → 恰好 → **限时起锅** → 糊），见上面那条火候状态机与第 2) 条。
    5) 顾客陆续进店（同时最多 3 位），每位 1–3 样早餐；订单卡有耐心倒计时条
    6) 糊菜端给顾客 → 该顾客直接不满离开（扣分）；糊掉的可丢垃圾桶（不扣分，只浪费时间；
-      **锅里**的糊残骸留 14 秒自动清 —— 盘上不会自动清，放多久都还在）
-
+      **锅里**的糊残骸**不再自动清**（bf-14：以前 14 秒自动消失 → 现在必须双击 ——
+      用户原话「想再使用锅，就要双击扔掉里面的食物」）；盘上更不会自动清，放多久都还在）
    7) 规定时间内（默认 75s）服务满 N 位（默认 8 位）即通过，否则失败
    8) 难度曲线：随时间推移顾客来得更快、订单更长、耐心更短
    好感结算（页面规则层调用）：
@@ -137,32 +143,46 @@
     tick: 1,         // 每完成一样订单的服务分
     star: 12         // 一条订单全部完美 → 额外分
   };
-  /* ── 盘上永久保鲜（bf-13 用户要求）────────────────────────────────────────
-     用户原话：「帮我修改一下早餐游戏的备用餐盘，就是做好的早餐放旁边的盘子
-               不要有倒计时，可以一直放着不会冷掉」。
-     于是「锅」与「盘」是两套完全独立的规则：
-       · 锅（烹饪过程，一个字都没改）：t < dur 生 → dur..dur+pw 恰好
-         → dur+pw..burnAt 过火 → ≥burnAt 糊。**该糊还是糊**，糊了只能双击丢掉。
-       · 盘（做好的那份）：落盘那一刻是什么档，就永远是什么档 ——
-         不降档（完美份恒为「热乎」14 分）、没有倒计时、不会变凉、不会变糊、
-         也不会自己消失；放多久都能上餐，得分一分不减。
-     HEAT 里 热乎(1.5s) → 温(3.0s) → 凉(4.5s) 这条曲线仍然保留，但只作为
-     heatTierOf() 这个**纯曲线函数**的定义（单测直接验它）；盘上路径一律用
-     age = 0 取值（= 冻结在落盘那一刻），所以盘上永远走不到降档。
-     SERVE_WINDOW 也只剩一个用途：旧机制里「无盘的现做灶位」的锅内出餐窗口
-     （9 列都有盘 → 这条路径恒不触发），与 openServeWindow / expireServeWindows
-     一起作为兼容层保留。
-     火候过火（没在完美窗口出锅）的份再扣 3 分 → 温 7：那是**锅里**的火候属性，
-     不是「放凉了」，所以盘上永久保鲜之后它照旧成立（盘上完美份 14 / 过火份 7）。 */
-  var SERVE_WINDOW = 4.5;                    // 兼容层：锅内出餐窗口（盘上不再用它计时）
-  var SERVE_WARN_SEC = 1.0;                  // 最后 1 秒：红闪（同上，只属于锅内窗口）
+  /* ── 锅内「限时起锅」（bf-14 用户要求）────────────────────────────────────
+     用户原话：「餐盘可以一直放着，锅里也可以同时煮着，但是锅里的熟了必须在规定时间内起锅啊，
+               如果备用餐盘里放着，锅里要起锅的没地方放就只能糊掉，然后想再使用锅，
+               就要双击扔掉里面的食物」。
+     「锅」与「盘」是两套完全独立的规则：
+       · 盘（做好的那份）＝ **永久保鲜**（bf-13 原样保留）：落盘那一刻是什么档就永远是什么档
+         （完美份恒为「热乎」14 分），没有倒计时、不会凉、不会糊、不会自己消失。
+       · 锅（烹饪 + 起锅）＝ 本作**唯一的压力点**：
+           t < dur            生     —— 点食材下锅，烧着
+           dur..dur+pw        恰好   —— **立刻进入「起锅窗口」**（火候暂停，倒计时 SERVE_WINDOW 秒）
+           窗口内单击锅        起锅   —— 落进该列专属盘（盘上从此永久保鲜）
+           窗口走完还没起锅    糊     —— st.burnt++ / st.expire++，锅被这份占死
+           糊了之后            **必须双击锅（或该列盘）丢掉**才能再用这口锅（不扣分）
+       · 该列盘里已经有一份 → 起锅**没地方放**：提示「盘里还有一份，先送出去」，
+         窗口**继续走**（不暂停、不宽限）→ 走完就糊。这正是用户那句「没地方放就只能糊掉」。
+     为什么窗口内要「暂停火候」：不然窗口会被完美窗口 pw（0.6~1.0s）提前吃掉，
+     「规定时间内起锅」会变成「1 秒内起锅」；把火候按住，SERVE_WINDOW 才是玩家真正拥有的秒数
+     （旧的 openServeWindow 就是按这个思路写的，这里沿用同一手法，并把窗口接到**每一列**上）。
+     两个如实记录的副作用：
+       ① 默认玩法下「过火」这一档不再出现（完美一到就定格等人起锅）；cookState() 的四段曲线
+          **一个字都没改**，「按住看火」（manual / setCook / debug.place）那条路照样能完整看到
+          生 → 恰好 → 过火 → 糊（单测仍在验它）；
+       ② autoPlate（熟了自动落盘）**默认关**：它是 bf-3 起的旧规则，现在只剩「显式传
+          autoPlate:true」这一条调试 / 老回归通道，页面（index.html 从不传它）永远走不到。 */
+  var SERVE_WINDOW = 4.5;                    // 锅内**起锅窗口**（秒）：锅里熟了必须在这段时间内起锅
+  var SERVE_WARN_SEC = 1.0;                  // 窗口最后一秒：倒计时环红闪
   var HEAT = {
     hotSec: SERVE_WINDOW / 3, warmSec: SERVE_WINDOW * 2 / 3, coldSec: SERVE_WINDOW,
     hot: 14, warm: 10, cold: 6,
     overPenalty: -3
   };
   var HOT_MS = HEAT.hotSec * 1000;   // 兼容旧字段名：热乎窗口（毫秒）
-  var BURNT_LIFE_MS = 14000;// 烧糊的残骸在**锅里**留 14 秒自动清（盘上不会自动清：盘上放多久都在）
+  /* 锅内糊了之后**不再自动清**（bf-14）：用户要求「想再使用锅，就要双击扔掉里面的食物」。
+     BURNT_LIFE_MS 保留常量名（旧调用方 / 老报告还在读它），但 bf-14 起 step() 不再用它。 */
+  var PAN_BURNT_STICKY = true;               // 糊的锅只能靠玩家双击清（不自动清、不过期）
+  var BURNT_LIFE_MS = 14000;                 // 兼容保留：bf-13 及以前「锅内残骸 14 秒自动清」
+  /* 锅内三句状态文案（规则层与 UI 同源，测试直接读常量断言）*/
+  var PAN_PICK_TEXT = "恰好 · 起锅";          // 锅里刚好（窗口内）那行字
+  var PAN_BLOCKED_TEXT = "盘占着 · 没地方放"; // 盘被占 → 起锅没地方放（窗口继续走 → 最终糊）
+  var PAN_BURNT_TEXT = "糊了 · 双击丢掉";     // 糊锅那行字（必须双击才清）
   /* ── 盘上永久保鲜（bf-13）的两个新常量 ────────────────────────────────────
      PLATE_KEEP      = true  ：盘上那份不降档 / 不过期 / 不消失（当前唯一口径）
      PLATE_NO_TIMER  = Infinity：盘上的「剩余秒数」哨兵 —— 既然没有倒计时，
@@ -172,8 +192,7 @@
   var PLATE_NO_TIMER = Infinity;
   /* ── 每个锅都配备一个空盘（要求 A5）────────────────────────────────────────
      9 个灶位各配 1 个专属盘，索引一一对应（i 号灶位 ↔ i 号盘），没有共用、没有限量。
-     压力只留在锅里（忘出锅 → 糊），盘上不再承担任何计时压力。 */
-
+     压力只留在锅里（**限时起锅**：窗口内没起锅 → 糊），盘上不承担任何计时压力。 */
   var PLATES_TOTAL = COL_N;                  // 盘数 = 列数 = 9
   var PREP_PLATES = COL_N;                   // 兼容旧字段名（现在每列都有盘）
   var MAX_PLATES = PLATES_TOTAL;
@@ -265,8 +284,9 @@
   function serveStationIndices() { return []; }
   /** 每列一个专属盘（i 号灶位 ↔ i 号盘）*/
   function hasPlate(stationIdx) { return stationIdx >= 0 && stationIdx < COL_N; }
-  /** 出餐窗口（旧机制的兼容保留）：现在食物一到「恰好」就自动落到专属盘，
-      锅内窗口不再打开，所以这个判定恒为 false；纯函数保留给单测 / 旧调用方。 */
+  /** 锅内「起锅窗口」是否开着（bf-14 起这条路径**每一列都会真的走**）：
+      锅里一到「恰好」→ 开窗 SERVE_WINDOW 秒，期间火候暂停（这才是玩家真正能用的起锅时间）；
+      窗口内单击锅 = 起锅落盘；窗口走完还没起锅 = 这份糊在锅里（必须双击才清）。 */
   function isServeWindowOpen(s) { return !!(s && s.food && s.state === "perfect" && (s.serveWin || 0) > 0); }
   /** 盘上停留会不会「超时变糊」—— bf-13 起**恒为 false**：盘上永久保鲜，不存在过期。
       函数名与签名保留（旧调用方 / 单测仍可读它），参数 ageSec 只留给兼容
@@ -767,10 +787,11 @@
     var st = {
       cfg: { duration: cfg.duration > 0 ? cfg.duration : 75, goal: cfg.goal > 0 ? cfg.goal : 8,
              target: cfg.target || null,
-             /* 自动落盘（要求 A3：熟了自动落到本列专属盘）——
-                bf-3 起这是核心规则，所以默认打开；显式传 autoPlate:false 才关掉
-                （关掉是「按住看火」的调试手感：食物留在锅里，手动 takePlate 才落盘）。 */
-             autoPlate: cfg.autoPlate !== false,
+             /* 熟了**不再**自动落盘（bf-14 用户要求「锅里熟了必须在规定时间内起锅」）：
+                默认关闭，而且**不传这个参数时也是关闭**（页面 / index.html 从不传它，
+                所以玩家那一侧永远走「限时起锅」）。只有显式传 autoPlate:true 才回到旧口径
+                （调试 / 老回归用：一到「恰好」同帧落盘，锅内不开窗口）。 */
+             autoPlate: cfg.autoPlate === true,
              /* bf-12 练手局：一路从 start() 的 opts 带到这里。newState 只挑白名单字段，
                 所以必须显式列出来 —— 否则 st.cfg.practice 永远是 undefined。 */
              practice: cfg.practice === true },
@@ -817,12 +838,14 @@
     var k = plateIdxOfStation(st, stationIdx);
     return k >= 0 ? st.plates[k] : null;
   }
-  /** 灶位是否空着可用（锅空 + 本列的专属盘也空）—— 盘占着就不能再下料 */
+  /** 灶位是否空着可用 —— bf-14 起**只看锅**：锅里没东西（也没有起锅窗口）就能下料。
+      盘占着也允许下料（用户原话「餐盘可以一直放着，锅里也可以同时煮着」）——
+      代价是这份熟了**没地方起锅**：窗口内点锅会被拒（plate-occupied），窗口走完就糊。 */
   function stationFree(st, stationIdx) {
     var s = stationByIdx(st, stationIdx);
     if (!s || s.food) return false;
     if (isServeWindowOpen(s)) return false;
-    return plateIdxOfStation(st, stationIdx) < 0;
+    return true;
   }
   /** 兼容旧签名：现在食材只进自己那一列 → 有空就返回该列，否则 -1 */
   function firstFreeStation(st, foodId) {
@@ -834,7 +857,7 @@
   function mkPlate(st, stationIdx, foodId, state) {
     var tier = heatTierOf(state, 0);                  // age=0：落盘即定格，之后不再降档
     return { station:stationIdx, food:foodId, state:state, tier:tier, hot:(tier === "hot"),
-             at:st.elapsed, left:PLATE_NO_TIMER, burning:false, burntAt:0,
+             at:st.elapsed, age:0, left:PLATE_NO_TIMER, burning:false, burntAt:0,
              cookSec:Math.round((st.stations[stationIdx].t || 0)) / 1000, seen:false };
   }
   /** 刷新一盘：只更新「放了多久」（p.age，纯记录值），**档位 / 倒计时一律不再变**。
@@ -927,7 +950,9 @@
     var s = stationByIdx(st, si);
     if (!s) return no("no-free-station");
     if (s.food) return no("station-occupied");                 // 锅里还在做：生的 / 熟的 / 糊的残骸
-    if (plateIdxOfStation(st, si) >= 0) return no("plate-occupied");   // 本列盘里还有一份 → 不准再下料
+    /* bf-14：本列盘里还有一份**也允许下料**（用户原话「餐盘可以一直放着，锅里也可以同时煮着」）。
+       这份熟了会没地方起锅 → 窗口内点锅被拒（plate-occupied）→ 窗口走完糊在锅里。
+       原因码 plate-occupied 因此从「下料被拒」搬到了「起锅被拒」（见 takeOut）。 */
     s.food = foodId; s.t = 0; s.state = "raw"; s.doneAt = 0; s.at = st.elapsed;
     s.serveWin = 0; s.readyAt = 0; s.burntAt = 0;  // 下料即清空上一次的窗口 / 糊焦计时
     s.manual = !!opts.manual;                     // manual = 按住盯火候（不自动落盘，测试/调试用）
@@ -945,8 +970,9 @@
   }
   /** 兼容旧签名：成功返回 true（原因码走 placeFoodEx / st.lastPlace） */
   function placeFood(st, foodId, stationIdx) { return placeFoodEx(st, foodId, stationIdx, null).ok; }
-  /** 手动出餐：把锅里做好的食物拾到它自己的专属盘上（自动落盘模式下由 step 代劳）。
-      每列都有盘（要求 A5），所以任何一列都能落盘。
+  /** 手动出餐（低层原语）：把锅里做好的食物拾到它自己的专属盘上。
+      bf-14 起玩家那条路走 takeOut()（带「起锅窗口 / 盘被占」判定）；这个函数保留原语义，
+      供 debug.burnPlate / debug.plateNow 与老回归直接调用。
       注意：这里**也接糊的份**（s.state === "burnt" 时不算 raw / idle）—— 这正是
       「糊盘」唯一的来源（锅里糊了再端上盘）；盘上自己永远不会变糊（bf-13 永久保鲜）。 */
   function takePlate(st, stationIdx) {
@@ -961,9 +987,9 @@
     s.food = null; s.t = 0; s.state = "idle"; s.doneAt = 0; s.serveWin = 0; s.burntAt = 0;
     return true;
   }
-  /** 自动落盘（要求 A3：熟了自动落到本列专属盘）：
-      锅里一到「恰好」就落到本列的盘上，不用手动出锅、锅位立刻空出来。
-      9 列都生效（不再分「预备盘 / 现做」）；manual（按住看火）时不落盘。 */
+  /** 自动落盘（**旧口径 · bf-14 起默认关闭**）：锅里一到「恰好」就落到本列的盘上。
+      只有显式 cfg.autoPlate:true（调试 / 老回归）才走这里；页面默认走「限时起锅」。
+      manual（按住看火）时也不落盘。 */
   function autoPlateStations(st) {
     var out = [];
     if (!st || !st.cfg || !st.cfg.autoPlate) return out;
@@ -1091,7 +1117,14 @@
   function serveFromColumn(st, stationIdx) {
     if (!st || !st.running || st.over) return { ok:false, why:"not-running", hint:"还没开局" };
     var k = plateIdxOfStation(st, stationIdx);
-    if (k < 0) return { ok:false, why:"no-plate", hint:"盘里还空着 —— 先点下面的食材下锅", station:stationIdx };
+    if (k < 0) {
+      /* 盘空：锅里若正有一份等着起锅，提示就直接指向那口锅（bf-14） */
+      var s0 = stationByIdx(st, stationIdx);
+      var h0 = isServeWindowOpen(s0)
+        ? ("盘里还空着 —— 锅里那份正等着起锅：点一下锅（还剩 " + round1(serveWinLeft(st, s0)) + "s）")
+        : "盘里还空着 —— 先点下面的食材下锅";
+      return { ok:false, why:"no-plate", hint:h0, station:stationIdx };
+    }
     var p = st.plates[k];
     refreshPlate(st, p);
     if (p.state === "burnt")
@@ -1105,20 +1138,66 @@
     return r;
   }
 
-  /* ── 出餐窗口（现做灶位）：出一份就要立刻送，超时即糊 ────────────────────
-     openServeWindow：锅内刚到「恰好」→ 打开 SERVE_WINDOW 秒的窗口，并让火候暂停
-       （step 里对处于窗口中的那份不再累加火候），所以这 3 秒是玩家真正能用的时间。
-     expireServeWindows：窗口走完还没端走 → 那份糊掉（锅体焦黑 + 冒烟），必须丢垃圾桶才能再用。
-     取出并立刻送往顾客由 takeReady 负责（服务记账走 serveFoodToCustomer，与盘上出餐同源）。 */
+  /* ── 锅内「起锅窗口」（bf-14）：熟了必须限时起锅，超时即糊，糊了必须双击 ────
+     openServeWindow：锅内刚到「恰好」→ 打开 SERVE_WINDOW 秒的窗口 + 暂停火候
+       （step 里对处于窗口中的那份不再累加火候）→ 这 4.5 秒是玩家真正能用的时间。
+     takeOut        ：窗口内**单击锅** = 起锅 → 落进该列专属盘；盘被占 → 没地方放（plate-occupied），
+                      窗口**继续走**（这里什么都不改），走完就糊。
+     burnStation    ：窗口超时 → 那份糊掉（锅体焦黑 + 冒烟 + 记账 + 飘字）；
+                      bf-14 起糊残骸**不再自动清**，必须双击锅 / 盘才清得掉。
+     取出并立刻送往顾客那条老路（takeReady）原样保留：它只服务「没有专属盘」的灶位（现在恒为空集）。 */
   function openServeWindow(st, stationIdx) {
     var s = stationByIdx(st, stationIdx);
     if (!st || !s || !s.food) return null;
     s.serveWin = SERVE_WINDOW;
-    s.readyAt = st.elapsed;
+    s.readyAt = st.elapsed;                 // 窗口起点：倒计时按 st.elapsed 算（不累积浮点误差）
     return { t:"window", idx:stationIdx, food:s.food, left:SERVE_WINDOW };
   }
-  /** 独立跑一次「窗口超时结算」（step 每帧已内联同样逻辑；这个入口供单测 / 外部调用）。
-      调用前应先把 serveWin 递减到 0（例如 step 的帧推进）。 */
+  /** 窗口剩余秒数（纯函数：窗口起点 readyAt 起算，确定性、可断言、不依赖帧率）*/
+  function serveWinLeft(st, s) {
+    if (!st || !s || !s.food || s.state !== "perfect") return 0;
+    var a = Number(s.readyAt); if (!(a >= 0)) return 0;
+    return Math.max(0, SERVE_WINDOW - (st.elapsed - a));
+  }
+  /** **起锅**（单击锅内的成品）→ 落进该列专属盘。返回 { ok, why, hint, ... }：
+       · 没开局 / 锅空          → not-running / no-food
+       · 还没熟（生）           → raw（提示还要几秒）
+       · 已经糊了               → burnt（提示「糊了，只能丢掉（双击）」）
+       · 该列盘里已经有东西     → **plate-occupied**：起锅没地方放 → 提示先送出去，
+                                  窗口**继续走**，走完就糊（用户要求的那条规则）
+       · 盘空                   → 起锅成功（盘上从此永久保鲜，档位冻结在落盘那一刻）*/
+  function takeOut(st, stationIdx) {
+    if (!st || !st.running || st.over) return { ok:false, why:"not-running", hint:"还没开局", station:stationIdx };
+    var s = stationByIdx(st, stationIdx);
+    if (!s) return { ok:false, why:"no-station", hint:"没有这一列", station:stationIdx };
+    if (!s.food) return { ok:false, why:"no-food", hint:"锅里空着 —— 先点下面的食材下锅", station:stationIdx };
+    if (s.state === "burnt")
+      return { ok:false, why:"burnt", hint:"糊了，只能丢掉（双击这一列）", food:s.food, station:stationIdx };
+    if (s.state === "raw" || s.state === "idle")
+      return { ok:false, why:"raw", station:stationIdx, food:s.food, left:serveWinLeft(st, s),
+               hint:"还没熟 —— " + (FOOD[s.food] || {}).n + " 要 " + FOOD[s.food].dur.toFixed(1) + "s" };
+    if (plateIdxOfStation(st, stationIdx) >= 0)
+      return { ok:false, why:"plate-occupied", station:stationIdx, food:s.food, left:serveWinLeft(st, s),
+               hint:(PLACE_WHY["plate-occupied"] || "盘里还有一份，先送出去") + "（双击盘可以丢掉）" };
+    var foodId = s.food, state = s.state;
+    if (!takePlate(st, stationIdx)) return { ok:false, why:"no-plate", hint:"这一列没有专属盘", station:stationIdx };
+    var p = plateOfStation(st, stationIdx);
+    return { ok:true, kind:"plated", why:"", station:stationIdx, food:foodId, state:state,
+             tier:(p ? p.tier : null), hot:!!(p && p.hot), left:0, plate:p };
+  }
+  /** 窗口超时 → 这份糊掉（锅体焦黑 + 冒烟 + 记账 + 飘字）。返回事件对象（step / expireServeWindows 共用）。*/
+  function burnStation(st, stationIdx, why) {
+    var s = stationByIdx(st, stationIdx);
+    if (!st || !s || !s.food) return null;
+    s.state = "burnt"; s.serveWin = 0; s.burntAt = st.elapsed;
+    st.burnt++; st.expire++;
+    st.smoke.push({ x:stationIdx, t:0, life:1.6 });
+    var bb = stationBox(stationIdx);
+    addFloat(st, "没起锅 · 糊了！", "#ff4d6d", 28, bb.x + bb.w / 2, bb.y + bb.h / 2);
+    return { t:"burnt", idx:stationIdx, food:s.food, why:why || "window-expired" };
+  }
+  /** 独立跑一次「起锅窗口超时结算」（step 每帧已内联同样逻辑；这个入口供单测 / 外部调用）。
+      判定按 st.elapsed：窗口起点起算满 SERVE_WINDOW 秒还没被起锅 → 糊。 */
   function expireServeWindows(st) {
     var ev = [];
     if (!st) return ev;
@@ -1128,13 +1207,10 @@
       if (!(s.serveWin > 0)) continue;
       /* 窗口只属于「恰好」那一刻：一旦这份食物越过完美窗口（变过火），就没得端了 */
       if (s.state !== "perfect") { s.serveWin = 0; continue; }
-      if (s.serveWin > 0) continue;                      // 窗口还没走完 → 继续等玩家出手
-      s.state = "burnt";                                 // 窗口走完还没端走 → 忘出锅，糊
-      st.burnt++; st.expire++;
-      st.smoke.push({ x:i, t:0, life:1.6 });
-      var bb = stationBox(i);
-      addFloat(st, "忘出锅 · 糊了！", "#ff4d6d", 28, bb.x + bb.w / 2, bb.y + bb.h / 2);
-      ev.push({ t:"burnt", idx:i, food:s.food, why:"window-expired" });
+      s.serveWin = serveWinLeft(st, s);
+      if (s.serveWin > 0) continue;                      // 窗口还没走完 → 继续等玩家起锅
+      var be = burnStation(st, i, "window-expired");     // 窗口走完还没起锅 → 糊
+      if (be) ev.push(be);
     }
     return ev;
   }
@@ -1246,9 +1322,11 @@
     if (!p) return { ok:false, why:"no-plate" };
     refreshPlate(st, p);
     st.plates.splice(pi, 1);
-    /* 盘被取走 → 归属灶位立刻可用（糊的也算，见下面 burnt 分支） */
-    var owner = stationByIdx(st, p.station);
-    if (owner) { owner.food = null; owner.t = 0; owner.state = "idle"; owner.doneAt = 0; owner.serveWin = 0; owner.burntAt = 0; }
+    /* bf-14：盘被取走**只清盘，不动锅**。理由 —— 用户要求「餐盘可以一直放着，锅里也可以同时煮着」，
+       所以「盘上有存货」与「锅里在煮 / 在等起锅」可以同时成立；
+       老口径那句「盘被取走 → 归属灶位立刻可用」在当时是对的（锅里那份早就在盘上了），
+       现在再清一次会把玩家正在等起锅的那份**悄悄抹掉**（真机复现过：点盘出餐 → 锅里的熟份凭空消失）。
+       想清锅仍然只有一条路：双击（trashStation）。 */
     var tier = p.tier || heatTierOf(p.state, st.elapsed - p.at);
     return serveFoodToCustomer(st, c, p.food, p.state, tier, p.cookSec);
   }
@@ -1289,11 +1367,15 @@
         if (ns === "perfect") {
           s.doneAt = st.elapsed;
           ev.push({ t:"perfect", idx:i, food:s.food });
-          /* 旧机制的兼容保留：只有「没有专属盘」的灶位才会在锅内开「出餐窗口」。
-             现在 9 列都有盘（hasPlate 恒为 true），所以这一步永远不触发；
-             autoPlateStations 会在同一帧里把这份直接落到本列专属盘上。
-             注意 manual 只表示「别自动落盘」（按住看火 / 调试用），与窗口无关。 */
-          if (!hasPlate(i)) ev.push(openServeWindow(st, i));
+          /* bf-14：锅里一到「恰好」就开「起锅窗口」—— 玩家必须在 SERVE_WINDOW 秒内单击锅起锅。
+             两个例外（都不开窗口，保持旧手感）：
+               · manual（按住看火 / debug.place / setCook）：一路烧到过火、糊，单测验完整曲线；
+               · cfg.autoPlate:true（旧口径 · 调试 / 老回归）：同一帧由 autoPlateStations 落盘。 */
+          if (!s.manual && !st.cfg.autoPlate) {
+            ev.push(openServeWindow(st, i));
+            var wb0 = stationBox(i);
+            addFloat(st, "熟了 · 起锅！", PAL.green, 22, wb0.x + wb0.w / 2, wb0.y + wb0.h - 26);
+          }
         }
         if (ns === "burnt" && s.state !== "burnt") {
           st.burnt++;
@@ -1304,26 +1386,20 @@
         }
         s.state = ns;
       }
-      /* 出餐窗口倒计时（现做灶位）：窗口走完还没端走 → 当场糊 */
-      if (!hasPlate(i) && s.state === "perfect" && s.serveWin > 0) {
-        s.serveWin = Math.max(0, s.serveWin - dt);
+      /* 起锅窗口倒计时（bf-14 · 每一列都真的在走）：窗口走完还没起锅 → 当场糊，
+         这口锅被这份占死 —— 必须双击丢掉才能再用（下面不再有「自动清」这条路）。 */
+      if (s.food && s.state === "perfect" && s.serveWin > 0) {
+        s.serveWin = serveWinLeft(st, s);
         if (s.serveWin <= 0) {
-          s.state = "burnt"; st.burnt++; st.expire++;
-          st.smoke.push({ x:i, t:0, life:1.6 });
-          var wb = stationBox(i);
-          addFloat(st, "忘出锅 · 糊了！", "#ff4d6d", 28, wb.x + wb.w / 2, wb.y + wb.h / 2);
-          ev.push({ t:"burnt", idx:i, food:s.food, why:"window-expired" });
+          var be = burnStation(st, i, "window-expired");
+          if (be) ev.push(be);
         }
-      } else if (!hasPlate(i) && s.state !== "perfect" && s.serveWin > 0) {
+      } else if (s.food && s.state !== "perfect" && s.serveWin > 0) {
         s.serveWin = 0;                                  // 越过完美窗口 → 窗口作废
       }
-      /* 糊了又放着不管：残骸按壁钟时间留 14 秒自动清（连它的盘一起清），不至于永久堵灶 */
+      /* 糊残骸（bf-14）：**不再自动清**。用户原话「想再使用锅，就要双击扔掉里面的食物」，
+         所以这里只记一次糊的时刻（渲染 / 记账用），清空只走 trashStation（双击 / 右键）。 */
       if (s.state === "burnt" && !s.burntAt) s.burntAt = st.elapsed;
-      if (s.state === "burnt" && st.elapsed - s.burntAt > BURNT_LIFE_MS / 1000) {
-        s.food = null; s.t = 0; s.state = "idle"; s.serveWin = 0; s.readyAt = 0; s.burntAt = 0;
-        var kb = plateIdxOfStation(st, i);
-        if (kb >= 0) st.plates.splice(kb, 1);
-      }
     }
     /* 自动落盘（要求 A3）：一到「恰好」就落到本列的专属盘上（9 列都生效）*/
     var plated = autoPlateStations(st);
@@ -2190,7 +2266,7 @@
       duration: opts.duration > 0 ? opts.duration : 75,
       goal: opts.goal > 0 ? opts.goal : 8,
       target: opts.target || null,
-      autoPlate: opts.autoPlate !== false,           // 页面默认打开「做好自动落入专属盘」
+      autoPlate: opts.autoPlate === true,            // bf-14：默认**关闭**（熟了要玩家在窗口内点锅起锅）
       /* bf-12 练手局：不结算好感 / 不计每日一次 / 不写 S.breakfastDay（结算面板会明确标注）。
          门槛（好感 20~79、今天没送过）不在规则层 —— 它在页面 glue 的 bfCanSend 里；
          这里只负责「这一局不落账」。 */
@@ -2198,7 +2274,7 @@
       onFinish: (typeof opts.onFinish === "function") ? opts.onFinish : null
     };
     var st = newState(cfg);
-    st.cfg.autoPlate = cfg.autoPlate;                // 9 列都是「熟了自动落到本列专属盘」
+    st.cfg.autoPlate = cfg.autoPlate;                // bf-14 默认 false：9 列的熟份都停在锅里等起锅
 
     hostEl.innerHTML = "";
     hostEl.classList.add("bf-on");
@@ -2207,8 +2283,11 @@
     bar.appendChild(el("div", "bf-title", "🍳 早餐店 · 拼手速" + (cfg.target ? ("　→ " + cfg.target.name) : "") +
       (cfg.practice ? "　🎯 练手局 · 不影响好感" : "")));
     bar.appendChild(el("div", "bf-tip",
-      "① 点食材 → 自动进它正上方那一列的锅 ｜ ② 点上方专属盘 → 自动送给最急的顾客（耐心最少 / 快走的那位优先） ｜ " +
-      "③ 双击盘 → 丢垃圾桶（不扣分）· 盘上永久保鲜：没有倒计时、不会凉、不会糊，放多久都能上"));
+      "① 点食材 → 自动进它正上方那一列的锅 ｜ ② 锅里熟了要在 " + SERVE_WINDOW + " 秒内**点一下锅起锅**" +
+      "（落到本列专属盘）—— 盘被占了就没地方放，只能等它糊掉 ｜ " +
+      "③ 点专属盘 → 自动送给最急的顾客（耐心最少 / 快走的那位优先） ｜ " +
+      "④ 双击盘 / 锅 → 丢垃圾桶（不扣分）；**糊了必须双击丢掉才能再用这口锅** ｜ " +
+      "⑤ 盘上永久保鲜：没有倒计时、不会凉、不会糊，放多久都能上"));
     /* 声音开关：早餐店此前没有任何静音 / 音量设置 → 按用户要求用 localStorage.bfSoundOn（默认开），
        这里给一个真实按钮（与「收 摊」同款木牌样式，风格一致）；图例条左端的徽章是同一个开关的第二入口。 */
     var btnSound = mkBtn(soundLabel(), "bf-wood");
@@ -2284,9 +2363,11 @@
     /** 提示色：能补救的（盘占着 / 还没熟 / 没人要）用暖色，硬错误用红色 */
     function whyColor(why) { return (why === "plate-occupied" || why === "no-want" || why === "station-occupied") ? PAL.steelHot : PAL.red; }
 
-    /** 点锅（这一列的灶位）：锅里那份是什么状态就给什么提示；
-        已经在盘上的（自动落盘后）点锅 = 提示去点上方的盘；
-        锅内若有做好的（manual 模式）→ 手动落到本列盘上。 */
+    /** 点锅（这一列的灶位）—— bf-14 起**单击 = 起锅**：
+        锅内「恰好」且还在窗口里 → 落进本列专属盘（盘空才行）；
+        盘里已经有一份 → 起锅没地方放（暖色提示「盘里还有一份，先送出去」），
+        窗口**继续走** → 走完这份糊在锅里（再点锅只会提示「双击丢掉」）；
+        锅里还生 → 提示还要几秒；锅空 → 提示点食材 / 盘里那份先送出去。 */
     function actStation(i) {
       var s = st.stations[i];
       if (!s) return;
@@ -2297,15 +2378,18 @@
         else flash(label + " 空着 —— 点下面它那一列的食材下锅", PAL.dim);
         return;
       }
-      if (s.state === "burnt") { flash("糊了，只能丢掉（双击这一列）", PAL.red); return; }
-      if (s.state === "raw") { flash("锅里还在做 —— " + (FOOD[s.food] || {}).n + " 要 " + FOOD[s.food].dur.toFixed(1) + "s"); return; }
-      /* 锅里做好的（autoPlate 关掉时的调试手感）：点一下 = 落到本列专属盘 */
-      if (takePlate(st, i)) {
-        var pp = plateOfStation(st, i);
-        if (pp) { st.selected = { kind:"plate", idx:i }; flash("熟了 · 落到" + plateNameOf(i) + " —— 点盘送出去", PAL.green); }
+      var ro = takeOut(st, i);
+      if (ro.ok) {
+        st.selected = { kind:"plate", idx:i };
+        flash("起锅 · 落到" + plateNameOf(i) + "（" + (TIER_NAME[ro.tier] || "") + "）—— 点盘送出去", PAL.green);
         return;
       }
-      if (p) flash(label + " 的盘里还有一份，先送出去", PAL.steelHot);
+      if (ro.why === "burnt") { flash("糊了，只能丢掉（双击这一列）", PAL.red); return; }
+      if (ro.why === "raw") { flash("锅里还在做 —— " + (FOOD[s.food] || {}).n + " 要 " + FOOD[s.food].dur.toFixed(1) + "s"); return; }
+      if (ro.why === "plate-occupied") {
+        flash("盘里还有一份，先送出去 —— " + round1(ro.left) + "s 内不起锅这份就糊了", PAL.steelHot); return;
+      }
+      flash(ro.hint || "起不了锅", whyColor(ro.why));
     }
     /** 单击盘（要求 A3）：自动送给正在需要这份、且耐心最少的顾客；
         没人要 → 不消耗，留在盘上（永久保鲜，放多久都能上）；糊了 → 只能双击丢。 */
@@ -2548,9 +2632,12 @@
 
       /* 第二行：明细 + 赠送对象 */
       g.font = fontOf(FONT.tiny, false); g.fillStyle = PAL.dim;
+      var pickN = 0;
+      for (var wi = 0; wi < st.stations.length; wi++) if (isServeWindowOpen(st.stations[wi])) pickN++;
       g.fillText("完美 " + st.perfect + " · 温 " + (st.heat.warm || 0) + " · 凉 " + (st.heat.cold || 0) +
-                 " · 糊 " + st.burnt + "（忘取 " + (st.expire || 0) + "）· 跑单 " + st.angry + " · 上错 " + st.wrong +
-                 " · 盘上 " + st.plates.length + "/" + PLATES_TOTAL + " · 盘上永久保鲜（无倒计时）", 18, 50);
+                 " · 糊 " + st.burnt + "（忘起锅 " + (st.expire || 0) + "）· 跑单 " + st.angry + " · 上错 " + st.wrong +
+                 " · 盘上 " + st.plates.length + "/" + PLATES_TOTAL + " · " +
+                 (pickN > 0 ? ("锅里等着起锅 " + pickN + " 份") : "盘上永久保鲜（无倒计时）"), 18, 50);
       if (st.cfg.target) {
         g.textAlign = "right"; g.fillStyle = PAL.sakura; g.font = fontOf(16, true);
         g.fillText("这份早餐 → " + st.cfg.target.name + "（好感 " + st.cfg.target.bond + "）" +
@@ -2737,12 +2824,13 @@
       var fd = s.food ? FOOD[s.food] : null;
       var R = Math.min(b.w, b.h) / 2 - 9;
       var ready = !!fd && s.state === "perfect";
-      var left = Math.max(0, s.serveWin || 0);           // 旧机制：锅内出餐窗口剩余（现在恒为 0）
+      var left = Math.max(0, s.serveWin || 0);           // bf-14：锅内「起锅窗口」剩余秒数（真的在走）
       var frac = SERVE_WINDOW > 0 ? Math.max(0, Math.min(1, left / SERVE_WINDOW)) : 0;
-      var lastSec = ready && left <= SERVE_WARN_SEC;
+      var lastSec = ready && left > 0 && left <= SERVE_WARN_SEC;
+      var picking = ready && left > 0;                  // 正在窗口里等人起锅
       var blink = Math.floor(nowMs() / 200) % 2 === 0;
       g.save();
-      if (busy) g.globalAlpha = 0.42;                       // 盘里还有一份 → 锅位半透明
+      if (busy && !fd) g.globalAlpha = 0.42;                // 盘里还有一份（且锅空着）→ 锅位半透明
       var pg = g.createLinearGradient(0, b.y, 0, b.y + b.h);
       if (s.kind === "pot") { pg.addColorStop(0, "#414859"); pg.addColorStop(1, "#12151d"); }
       else if (s.kind === "griddle") { pg.addColorStop(0, "#37303c"); pg.addColorStop(1, "#141118"); }
@@ -2803,7 +2891,7 @@
         drawFood(g, s.food, FS.pan, s.state);
         g.restore();
       }
-      /* 旧机制的锅内出餐窗口环（兼容保留：现在食物一到「恰好」就落盘，不会开窗口）*/
+      /* 起锅窗口倒计时环（bf-14）：跟着火候环外圈走 —— 橙 → 最后一秒红闪 → 走完变焦黑锅 */
       if (ready && left > 0) {
         g.strokeStyle = lastSec && blink ? "#ffffff" : (lastSec ? PAL.red : PAL.steelHot);
         g.lineWidth = lastSec ? 12 : 10;
@@ -2825,8 +2913,22 @@
       g.textBaseline = "middle"; g.textAlign = "center";
       g.font = fontOf(FONT.panName, true); g.fillStyle = PAL.ink;
       g.fillText(colNameOf(s.col), cx, b.y + 13);
-      g.font = fontOf(FONT.micro, false); g.fillStyle = "rgba(255,255,255,.34)";
-      g.fillText(busy ? "盘里还有一份" : (fd ? "在烧" : "空着 · 点食材"), cx, b.y + 29);
+      /* bf-14：锅里「恰好」→ 这行小字变成起锅指令（盘占着就明说「没地方放」，红闪）*/
+      g.font = fontOf(FONT.micro, true);
+      if (picking && busy) {
+        g.fillStyle = lastSec && blink ? "#ffffff" : PAL.red;
+        g.fillText("盘占着 · 没地方放", cx, b.y + 29);
+      } else if (picking) {
+        g.fillStyle = lastSec && blink ? "#ffffff" : PAL.green;
+        g.fillText("起锅！点一下这口锅", cx, b.y + 29);
+      } else if (s.state === "burnt") {
+        /* bf-14：糊锅不再「在烧」——它现在是**占死**这口锅的那份，必须双击才清 */
+        g.font = fontOf(FONT.micro, true); g.fillStyle = "#ffd0d8";
+        g.fillText("不能再下料 · 双击丢", cx, b.y + 29);
+      } else {
+        g.font = fontOf(FONT.micro, false); g.fillStyle = "rgba(255,255,255,.34)";
+        g.fillText(busy ? "盘里还有一份" : (fd ? "在烧" : "空着 · 点食材"), cx, b.y + 29);
+      }
       if (s.state === "burnt") {
         /* 焦黑锅 + 红叉（贴图）+ 冒烟 */
         if (drawUiIcon(g, "cross", cx - 24, cy - 24, 48)) IA.drawn.uiCross = (IA.drawn.uiCross || 0) + 1;
@@ -2843,10 +2945,12 @@
       }
       if (fd) {
         g.font = fontOf(FONT.micro, true); g.textAlign = "center";
-        var txt = s.state === "burnt" ? "糊了 · 双击丢掉"
-                : (s.state === "perfect" ? "恰好 · 落盘"
+        var txt = s.state === "burnt" ? PAN_BURNT_TEXT
+                : (s.state === "perfect" ? (busy ? PAN_BLOCKED_TEXT : (PAN_PICK_TEXT + " " + left.toFixed(1) + "s"))
                 : (s.state === "over" ? "过火 · 可上" : "生 " + (s.t / 1000).toFixed(1) + "s"));
-        g.fillStyle = s.state === "burnt" ? "#ffd0d8" : (s.state === "perfect" ? "#ddffe9" : "rgba(255,255,255,.60)");
+        g.fillStyle = s.state === "burnt" ? "#ffd0d8"
+                    : (s.state === "perfect" ? (busy ? "#ffd0d8" : (lastSec && blink ? "#ffffff" : "#ddffe9"))
+                    : "rgba(255,255,255,.60)");
         g.fillText(txt, cx, b.y + b.h - 9);
       }
       g.textAlign = "left";
@@ -2920,7 +3024,7 @@
       g.font = fontOf(FONT.label, true); g.fillStyle = PAL.gold; g.textAlign = "left"; g.textBaseline = "middle";
       g.fillText("食材 · 点一下自动进它正上方那一列的锅", LAY.buckets.x0, LAY.buckets.y + LAY.bucketLabelDy);
       g.textAlign = "right"; g.fillStyle = PAL.dim; g.font = fontOf(FONT.tiny, false);
-      g.fillText("9 列 × 每列 1 锅 1 专属盘 · 盘上永久保鲜：没有倒计时 / 不会凉 / 不会糊，放多久都能上",
+      g.fillText("9 列 × 每列 1 锅 1 专属盘 · 熟了 " + SERVE_WINDOW + "s 内点锅起锅 · 盘被占了就只能糊掉",
                  W - LAY.buckets.x0, LAY.buckets.y + LAY.bucketLabelDy);
       g.textAlign = "left";
     }
@@ -2932,7 +3036,7 @@
       g.strokeStyle = "rgba(255,214,110,.35)"; g.lineWidth = 2; roundRect(g, x, y, w, h, 8); g.stroke();
       g.textBaseline = "middle"; g.textAlign = "center";
       g.font = fontOf(FONT.small, true); g.fillStyle = PAL.ink;
-      g.fillText("① 点食材 → 自动下锅　｜　② 点专属盘 → 送给正在等的顾客　｜　③ 双击盘 → 丢垃圾桶（不扣分）　｜　④ 盘上永久保鲜：不会凉 · 不会糊",
+      g.fillText("① 点食材 → 自动下锅　｜　② 熟了 " + SERVE_WINDOW + "s 内点锅起锅　｜　③ 点盘 → 送给正在等的顾客　｜　④ 双击盘 → 丢垃圾桶（糊了必须双击才清）",
                  x + w / 2, y + h / 2);
       /* 厨具素材里的「锅铲 + 夹子」放在图例条右端的空位（不挤文字，纯装饰）*/
       if (drawAssetFit(g, assetOf(GEAR_ICON, "tools"), { x: x + w - 60, y: y + 2, w: 54, h: h - 4 }, null)) IA.drawn.gearTools = (IA.drawn.gearTools || 0) + 1;
@@ -3011,7 +3115,7 @@
         g.fillStyle = "rgba(255,255,255,.045)"; roundRect(g, b0.x, b0.y, wAll, LAY.cards.h, 14); g.fill();
         g.strokeStyle = "rgba(255,214,110,.28)"; g.lineWidth = 3; roundRect(g, b0.x, b0.y, wAll, LAY.cards.h, 14); g.stroke();
         g.font = fontOf(24, true); g.fillStyle = "rgba(255,214,110,.88)"; g.textAlign = "center"; g.textBaseline = "middle";
-        g.fillText("顾客马上进门 —— 可以先把 " + COL_N + " 列里的食材点上，熟了各自落到本列的盘上等着（盘上 4.5 秒内要送出去）", b0.x + wAll / 2, b0.y + LAY.cards.h / 2);
+        g.fillText("顾客马上进门 —— 先把 " + COL_N + " 列的食材点上；锅里一熟就点锅起锅（" + SERVE_WINDOW + "s 内），落到本列盘上等着 —— 盘上放多久都能上", b0.x + wAll / 2, b0.y + LAY.cards.h / 2);
         g.textAlign = "left";
       }
       drawStations();
@@ -3062,7 +3166,7 @@
           row("完美份数", String(r.perfect) + (r.hot ? ("（热乎 " + r.hot + "）") : "")) +
           row("热乎度", "热乎 " + r.heat.hot + " · 温 " + r.heat.warm + " · 凉 " + r.heat.cold) +
           row("出餐预备", r.prepped + " 份（9 列专属盘 ×" + r.platesTotal + "）") +
-          row("烧糊份数", String(r.burnt) + (r.expire ? ("（忘取 " + r.expire + "）") : "")) +
+          row("烧糊份数", String(r.burnt) + (r.expire ? ("（忘起锅 " + r.expire + "）") : "")) +
           row("用时", r.elapsed.toFixed(1) + "s / " + r.duration + "s") +
           row("本局得分", String(r.score)) +
           row(tgt.name + " 好感", prac
@@ -3156,6 +3260,9 @@
     BURNT_LIFE_MS: BURNT_LIFE_MS, DOUBLE_MS: DOUBLE_MS,
     /* bf-13 盘上永久保鲜：开关 +「没有倒计时」哨兵 + UI 静态文案（单测与无头验收读它们）*/
     PLATE_KEEP: PLATE_KEEP, PLATE_NO_TIMER: PLATE_NO_TIMER, PLATE_KEEP_TEXT: PLATE_KEEP_TEXT,
+    /* bf-14 锅内限时起锅：糊锅不可自动清 + 三句状态文案（UI 与断言同源）*/
+    PAN_BURNT_STICKY: PAN_BURNT_STICKY,
+    PAN_PICK_TEXT: PAN_PICK_TEXT, PAN_BLOCKED_TEXT: PAN_BLOCKED_TEXT, PAN_BURNT_TEXT: PAN_BURNT_TEXT,
     /* 绘制兼容层（IE11/Trident 没有 Canvas2D.ellipse）：幂等，原生有就一个字节都不改 */
     installEllipsePolyfill: installEllipsePolyfill,
     COLS: COLS, COL_N: COL_N, PLATES_TOTAL: PLATES_TOTAL,
@@ -3164,7 +3271,8 @@
     PLACE_WHY: PLACE_WHY, HEAT_TIERS: HEAT_TIERS,
     TARGETS: TARGETS, TARGET_IDS: TARGET_IDS,
     newState: newState, step: step, finish: finish, placeFood: placeFood, placeFoodEx: placeFoodEx,
-    takePlate: takePlate, autoPlateStations: autoPlateStations, trashStation: trashStation, trashPlate: trashPlate,
+    takePlate: takePlate, takeOut: takeOut, serveWinLeft: serveWinLeft, burnStation: burnStation,
+    autoPlateStations: autoPlateStations, trashStation: trashStation, trashPlate: trashPlate,
     trashColumn: trashColumn,
     takeReady: takeReady, openServeWindow: openServeWindow, expireServeWindows: expireServeWindows,
     isPrepStation: isPrepStation, hasPlate: hasPlate, prepStationIndices: prepStationIndices,
@@ -3278,8 +3386,10 @@
     COLS: COLS, COL_N: COL_N, PLATES_TOTAL: PLATES_TOTAL,
     VIEW: VIEW, FONT: FONT, ICON: ICON, LAY: LAY,
     MAX_PLATES: MAX_PLATES, MAX_CUSTOMERS: MAX_CUSTOMERS, MAX_ANGRY: MAX_ANGRY,
-    PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW,
+    PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW, SERVE_WARN_SEC: SERVE_WARN_SEC,
     PLATE_KEEP: PLATE_KEEP, PLATE_NO_TIMER: PLATE_NO_TIMER,
+    PAN_BURNT_STICKY: PAN_BURNT_STICKY,
+    PAN_PICK_TEXT: PAN_PICK_TEXT, PAN_BLOCKED_TEXT: PAN_BLOCKED_TEXT, PAN_BURNT_TEXT: PAN_BURNT_TEXT,
     columnOf: columnOf, foodOfColumn: foodOfColumn, colNameOf: colNameOf,
     stationBox: stationBox, plateBox: plateBox, bucketBox: bucketBox, customerCardBox: customerCardBox,
     art: art,
@@ -3298,7 +3408,8 @@
              与滴答 / 欢呼的计数放在同一个对象里）—— 这里必须读同一处，否则永远是 0 */
           cooks:(st.audio ? (st.audio.cooks || 0) : 0),
           prepPlates:PLATES_TOTAL, platesTotal:PLATES_TOTAL, columns:COL_N, colN:COL_N,
-          serveWindow:SERVE_WINDOW, plateLife:PLATE_NO_TIMER, plateKeep:PLATE_KEEP,
+          serveWindow:SERVE_WINDOW, panWindow:SERVE_WINDOW, panBurntSticky:PAN_BURNT_STICKY,
+          plateLife:PLATE_NO_TIMER, plateKeep:PLATE_KEEP,
           expire:st.expire || 0, tossed:st.tossed || 0,
           windows:st.stations.filter(function (s) { return isServeWindowOpen(s); }).length,
           burnt:st.burnt, burntServed:st.burntServed, wrong:st.wrong, angry:st.angry, win:st.win, reason:st.reason,
@@ -3321,6 +3432,9 @@
                    prep:true, hasPlate:true,
                    plateState:p ? p.state : null, plateLeft:p ? (p.left || 0) : 0,
                    serveWin:Math.round((s.serveWin || 0) * 1000) / 1000,
+                   windowLeft:Math.round(serveWinLeft(st, s) * 1000) / 1000,
+                   picking:(s.state === "perfect" && (s.serveWin || 0) > 0),
+                   blockedByPlate:(s.state === "perfect" && (s.serveWin || 0) > 0 && !!p),
                    windowOpen:isServeWindowOpen(s) };
         });
       },
@@ -3439,15 +3553,17 @@
       tap: function (kind, idx) {
         var st = curState(); if (!st) return false;
         if (kind === "bucket" || kind === "food") return placeFood(st, (typeof idx === "string") ? idx : FOOD_IDS[idx], null);
-        /* plate = 单击盘 → 出餐（要求 A3）；station = 锅内做好的手动落盘（autoPlate 关掉时才用得上） */
+        /* plate = 单击盘 → 出餐（要求 A3）；station = **单击锅 = 起锅**（bf-14，走完整判定）*/
         if (kind === "plate") return serveFromColumn(st, idx).ok;
-        if (kind === "station") return takePlate(st, idx);
+        if (kind === "station") return takeOut(st, idx).ok;
         if (kind === "trash" || kind === "dbl" || kind === "double") return trashColumn(st, idx);
         if (kind === "customer") return serveCustomer(st, idx, null).ok;
         return false;
       },
       /** 单击某一列的盘 → 送给「正在需要 + 耐心最少」的顾客（返回完整结果，测试读 why / delta）*/
       serveCol: function (idx) { var st = curState(); if (!st) return { ok:false, why:"no-run" }; return serveFromColumn(st, idx); },
+      /** bf-14：单击锅 = 起锅（完整结果；why="plate-occupied" = 盘被占、没地方放，窗口继续走）*/
+      takeOut: function (idx) { var st = curState(); if (!st) return { ok:false, why:"no-run" }; return takeOut(st, idx); },
       /** 双击某一列的盘 / 锅 → 丢垃圾桶（清空锅 + 盘，不扣分）*/
       trashCol: function (idx) { var st = curState(); if (!st) return false; return trashColumn(st, idx); },
       /** 现做灶位：取出并立刻送往顾客（没人点 → 丢弃，不扣分）*/

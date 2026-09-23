@@ -1,0 +1,15 @@
+  // 起锅：真实帧推进下，一到「恰好」进起锅窗口 → 单击锅 → 落到本列专属盘
+  // （原口径是「一到恰好就自动落盘」；bf-14 改成玩家点锅起锅，见 bf-14①②）
+  st = plateState();
+  longPatience(R.spawnCustomer(st, ["egg"]));
+  assert.equal(R.placeFood(st, "egg", null), true, "点一下食材 → 自动进它那一列");
+  advance(st, R.FOOD.egg.dur + 0.1);
+  assert.equal(st.stations[3].state, "perfect", "熟了（停在锅里等起锅）");
+  assert.equal(st.plates.length, 0, "熟了**不再自动落盘**（原口径：锅里立刻空出来）");
+  assert.equal(R.takeOut(st, 3).ok, true, "单击锅 → 起锅");
+  assert.equal(st.stations[3].food, null, "起锅以后锅里才空出来");
+  assert.equal(R.plateOfStation(st, 3).food, "egg", "那份煎蛋在自己的专属盘上");
+  assert.equal(R.phaseOf(st, 3), "plated", "状态机：cooking → window → plated");
+  const rAgain = R.serveFromColumn(st, 3);
+  assert.equal(rAgain.ok, true); assert.equal(rAgain.delta, 14, "单击盘出餐 = 热乎 14");
+  assert.equal(st.hot, 1);

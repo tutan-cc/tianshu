@@ -1,0 +1,4 @@
+  B.debug.drop("egg", null);
+  for (let i = 0; i < 300 && !B.debug.stations()[3].windowOpen; i++) B.debug.tick(1 / 60);
+  A(B.debug.takeOut(3).ok === true, "再做一份：窗口内起锅（bf-14：不再等它自动落盘）");
+  A(B.debug.stations()[3].plate === "egg", "再做一份，起锅进盘");

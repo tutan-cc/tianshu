@@ -1,0 +1,11 @@
+  save(b.canvas, "bf_game.png", b.texts,
+    "进行中（bf-14）：9 列列对齐 + 盘上 5 份（盘龄 0.4~90s）全部「热乎」+「∞ 可一直放着」+ " +
+    "锅里 2 口正等起锅（「恰好 · 起锅 N.Ns」+ 窗口倒计时环）+ 1 口没人起锅已经糊（焦黑 + 红叉 +「糊了 · 双击丢掉」）");
+  const st = d.state();
+  const pickN = d.stations().filter(s => s.windowOpen).length;
+  console.log("    [进行中] 顾客 " + d.orders().length + " 位 · 锅里 " + d.stations().filter(s => s.food).length +
+              " 样（等起锅 " + pickN + " · 已糊 " + d.stations().filter(s => s.state === "burnt").length + "）· 盘上 " + d.plates().length + "/9 份 " +
+              JSON.stringify(d.plates().map(p => p.food + ":" + (p.state === "burnt" ? "糊" : p.tier) + "@" + p.age + "s")) +
+              " · 糊 " + st.burnt + " 份（忘起锅 " + st.expire + "）· 分 " + st.score +
+              " · 盘上「内送出」文案 " + b.texts.filter(t => /内送出/.test(t.text)).length + " 处" +
+              " · 锅内「起锅」文案 " + b.texts.filter(t => /起锅/.test(t.text)).length + " 处");

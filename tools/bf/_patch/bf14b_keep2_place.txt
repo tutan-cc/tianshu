@@ -1,0 +1,3 @@
+  R.trashStation(st, col);                        // 清掉锅里那份（顺带清盘），再原样做一份放回盘上
+  assert.equal(R.placeFood(st, "bun", null), true, "重新下料");
+  assert.equal(pickOut(st, col, 12).ok, true, "重做一份放回盘上");

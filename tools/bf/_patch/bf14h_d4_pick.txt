@@ -1,0 +1,11 @@
+  /* bf-14：熟了**不落盘** → 停在「恰好」等起锅；单击锅才起锅 */
+  for (let i = 0; i < 320 && !d4.stations()[0].windowOpen; i++) d4.tick(1 / 60);
+  A(d4.stations()[0].plate === null, "熟了**没有**自动落盘（原断言：不用手动出锅就落到盘上）", JSON.stringify(d4.plates()));
+  A(d4.stations()[0].state === "perfect" && d4.stations()[0].windowOpen === true,
+    "停在「恰好」并开着起锅窗口", "剩 " + d4.stations()[0].serveWin + "s");
+  A(d4.stations()[0].phase === "window", "状态机：cooking → window（还没 plated）", d4.stations()[0].phase);
+  const pick0 = d4.takeOut(0);
+  A(pick0.ok === true && pick0.kind === "plated", "单击锅 → 起锅", String(pick0.why));
+  A(d4.stations()[0].plate === "congee", "起锅后落到第 0 列的专属盘", JSON.stringify(d4.plates()));
+  A(d4.stations()[0].phase === "plated", "状态机走到 plated（cooking → window → plated）", d4.stations()[0].phase);
+  A(d4.stations()[0].food === null, "起锅后锅位立刻空出来");

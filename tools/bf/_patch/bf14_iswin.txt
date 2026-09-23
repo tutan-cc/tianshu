@@ -1,0 +1,4 @@
+  /** 锅内「起锅窗口」是否开着（bf-14 起这条路径**每一列都会真的走**）：
+      锅里一到「恰好」→ 开窗 SERVE_WINDOW 秒，期间火候暂停（这才是玩家真正能用的起锅时间）；
+      窗口内单击锅 = 起锅落盘；窗口走完还没起锅 = 这份糊在锅里（必须双击才清）。 */
+  function isServeWindowOpen(s) { return !!(s && s.food && s.state === "perfect" && (s.serveWin || 0) > 0); }

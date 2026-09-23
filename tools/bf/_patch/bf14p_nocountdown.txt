@@ -1,0 +1,10 @@
+  /* 9 列各做一份 → 各自窗口内**点锅起锅** → 9 份全部落到各自的专属盘上（一锅一盘，列对齐）
+     （bf-14：熟了不再自动落盘；这一步就是玩家真实要做的操作）*/
+  b.B.FOOD_IDS.forEach(function (f) { d.drop(f, null); });
+  { let g = 0;
+    while (g++ < 1200 && d.plates().length < 9) {
+      d.stations().forEach(function (s) { if (s.state === "perfect" && s.windowOpen && !s.plate) d.takeOut(s.i); });
+      d.tick(1 / 60);
+    } }
+  /* 盘龄梯度：0.4s → 300s。旧口径下这张表几乎每一行都会被判「糊掉 / 只能丢」。 */
+  adv(d, 1.2);                                           // 让「熟了 · 起锅！」飘字播完，出图干净

@@ -1,0 +1,6 @@
+    for (var k = 0; k < 400 && !d.stations()[col].windowOpen; k++) d.tick(1 / 60);
+    var winLeft = d.stations()[col].serveWin;               // 起锅窗口还剩多少秒（真浏览器里读得到）
+    clickBox(window.Breakfast.stationBox(col));             // ← 真实鼠标**单击锅** = 起锅（bf-14 新交互）
+    var po = d.stations()[col];                             // 点击本身不推进时钟 → 点完立刻读
+    var plated = !!po.plate;
+    var platedTier = po.tier;

@@ -1,0 +1,10 @@
+  /* bf-14：熟了**不再自动落盘** → 进「起锅窗口」；真实鼠标**单击锅** = 起锅 */
+  for (let i = 0; i < 300 && !B.debug.stations()[3].windowOpen; i++) B.debug.tick(1 / 60);
+  A(B.debug.stations()[3].windowOpen === true, "熟了进入起锅窗口（原断言：同一帧自动落到盘上）",
+    "state=" + B.debug.stations()[3].state + " · 剩 " + B.debug.stations()[3].serveWin + "s");
+  A(B.debug.stations()[3].plate === null, "还没起锅 → 盘上是空的（原断言：已经自动落盘）");
+  const POT3 = center(B.stationBox(3));
+  cv.dispatch("mousedown", { clientX: POT3.x, clientY: POT3.y, preventDefault() {} });
+  A(B.debug.stations()[3].plate === "egg", "真实鼠标单击锅 → 起锅落到本列专属盘（第 3 列）", String(B.debug.stations()[3].plate));
+  A(B.debug.stations()[3].food === null, "起锅后锅位立刻空出来");
+  A(B.debug.stations()[3].tier === "hot", "入盘即最高档（热乎）", String(B.debug.stations()[3].tier));

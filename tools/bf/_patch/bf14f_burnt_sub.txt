@@ -1,0 +1,8 @@
+      } else if (s.state === "burnt") {
+        /* bf-14：糊锅不再「在烧」——它现在是**占死**这口锅的那份，必须双击才清 */
+        g.font = fontOf(FONT.micro, true); g.fillStyle = "#ffd0d8";
+        g.fillText("不能再下料 · 双击丢", cx, b.y + 29);
+      } else {
+        g.font = fontOf(FONT.micro, false); g.fillStyle = "rgba(255,255,255,.34)";
+        g.fillText(busy ? "盘里还有一份" : (fd ? "在烧" : "空着 · 点食材"), cx, b.y + 29);
+      }
