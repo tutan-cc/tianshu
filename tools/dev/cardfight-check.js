@@ -81,6 +81,7 @@ try {
   process.exit(1);
 }
 const CARDS = sandbox.__CARDS, TYPE = sandbox.__TYPE, C = sandbox.__C;
+const POSES_FOR_CHECK = ["idle", "strike", "hit", "ko"];
 
 console.log("\n【卡池】");
 A(Array.isArray(CARDS) && CARDS.length === 12, "卡池正好 12 张", "实际 " + (CARDS ? CARDS.length : 0));
@@ -248,6 +249,57 @@ A(/S\.p\.hp <= 0 \|\| S\.e\.hp <= 0/.test(script), "生命归零时会结束（�
 A(/S\.round >= ROUNDS/.test(script), "满 5 轮也会结束");
 A(/function endGame/.test(script), "有统一的结果结算函数");
 A(/win \? .*lose|S\.p\.hp > S\.e\.hp/.test(script), "按剩余生命判定胜负");
+
+/* ── ⑥ 人物立绘与打斗动作（延用打斗 2.0 的资源）──────────────────────
+   这一组存在的理由：卡牌游戏最容易做成"数字对撞"。
+   要求是"有人物打斗动作"，所以必须钉住：立绘资源真的存在、四姿势齐全、
+   standH/lowY 与切图脚本产出的 json 一致（不一致人物会忽大忽小或陷进地里）、
+   以及出招/挨打/格挡/治疗/蓄力/倒地六个动作接口都在。 */
+console.log("\n【人物立绘与动作】");
+{
+  const fs2 = require("fs");
+  const path2 = require("path");
+  const root = path.join(__dirname, "..", "..");
+  const m = /const SPRITE_META = \{([\s\S]*?)\n\};/.exec(script);
+  A(!!m, "源码里有 SPRITE_META（立绘元数据表）");
+  const dirM = /const SPRITE_DIR = "([^"]+)"/.exec(script);
+  A(!!dirM, "源码里有 SPRITE_DIR", dirM ? dirM[1] : "");
+  const dir = dirM ? dirM[1] : "art/fight2/";
+  /* 四姿势 PNG 必须真的在盘上 —— 缺一张就会退回剪影，而页面不会报错（静默降级） */
+  ["puncher", "brawler"].forEach((slug) => {
+    POSES_FOR_CHECK.forEach((p) => {
+      const f = path2.join(root, dir, slug + "_" + p + ".png");
+      A(fs2.existsSync(f), "立绘存在：" + slug + "_" + p + ".png",
+        fs2.existsSync(f) ? Math.round(fs2.statSync(f).size / 1024) + " KB" : "缺文件");
+    });
+  });
+  /* standH / lowY 必须和切图脚本生成的 json 对得上（这是"换图必须同步"的那个点） */
+  ["puncher", "brawler"].forEach((slug) => {
+    const jf = path2.join(root, dir, slug + ".json");
+    if (!fs2.existsSync(jf)) { A(false, "切图元数据存在：" + slug + ".json", "缺文件"); return; }
+    const j = JSON.parse(fs2.readFileSync(jf, "utf8"));
+    const body = m ? m[1] : "";
+    const key = slug === "puncher" ? "player" : "enemy";
+    const blk = new RegExp(key + ":\\s*\\{[^}]*standH:(\\d+)").exec(body);
+    const got = blk ? Number(blk[1]) : -1;
+    A(got === j.poses.idle.h, key + ".standH 与切图 json 的 idle 高度一致（" + j.poses.idle.h + "）",
+      "源码 " + got + " / json " + j.poses.idle.h);
+  });
+  /* 六个动作接口：出招/挨打/格挡/治疗/蓄力/倒地 */
+  ["attack", "hurt", "guard", "heal", "charge", "ko"].forEach((fn) => {
+    A(new RegExp("\\n  " + fn + "\\(").test(script), "舞台有动作接口：" + fn + "()");
+  });
+  A(/Stage\.attack\("player"\)/.test(script) && /Stage\.attack\("enemy"\)/.test(script),
+    "双方结算时都会起手出招（不是只有一方动）");
+  A(/Stage\.hurt\("enemy"/.test(script) && /Stage\.hurt\("player"/.test(script),
+    "挨打后仰对双方都生效");
+  A(/drawFighter\(g, who\)/.test(script), "有 drawFighter(g, who)（按姿势画立绘）");
+  A(/meta\.lowY\[f\.pose\]/.test(script), "绘制时按姿势扣除 lowY（否则脚会陷进地里）");
+  A(/requestAnimationFrame/.test(script) && /tick\(dt\)/.test(script), "战场有自己的 rAF 循环");
+  A(/_started/.test(script), "战场初始化有守卫（再来一局不会叠加多个 rAF 循环）");
+  /* 立绘是外部文件：必须保证加载失败时退回剪影而不是整页崩掉 */
+  A(/im\.onerror/.test(script), "立绘加载失败有 onerror 兜底（退回剪影，不崩页面）");
+}
 
 console.log("\n[结果] 通过 " + pass + "，失败 " + fail);
 process.exit(fail ? 1 : 0);

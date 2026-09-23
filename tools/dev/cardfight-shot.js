@@ -90,11 +90,17 @@ function getJson(url) {
   console.log("阶段 1：开场");
   await shot("01-opening.png");
 
-  console.log("阶段 2：点开始 → 中央 12 张卡背");
+  console.log("阶段 2：点开始 → 中央 12 张卡背 + 人物战场");
   await evaluate('document.getElementById("goBtn").click()');
-  await sleep(1800);
+  await sleep(2200);
   await shot("02-deck.png");
   console.log("    中央卡背数量 = " + await evaluate('document.querySelectorAll("#deck .card").length'));
+  /* 立绘是否真的加载出来了（加载失败会退回剪影，页面不会崩，所以要主动查） */
+  const sprites = await evaluate(`JSON.stringify(Object.keys(Stage.img).map(k => [k, !!(Stage.img[k].complete && Stage.img[k].naturalWidth)]))`);
+  const arr = JSON.parse(sprites || "[]");
+  const okCount = arr.filter((a) => a[1]).length;
+  console.log("    立绘加载 = " + okCount + "/" + arr.length + (okCount === arr.length ? " ✔" : " ✘ 缺失：" + JSON.stringify(arr.filter((a) => !a[1]).map((a) => a[0]))));
+  console.log("    战场画布 = " + await evaluate('(function(){var c=document.getElementById("arena");return c.width+"x"+c.height})()'));
 
   console.log("阶段 3：等抽牌飞入 + 翻面");
   /* 在**动画中途**取一帧：此时应当有卡背幽灵在飞（getAnimations 非空）。
@@ -124,6 +130,20 @@ function getJson(url) {
   await shot("04-foe.png");
   console.log("    对手牌 = " + await evaluate('document.querySelectorAll("#foeCard .card").length'));
 
+  /* 单独验证"打斗动作"：直接触发一次出招/挨打，抓姿势切换那一瞬间。
+     只看静态截图分不清"在打"还是"站着"，所以还要读姿势与位移。 */
+  console.log("阶段 4.5：动作验证（出招姿势 + 前冲位移 + 挨打后仰）");
+  await evaluate('Stage.attack("player"); Stage.attack("enemy")');
+  await sleep(150);
+  const poseInfo = await evaluate('JSON.stringify({p:Stage.F.player.pose, e:Stage.F.enemy.pose, pf:Math.round(Stage.F.player.fwd), ef:Math.round(Stage.F.enemy.fwd)})');
+  console.log("    出招瞬间 = " + poseInfo);
+  await shot("04a-strike.png");
+  await evaluate('Stage.hurt("enemy", true)');
+  await sleep(120);
+  const hurtInfo = await evaluate('JSON.stringify({e:Stage.F.enemy.pose, ef:Math.round(Stage.F.enemy.fwd), fx:Stage.fx.length, shake:Math.round(Stage.shake)})');
+  console.log("    挨打瞬间 = " + hurtInfo + "（fx>0 表示有火花粒子）");
+  await shot("04b-hurt.png");
+
   console.log("阶段 5：结算完（等飘字与血条动画）");
   await sleep(4200);
   await shot("05-resolved.png");
@@ -137,8 +157,43 @@ function getJson(url) {
   })`);
   console.log("    " + st5);
 
+  /* ── 把整局打完：验证 5 轮上限、血量归零、结果面板 ──
+     只跑到第 2 轮不足以证明"一局能结束"（可能在第 4 轮某处卡住不动）。
+     每轮点第一张手牌，然后等"轮次文字变化"或"结果面板出现"，最多等 12 秒。 */
+  console.log("阶段 6：打完剩下的轮次，验证结果面板");
+  let guard = 0;
+  while (guard++ < 30) {
+    if (await evaluate('document.getElementById("result").classList.contains("on")')) break;
+    const has = await evaluate('document.querySelectorAll("#slots .card").length');
+    if (!has) { await sleep(400); continue; }
+    const before = await evaluate('document.getElementById("roundTxt").textContent');
+    await evaluate('(function(){var e=document.querySelectorAll("#slots .card"); if(e.length) e[0].click();})()');
+    for (let w = 0; w < 24; w++) {
+      await sleep(500);
+      const now = await evaluate('document.getElementById("roundTxt").textContent');
+      const over = await evaluate('document.getElementById("result").classList.contains("on")');
+      if (over || now !== before) break;
+    }
+  }
+  const fin = await evaluate(`JSON.stringify({
+    over: document.getElementById("result").classList.contains("on"),
+    ttl: document.getElementById("rTtl").textContent,
+    sub: document.getElementById("rSub").textContent,
+    pHp: document.getElementById("rHp").textContent,
+    eHp: document.getElementById("rEhp").textContent,
+    rounds: document.getElementById("rRounds").textContent,
+    logLines: document.querySelectorAll("#rLog div").length,
+    poses: Stage.F.player.pose + "/" + Stage.F.enemy.pose
+  })`);
+  console.log("    " + fin);
+  await shot("06-result.png");
+  await evaluate('document.getElementById("againBtn").click()');
+  await sleep(1000);
+  await shot("07-again.png");
+  console.log("    再来一局后面板已关闭 = " + await evaluate('!document.getElementById("result").classList.contains("on")'));
+
   const dbg = await evaluate("JSON.stringify(window.__dbg)");
-  console.log("    内部计数 = " + dbg + "（flies=3 表示三张牌都真飞了）");
+  console.log("    内部计数 = " + dbg + "（flies 每轮 3 次，5 轮 = 15）");
 
   console.log("\nJS 运行时错误：" + (errors.length ? "\n  " + errors.slice(0, 6).join("\n  ") : "无 ✔"));
   ws.close();
