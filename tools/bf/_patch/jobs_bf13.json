@@ -1,0 +1,131 @@
+{
+ "jobs": [
+  {
+   "file": "breakfast.js",
+   "from": "      此刻没人需要 → 不消耗、留在盘上（继续走热乎度衰减）并提示「现在没人要这份」。",
+   "to": "      热乎 ≤1.5s（14 分）→ 温 ≤3.0s（10 分）→ 凉 ≤4.5s（6 分）→ 糊（只能丢）。",
+   "textFile": "tools/bf/_patch/bf13_spec.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "   6) 糊菜端给顾客 → 该顾客直接不满离开（扣分）；糊掉的可丢垃圾桶（不扣分，只浪费时间；",
+   "to": "      盘/锅上留 14 秒自动清）",
+   "textFile": "tools/bf/_patch/bf13_spec6.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /* ── 过火计时（要求 A5：取消「3 个备菜盘限量」，9 列各配 1 盘，",
+   "to": "     保留的压力改由「过火计时」承担：盘上那份超时即糊，忘取就报废。 */",
+   "textFile": "tools/bf/_patch/bf13_const.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 盘上停留是否已经超过「过火计时」（纯函数，边界精确：4.49 不糊 / 4.51 糊）*/",
+   "to": "  function plateLeftSec(ageSec) { var a = Number(ageSec); if (!(a >= 0)) a = 0; return Math.max(0, SERVE_WINDOW - a); }",
+   "textFile": "tools/bf/_patch/bf13_pure.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "     tier(state, ageSec) → \"hot\" | \"warm\" | \"cold\"\n     过火（over）的份拿不到「热乎」，最高只到「温」—— 这正是旧档 perfect/warm 的区分，\n     也保证「越早送越好」：同一份食物随停留时间只会单调降档。                        */",
+   "text": "     tier(state, ageSec) → \"hot\" | \"warm\" | \"cold\"\n     过火（over）的份拿不到「热乎」，最高只到「温」—— 这正是旧档 perfect/warm 的区分。\n     ⚠ bf-13 起盘上永久保鲜：**盘上路径一律传 age = 0**（档位冻结在落盘那一刻，\n     不再随停留时间降档），所以这条「越放越凉」的曲线只剩两种读法：\n       · 纯函数单测直接验它（曲线定义本身没改）；\n       · 锅内火候 → 档位的换算（over 的份拿不到热乎档）。                            */"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 造一条专属盘记录（owningStation = 它唯一的归属灶位） */",
+   "to": "    return plateBurntAt(Math.max(0, st.elapsed - (p.at || 0)));\n  }",
+   "textFile": "tools/bf/_patch/bf13_plate.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 盘状态机（纯函数）：plated → hot → warm → cold → burnt → served / trashed */",
+   "to": "    return heatTierOf(p.state, age);\n  }",
+   "textFile": "tools/bf/_patch/bf13_phase.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  /** 手动出餐：把锅里做好的食物拾到它自己的专属盘上（自动落盘模式下由 step 代劳）。\n      每列都有盘（要求 A5），所以任何一列都能落盘。 */",
+   "text": "  /** 手动出餐：把锅里做好的食物拾到它自己的专属盘上（自动落盘模式下由 step 代劳）。\n      每列都有盘（要求 A5），所以任何一列都能落盘。\n      注意：这里**也接糊的份**（s.state === \"burnt\" 时不算 raw / idle）—— 这正是\n      「糊盘」唯一的来源（锅里糊了再端上盘）；盘上自己永远不会变糊（bf-13 永久保鲜）。 */"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      · 此刻没人要这份  → no-want（不消耗，留在盘上继续走热乎度衰减）\n      · 有人要          → 送给「耐心最少」的那位，按热乎档记账（14 / 10 / 6） */",
+   "text": "      · 此刻没人要这份  → no-want（不消耗，留在盘上 —— 永久保鲜，放多久都能上）\n      · 有人要          → 送给「耐心最少」的那位，按档位记账（完美热乎 14 / 过火 7） */"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      return { ok:false, why:\"no-want\", hint:\"现在没人要这份 —— 先放着（会变凉）\", food:p.food, station:stationIdx };",
+   "text": "      return { ok:false, why:\"no-want\", hint:\"现在没人要这份 —— 先放着（不会凉，放多久都能上）\", food:p.food, station:stationIdx };"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    /* 专属盘：热乎度只随时长降档（热乎 → 温 → 凉）；",
+   "to": "        if (st.elapsed - pl.burntAt > BURNT_LIFE_MS / 1000) { st.plates.splice(i, 1); i--; }\n      }\n    }",
+   "textFile": "tools/bf/_patch/bf13_steploop.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      /* 兼容字段：prepPlates / serveWindow 保留，但语义已变 —— 现在 9 列各 1 盘、\n         serveWindow = 盘上的「过火计时」；serveStations（无盘灶位）恒为 0 */\n      prepPlates: PLATES_TOTAL, platesTotal: PLATES_TOTAL, columns: COL_N,\n      serveWindow: SERVE_WINDOW, plateLife: SERVE_WINDOW, serveStations: 0,",
+   "text": "      /* 兼容字段：prepPlates / serveWindow 保留原义；plateLife 语义已变 ——\n         盘上永久保鲜（bf-13）→ plateLife = Infinity（「盘上寿命」这件事没有了），\n         serveStations（无盘灶位）恒为 0；plateKeep 是新口径的显式标记 */\n      prepPlates: PLATES_TOTAL, platesTotal: PLATES_TOTAL, columns: COL_N,\n      serveWindow: SERVE_WINDOW, plateLife: PLATE_NO_TIMER, serveStations: 0,\n      plateKeep: PLATE_KEEP,"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "  var TIER_NAME = { hot:\"热乎\", warm:\"温\", cold:\"凉\" };",
+   "text": "  var TIER_NAME = { hot:\"热乎\", warm:\"温\", cold:\"凉\" };\n  /* ── 盘上那两份静态文案（bf-13）：没有倒计时，所以两行都不随时间变化。\n        PLATE_KEEP_TEXT 画在每盘食物下面，取代原来的「N.Ns 内送出」。 */\n  var PLATE_KEEP_TEXT = \"∞ 可一直放着\";"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      \"③ 双击盘 → 丢垃圾桶（不扣分）· 盘上停留超过 \" + SERVE_WINDOW.toFixed(1) + \"s 会糊，糊了只能双击丢掉\"));",
+   "text": "      \"③ 双击盘 → 丢垃圾桶（不扣分）· 盘上永久保鲜：没有倒计时、不会凉、不会糊，放多久都能上\"));"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "                 \" · 盘上 \" + st.plates.length + \"/\" + PLATES_TOTAL + \" · 过火计时 \" + SERVE_WINDOW.toFixed(1) + \"s\", 18, 50);",
+   "text": "                 \" · 盘上 \" + st.plates.length + \"/\" + PLATES_TOTAL + \" · 盘上永久保鲜（无倒计时）\", 18, 50);"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    /* 专属盘（每列一个，在锅的正上方）：空盘 = 浅色轮廓 + 列归属标签（「煎蛋盘 · 空」）；\n       有食物 = 食物 + 热乎档位 + 倒计时 / 降档提示；糊了 = 红叉 + 「只能丢」 */",
+   "textFile": "tools/bf/_patch/bf13_drawplate_hdr.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      var left = (typeof p.left === \"number\") ? p.left : plateLeftSec(p.age || 0);\n      var urgent = left <= SERVE_WARN_SEC;\n      var blink2 = urgent && (Math.floor(nowMs() / 200) % 2 === 0);\n      g.fillStyle = \"rgba(0,0,0,.55)\"; roundRect(g, b.x + 2, b.y + b.h - 34, b.w - 4, 32, 8); g.fill();\n      g.font = fontOf(FONT.micro, true);\n      g.fillStyle = blink2 ? \"#ffffff\" : (TIER_COLOR[tier] || PAL.ink);\n      g.fillText((FOOD[p.food] || {}).n + \"·\" + (TIER_NAME[tier] || \"\"), cx, b.y + b.h - 24);\n      g.font = fontOf(FONT.micro, false);\n      g.fillStyle = blink2 ? \"#ffffff\" : (urgent ? PAL.red : \"rgba(255,255,255,.72)\");\n      g.fillText(left.toFixed(1) + \"s 内送出\", cx, b.y + b.h - 10);\n      g.textAlign = \"left\";",
+   "textFile": "tools/bf/_patch/bf13_drawplate_txt.txt"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      g.fillText(\"9 列 × 每列 1 锅 1 专属盘 · 盘上停留超过 \" + SERVE_WINDOW.toFixed(1) + \"s 会糊，糊了只能双击丢掉\",",
+   "text": "      g.fillText(\"9 列 × 每列 1 锅 1 专属盘 · 盘上永久保鲜：没有倒计时 / 不会凉 / 不会糊，放多久都能上\","
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      g.fillText(\"① 点食材 → 自动下锅（进它那一列）　｜　② 点专属盘 → 送给正在等的顾客　｜　③ 双击盘 → 丢垃圾桶（不扣分）\",",
+   "text": "      g.fillText(\"① 点食材 → 自动下锅　｜　② 点专属盘 → 送给正在等的顾客　｜　③ 双击盘 → 丢垃圾桶（不扣分）　｜　④ 盘上永久保鲜：不会凉 · 不会糊\","
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW, SERVE_WARN_SEC: SERVE_WARN_SEC,\n    BURNT_LIFE_MS: BURNT_LIFE_MS, DOUBLE_MS: DOUBLE_MS,",
+   "text": "    PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW, SERVE_WARN_SEC: SERVE_WARN_SEC,\n    BURNT_LIFE_MS: BURNT_LIFE_MS, DOUBLE_MS: DOUBLE_MS,\n    /* bf-13 盘上永久保鲜：开关 +「没有倒计时」哨兵 + UI 静态文案（单测与无头验收读它们）*/\n    PLATE_KEEP: PLATE_KEEP, PLATE_NO_TIMER: PLATE_NO_TIMER, PLATE_KEEP_TEXT: PLATE_KEEP_TEXT,"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "    PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW,\n    columnOf: columnOf, foodOfColumn: foodOfColumn, colNameOf: colNameOf,",
+   "text": "    PREP_PLATES: PREP_PLATES, SERVE_WINDOW: SERVE_WINDOW,\n    PLATE_KEEP: PLATE_KEEP, PLATE_NO_TIMER: PLATE_NO_TIMER,\n    columnOf: columnOf, foodOfColumn: foodOfColumn, colNameOf: colNameOf,"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "          serveWindow:SERVE_WINDOW, plateLife:SERVE_WINDOW, expire:st.expire || 0, tossed:st.tossed || 0,",
+   "text": "          serveWindow:SERVE_WINDOW, plateLife:PLATE_NO_TIMER, plateKeep:PLATE_KEEP,\n          expire:st.expire || 0, tossed:st.tossed || 0,"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      /** 调试 / 出图用：把某盘「已放置多久」定到指定秒数（用来摆出 热乎 / 温 / 凉 三档同框）*/",
+   "text": "      /** 调试 / 出图用：把某盘「已放置多久」定到指定秒数。\n          bf-13 起盘上永久保鲜 → 这个钩子的用途从「摆出 热乎/温/凉 三档同框」\n          变成「验证放 N 秒之后仍是同一档」（tier 不再随它变）。 */"
+  },
+  {
+   "file": "breakfast.js",
+   "from": "      /** 出图 / 测试用：把某一列的盘直接推到「糊」（过火计时走完）*/\n      burnPlate: function (stationIdx) {\n        var st = curState(); if (!st) return false;\n        var k = plateIdxOfStation(st, stationIdx); if (k < 0) return false;\n        var p = st.plates[k];\n        p.at = st.elapsed - (SERVE_WINDOW + 0.01);\n        refreshPlate(st, p);\n        step(st, 0);                                        // 让 step 里的「过火 → 糊」结算跑一次\n        return st.plates[k] ? st.plates[k].state === \"burnt\" : false;\n      },",
+   "textFile": "tools/bf/_patch/bf13_burnplate.txt"
+  }
+ ]
+}

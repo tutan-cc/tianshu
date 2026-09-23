@@ -1,0 +1,30 @@
+{
+    "poses":  {
+                  "ko":  {
+                             "w":  234,
+                             "lowY":  8,
+                             "file":  "puncher_ko.png",
+                             "h":  126
+                         },
+                  "hit":  {
+                              "w":  256,
+                              "lowY":  14,
+                              "file":  "puncher_hit.png",
+                              "h":  307
+                          },
+                  "idle":  {
+                               "w":  209,
+                               "lowY":  12,
+                               "file":  "puncher_idle.png",
+                               "h":  309
+                           },
+                  "strike":  {
+                                 "w":  256,
+                                 "lowY":  16,
+                                 "file":  "puncher_strike.png",
+                                 "h":  308
+                             }
+              },
+    "ground":  8,
+    "slug":  "puncher"
+}

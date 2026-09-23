@@ -1,0 +1,24 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "intent": {
+      "type": "choice",
+      "choice": "talk",
+      "confidence": 1.0,
+      "probabilities": {
+        "mahjong": 0.0, "breakfast": 0.0, "talk": 1.0, "fight": 0.0, "lottery": 0.0,
+        "stock": 0.0, "dodge": 0.0, "circuit": 0.0, "memory": 0.0, "none": 0.0
+      }
+    },
+    "in_game_action": { "type": "noul", "noul": 0.99 },
+    "out_of_bounds": { "type": "noul", "noul": 0.01 },
+    "urgency": {
+      "type": "score",
+      "score": 0.37,
+      "confidence": 0.8,
+      "legend": { "0": "平静、随口一提", "1": "有点想去做", "2": "比较着急、想马上做", "3": "非常迫切、情绪强烈" },
+      "probabilities": { "0": 0.8, "1": 0.2, "2": 0.0, "3": 0.0 }
+    }
+  },
+  "usage": { "input_tokens": 2049, "output_tokens": 142 }
+}

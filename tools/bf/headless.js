@@ -510,18 +510,35 @@ function runMain() {
     "期望 #" + expEgg + " · 拿到煎蛋 #" + gotEgg.join("/") + " · 整单离场=" + eggLeftFull + " · 分数 " + scServe + " → " + B.debug.state().score);
   pump(1, 420);                                        // 让双击窗口过去（下一次点击算单击）
   A(B.debug.stations()[3].plate === null, "送出后盘清空、这一列恢复可用");
-  /* 糊的那份：单击被拒（留在盘上）→ 双击才丢得掉（清锅 + 清盘，不扣分） */
+  /* ── bf-13 盘上永久保鲜：放再久也不糊 / 不降档 / 不消失（用户要求「备用餐盘不要有倒计时」）──
+     旧断言是「盘上停留超过过火计时 → 变糊」，现在改成「放 90 秒仍是热乎档、仍是完美份」；
+     而「糊盘」这条交互 / 渲染路径改走它**唯一**的真实来源：锅里烧糊了再端上盘。 */
   B.debug.drop("egg", null);
   for (let i = 0; i < 300 && !B.debug.stations()[3].plate; i++) B.debug.tick(1 / 60);
   A(B.debug.stations()[3].plate === "egg", "再做一份，等着它落盘");
-  B.debug.setPlateAge(3, B.SERVE_WINDOW + 0.5);         // 拨到「过火计时」之后
+  B.debug.setPlateAge(3, B.SERVE_WINDOW + 0.5);         // 拨到「旧过火计时」之后
   B.debug.tick(1 / 60);
-  A(B.debug.plates().some(p => p.station === 3 && p.state === "burnt"), "盘上停留超过过火计时 → 变糊（要求 A5）");
+  A(B.debug.plates().some(p => p.station === 3 && p.state === "perfect"),
+    "盘上停留超过 4.5s **也不糊** → 永久保鲜（旧断言：变糊 / 要求 A5）", JSON.stringify(B.debug.plates()));
+  B.debug.setPlateAge(3, 90);                           // 90 秒
+  B.debug.tick(1 / 60);
+  const p90 = B.debug.plates().filter(p => p.station === 3)[0];
+  A(!!p90 && p90.tier === "hot" && p90.age === 90, "盘上放 90 秒仍是「热乎」最高档（14 分档）",
+    p90 ? ("tier=" + p90.tier + " age=" + p90.age + "s") : "盘不见了");
+  A(!!p90 && !isFinite(p90.left), "盘上没有倒计时（left = Infinity 哨兵）", p90 && ("left=" + p90.left));
+  A(B.debug.state().expire === 0, "「忘取」账是 0（盘上不存在忘取报废）");
+  /* 糊盘只能这样造：锅里按住看火烧糊 → 端上盘（盘上自己永远不会变糊） */
+  B.debug.trash(3);
+  A(B.debug.place("egg", null) === true, "按住看火下一份煎蛋（manual：不自动落盘）");
+  for (let i = 0; i < 400 && B.debug.stations()[3].state !== "burnt"; i++) B.debug.tick(1 / 60);
+  A(B.debug.stations()[3].state === "burnt", "锅内照样会糊（锅内路径不受影响）");
+  A(B.debug.burnPlate(3) === true, "锅里糊了再端上盘 → 造出「糊盘」（盘上唯一的糊盘来源）");
   pump(1, 420);
   cv.dispatch("mousedown", { clientX: PLATE3.x, clientY: PLATE3.y, preventDefault() {} });
   pump(1, 420);
   A(B.debug.stations()[3].plate === "egg", "糊的那份单击被拒：还留在盘上（提示「糊了，只能丢掉」）",
     (m.texts.slice(-40).filter(x => /糊/.test(x))[0] || ""));
+
   /* 分数快照放在「两次点击之间」：这一段等待会推进时钟（顾客耐心在走、可能有顾客流失 −8），
      从更早的地方取快照会把「别人耐心归零」记到双击头上。点击本身不推进时钟 → 只比较点击前后的差。 */
   const scoreBefore = B.debug.state().score;
@@ -542,13 +559,15 @@ function runMain() {
   A(B.start(host, { target: { id: "su", name: "x", bond: 20 } }) === true, "dispose 后可以再开一局");
   B.dispose();
 
-  /* ⑥.5 新操作模型：9 列各 1 专属盘 + 自动落盘 + 单击盘出餐 + 盘上过火报废 */
+  /* ⑥.5 新操作模型：9 列各 1 专属盘 + 自动落盘 + 单击盘出餐 + 盘上永久保鲜（bf-13 无倒计时）*/
   const d4b = boot();
   d4b.B.start(d4b.host, { target: { id: "lin", name: "林溪", bond: 44 }, duration: 999, goal: 99, onFinish: () => {} });
   const d4 = d4b.B.debug;
   A(d4.state().autoPlate === true, "页面开局默认打开「熟了自动落到本列专属盘」");
   A(d4.state().platesTotal === 9 && d4.state().columns === 9, "9 列 × 每列 1 个专属盘（不再限量 3 盘）");
-  A(d4.state().plateLife === 4.5 && d4.state().serveWindow === 4.5, "过火计时 = 4.5s（SERVE_WINDOW）");
+  A(!isFinite(d4.state().plateLife) && d4.state().plateKeep === true && d4.state().serveWindow === 4.5,
+    "盘上永久保鲜：plateLife = Infinity（无倒计时）/ plateKeep = true；锅内窗口常量仍是 4.5（兼容层）",
+    "plateLife=" + d4.state().plateLife + " plateKeep=" + d4.state().plateKeep);
   const pm = d4.prepMap();
   A(pm.prep.length === 9 && pm.serve.length === 0, "9 列都有盘，没有「无盘现做灶位」", JSON.stringify(pm.prep));
   const map0 = d4.plateMap();
@@ -568,7 +587,7 @@ function runMain() {
   const p0 = d4.plates()[0];
   A(p0.tier === "hot" && p0.hot === true, "刚落盘 = 热乎（14 分档）", p0.tier);
   A(p0.station === 0, "这盘记录着自己的归属灶位", "station=" + p0.station);
-  A(p0.left > 4.0 && p0.left <= 4.5, "盘上倒计时 ≈ 4.5s（过火计时在走）", "left=" + p0.left);
+  A(!isFinite(p0.left), "盘上**没有倒计时**（left = Infinity 哨兵；旧断言：≈4.5s 在走）", "left=" + p0.left);
   d4b.pump(2);                                   // 泵两帧让渲染层把本帧的绘制统计刷新出来
   const V4 = d4.view();
   A(V4.drawn.plates === 9 && V4.drawn.pans === 9, "本帧画出 9 个锅位 + 9 个专属盘",
@@ -578,13 +597,18 @@ function runMain() {
   const rej = d4.placeEx("congee", null);
   A(rej.ok === false && rej.why === "plate-occupied", "盘里有东西时拒绝下料（原因码 plate-occupied）", rej.why);
   A(/盘里还有一份/.test(rej.hint || ""), "提示语：盘里还有一份，先送出去", rej.hint);
-  /* 热乎度降档 + 过火报废（放在同一列上验边界） */
+  /* bf-13 盘上永久保鲜：旧断言是「停 1.7s → 温 / 停 3.2s → 凉」，现在改成
+     「停 1.7s / 3.2s / 90s 都还是 hot」—— 档位不再随盘龄变化（这是本轮口径变化的核心）。 */
   d4.setPlateAge(0, B.HEAT.hotSec + 0.2);
   d4.tick(1 / 60);
-  A(d4.plates()[0].tier === "warm", "盘上停 1.7s → 温（10 分档）", d4.plates()[0].tier + " age=" + d4.plates()[0].age);
+  A(d4.plates()[0].tier === "hot", "盘上停 1.7s → 仍是 hot（旧断言：温 10 分档）", d4.plates()[0].tier + " age=" + d4.plates()[0].age);
   d4.setPlateAge(0, B.HEAT.warmSec + 0.2);
   d4.tick(1 / 60);
-  A(d4.plates()[0].tier === "cold", "盘上停 3.2s → 凉（6 分档，仍可上餐）", d4.plates()[0].tier + " age=" + d4.plates()[0].age);
+  A(d4.plates()[0].tier === "hot", "盘上停 3.2s → 仍是 hot（旧断言：凉 6 分档）", d4.plates()[0].tier + " age=" + d4.plates()[0].age);
+  d4.setPlateAge(0, 90);
+  d4.tick(1 / 60);
+  A(d4.plates()[0].tier === "hot" && d4.plates()[0].state === "perfect", "盘上停 90s → 仍是 hot / perfect（永久保鲜）",
+    d4.plates()[0].tier + " age=" + d4.plates()[0].age);
   /* 单击盘 → 自动送给正在需要 + 耐心最少的顾客 */
   d4.pushCustomer(["congee"]);
   const cands = d4.orders().filter(function(c){ return c.order.indexOf("congee") >= 0 && c.done.indexOf("congee") < 0; });
@@ -598,7 +622,7 @@ function runMain() {
     "挑中 #" + who + " · 耐心最少候选 #" + bestCands.join("/") + " · 全部候选 " +
     cands.map(function(c){ return "#" + c.id + "(耐心 " + c.patience + " · 单 " + c.order.join("+") + ")"; }).join(" "));
   const srv = d4.serveCol(0);
-  A(srv.ok === true && srv.heat === "cold" && srv.delta === 6, "凉的那份照样能上餐（+6 · 不劝退）",
+  A(srv.ok === true && srv.heat === "hot" && srv.delta === 14, "放了 90s 的那份照样吃最高档（热乎 +14；旧断言：凉 +6）",
     JSON.stringify({ heat: srv.heat, delta: srv.delta }));
   A(d4.stations()[0].plate === null && d4.plates().length === 0, "盘被取走 → 归属灶位立即可用");
   A(d4.placeEx("congee", null).ok === true, "灶位恢复可用：马上又能下一份");
@@ -623,25 +647,30 @@ function runMain() {
     A(!!nowant, "此刻没人要这份 → 拒绝出餐（原因码 no-want）",
       nowant ? (B9.FOOD[nowant.f].n + " @ 第 " + nowant.col + " 列：" + nowant.r.hint) : "候选食材都被人要走了");
     if (nowant) {
-      A(d4.stations()[nowant.col].plate === nowant.f, "这份留在盘上继续走热乎度衰减（不消耗）");
+      A(d4.stations()[nowant.col].plate === nowant.f, "这份留在盘上永久保鲜（不消耗）");
       d4.setPlateAge(nowant.col, B.SERVE_WINDOW - 0.1);
       d4.tick(1 / 60);
-      A(d4.plates().some(p => p.station === nowant.col && p.state === "perfect"), "窗口前 0.1s：还是好的（未糊）");
+      A(d4.plates().some(p => p.station === nowant.col && p.state === "perfect"), "旧窗口前 0.1s：还是好的（未糊）");
       d4.setPlateAge(nowant.col, B.SERVE_WINDOW + 0.05);
       d4.tick(1 / 60);
-      A(d4.plates().some(p => p.station === nowant.col && p.state === "burnt"), "盘上停留超过 4.5s → 变糊");
-      A(d4.state().expire === 1, "记在「忘取」账上");
-      const rBurn = d4.serveCol(nowant.col);
-      A(rBurn.ok === false && rBurn.why === "burnt", "糊的单击被拒（原因码 burnt，只能丢）", rBurn.why);
+      A(d4.plates().some(p => p.station === nowant.col && p.state === "perfect"), "盘上停留超过 4.5s **也不糊**（旧断言：变糊）");
+      A(d4.plates().some(p => p.station === nowant.col && p.tier === "hot"), "档位也没掉（仍是热乎）");
+      A(d4.state().expire === 0, "「忘取」账仍是 0（旧断言：记了一次忘取）");
+      d4.setPlateAge(nowant.col, 60);
+      d4.tick(1 / 60);
+      A(d4.plates().some(p => p.station === nowant.col && p.state === "perfect"), "放到 60s 还是完美档、还在盘上");
+      const rNo = d4.serveCol(nowant.col);
+      A(rNo.ok === false && rNo.why === "no-want", "仍然只是「没人要」，不是 burnt（旧断言：原因码 burnt）", rNo.why);
       const sc5 = d4.state().score;
-      A(d4.trashCol(nowant.col) === true, "双击（trashCol）才丢得掉");
+      A(d4.trashCol(nowant.col) === true, "双击（trashCol）照样丢得掉 —— 丢弃仍需玩家操作");
       A(d4.state().score === sc5, "丢垃圾桶不扣分");
       A(d4.stations()[nowant.col].plate === null && d4.placeEx(nowant.f, null).ok === true, "丢完这一列立刻能再用");
     }
   }
   d4.close();
 
-  /* ⑥.6 过火计时的边界：窗口前还活着 / 一过窗口就糊（盘上） */
+  /* ⑥.6 bf-13 盘上永久保鲜的边界：旧窗口前后都不糊、放 90 秒仍是热乎档、盘上那份不会消失；
+         锅内路径不受影响（锅里该糊还是糊），糊盘只来自「锅里糊了再端上盘」。 */
   const d5b = boot();
   d5b.B.start(d5b.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 999, goal: 99, onFinish: () => {} });
   const d5 = d5b.B.debug;
@@ -650,22 +679,27 @@ function runMain() {
   A(d5.stations()[3].plate === "egg", "熟了自动落到第 3 列的专属盘");
   d5.setPlateAge(3, B.SERVE_WINDOW - 0.1);
   d5.tick(1 / 60);
-  A(d5.stations()[3].plateState === "perfect", "窗口前 0.1s：还是好的（未糊）", d5.stations()[3].plateState);
-  A(d5.stations()[3].tier === "cold", "此时只剩「凉」档（越拖越差）", d5.stations()[3].tier);
+  A(d5.stations()[3].plateState === "perfect", "旧窗口前 0.1s：还是好的（未糊）", d5.stations()[3].plateState);
+  A(d5.stations()[3].tier === "hot", "此时仍是「热乎」档（旧断言：只剩「凉」档）", d5.stations()[3].tier);
   A(d5.state().burnt === 0, "还没糊");
   d5.setPlateAge(3, B.SERVE_WINDOW + 0.01);
   d5.tick(1 / 60);
-  A(d5.stations()[3].plateState === "burnt", "窗口后 0.01s：已经糊了", d5.stations()[3].plateState);
-  A(d5.state().burnt === 1 && d5.state().expire === 1, "糊掉 / 忘取各记一次");
-  A(d5.state().score === 0, "糊掉不扣分（丢垃圾桶才清空）");
-  A(d5.placeEx("egg", null).why === "plate-occupied", "糊的那份还堵着这一列（先双击丢掉）");
-  A(d5.trashCol(3) === true && d5.placeEx("egg", null).ok === true, "丢掉后才能再用");
-  /* 糊菜端给顾客（点顾客卡自动配盘那条路）→ 顾客当场离开（现有规则不变） */
-  A(d5.drop("congee", null) === true, "第 0 列下一份白粥");
-  for (let i = 0; i < 320 && !d5.stations()[0].plate; i++) d5.tick(1 / 60);
-  d5.setPlateAge(0, B.SERVE_WINDOW + 0.05);
+  A(d5.stations()[3].plateState === "perfect", "旧窗口后 0.01s：**还是好的**（旧断言：已经糊）", d5.stations()[3].plateState);
+  A(d5.stations()[3].tier === "hot", "档位也没掉");
+  A(d5.state().burnt === 0 && d5.state().expire === 0, "糊 / 忘取一次都没记（旧断言：各记一次）");
+  A(d5.state().score === 0, "不扣分");
+  d5.setPlateAge(3, 90);
   d5.tick(1 / 60);
-  A(d5.plates().some(p => p.state === "burnt"), "白粥在盘上放糊");
+  A(d5.stations()[3].plateState === "perfect" && d5.stations()[3].tier === "hot", "放 90 秒仍是 perfect / hot");
+  A(d5.state().plateCount === 1, "那份一直留在盘上（没有消失、没有被自动清掉）");
+  A(d5.placeEx("egg", null).why === "plate-occupied", "盘占着这一列 → 下料被拒（但这是占位，不是报废）");
+  A(d5.trashCol(3) === true && d5.placeEx("egg", null).ok === true, "双击丢掉后才能再用");
+  /* 糊盘唯一来源：锅里烧糊 → 端上盘；糊菜端给顾客 → 顾客当场离开（现有规则不变） */
+  A(d5.place("congee", null) === true, "第 0 列按住看火下一份白粥（manual：不自动落盘）");
+  for (let i = 0; i < 600 && d5.stations()[0].state !== "burnt"; i++) d5.tick(1 / 60);
+  A(d5.stations()[0].state === "burnt", "锅内照样会糊（白粥糊点 5.6s）");
+  A(d5.burnPlate(0) === true, "锅里糊了再端上盘 → 糊盘（盘上唯一的糊盘来源）");
+  A(d5.plates().some(p => p.state === "burnt"), "盘上那份确实是 burnt");
   const sB = d5.state().served, aB = d5.state().angry;
   d5.pushCustomer(["congee"]);
   const rb = d5.serveId(d5.orders()[d5.orders().length - 1].id, -1);
@@ -675,6 +709,7 @@ function runMain() {
   A(d5.stations()[0].plate === null, "糊盘被端走后这一列清空");
   A(d5.placeEx("egge", null).why === "no-food", "不存在的食材 → 原因码 no-food");
   d5.close();
+
 
   /* ⑥.7 列对齐 / 列头小字 / 三条操作提示的渲染证据 */
   const d6b = boot();
@@ -695,16 +730,34 @@ function runMain() {
   A(t6.some(x => /9 列 × 每列 1 锅 1 专属盘/.test(x)), "盘区标题写明「9 列 × 每列 1 锅 1 专属盘」");
   A(t6.some(x => /备菜盘/.test(x)) === false, "旧文案「备菜盘 ×3」已经不在");
   A(t6.some(x => /现做现送/.test(x)) === false, "旧文案「现做现送」已经不在");
-  /* 有食物 / 糊了的盘：画出档位与倒计时 / 只能丢 */
+  /* 盘上有食物：画出档位 + **静态**的「∞ 可一直放着」（bf-13：盘上没有倒计时）。
+     旧断言是「档位 + N.Ns 内送出」；现在反过来要求**不能**再出现任何「N.Ns 内送出」文案。 */
   d6.drop("egg", null);
   for (let i = 0; i < 300 && !d6.stations()[3].plate; i++) d6.tick(1 / 60);
   d6b.canvas()._m.texts.length = 0;
   d6b.pump(1);
   const t6b = d6b.canvas()._m.texts;
-  A(t6b.some(x => /煎蛋·热乎/.test(x)) && t6b.some(x => /s 内送出/.test(x)), "盘上有食物时画出档位 + 倒计时",
-    (t6b.filter(x => /·热乎/.test(x))[0] || "") + " / " + (t6b.filter(x => /s 内送出/.test(x))[0] || ""));
-  d6.setPlateAge(3, B.SERVE_WINDOW + 0.05);
+  A(t6b.some(x => /煎蛋·热乎/.test(x)), "盘上有食物时画出食材 + 档位（煎蛋·热乎）",
+    (t6b.filter(x => /·热乎/.test(x))[0] || ""));
+  A(t6b.some(x => /可一直放着/.test(x)), "盘下画的是静态提示「∞ 可一直放着」，取代倒计时",
+    (t6b.filter(x => /可一直放着/.test(x))[0] || ""));
+  A(!t6b.some(x => /内送出/.test(x)), "盘上**一个倒计时都没有**（旧断言要求画出「N.Ns 内送出」，现在要求它不存在）",
+    (t6b.filter(x => /内送出/.test(x))[0] || "没有任何「内送出」文案"));
+  /* 放 90 秒：还是那句静态提示 + 热乎档，也不会被画成糊盘 */
+  d6.setPlateAge(3, 90);
   d6.tick(1 / 60);
+  d6b.canvas()._m.texts.length = 0;
+  d6b.pump(1);
+  const t6b2 = d6b.canvas()._m.texts;
+  A(t6b2.some(x => /煎蛋·热乎/.test(x)) && t6b2.some(x => /可一直放着/.test(x)),
+    "放 90 秒后还是「煎蛋·热乎」+「∞ 可一直放着」（档位与文案都不变）");
+  A(!t6b2.some(x => /糊了/.test(x)) && !t6b2.some(x => /只能丢/.test(x)),
+    "放 90 秒也不会画出「糊了 · 只能丢」（旧断言：超时 4.5s 就画糊了）");
+  /* 糊盘的渲染仍然要验 —— 唯一来源是「锅里烧糊了再端上盘」 */
+  d6.trash(3);
+  A(d6.place("egg", null) === true, "按住看火下一份煎蛋（manual）");
+  for (let i = 0; i < 400 && d6.stations()[3].state !== "burnt"; i++) d6.tick(1 / 60);
+  A(d6.burnPlate(3) === true, "锅里糊了端上盘 → 造一份糊盘（渲染回归用）");
   d6b.canvas()._m.texts.length = 0;
   const strokes6 = Object.assign({}, d6b.canvas()._m.strokes);
   const imgN6 = d6b.record.drawImage.length;
@@ -712,6 +765,7 @@ function runMain() {
   const t6c = d6b.canvas()._m.texts;
   A(t6c.some(x => /糊了/.test(x)) && t6c.some(x => /只能丢/.test(x)), "糊了的盘画出「糊了 · 只能丢（双击）」",
     (t6c.filter(x => /只能丢/.test(x))[0] || ""));
+
   /* 红叉现在是 ui/cross.png 贴图（缺图才回退红色矢量叉）→ 两条路任一成立即可，
      并在 extra 里把「贴图几次 / 矢量描边涨了多少」都打出来，便于一眼看出走的哪条。 */
   const cross6 = d6b.record.drawImage.slice(imgN6).filter(x => /art\/icons\/ui\/cross\.png$/.test(x.src));
@@ -1021,8 +1075,9 @@ function runMain() {
     A(n4.indexOf("plate_empty.png") >= 0 && n4.filter(v => v === "congee.png").length === baseCongee + 1,
       "白粥落盘 → 盘位是「plate_empty + 食物贴图」（没有专属盘贴图的食材照旧这样画）",
       "plate_empty=" + n4.filter(v => v === "plate_empty.png").length + " congee.png " + baseCongee + " → " + n4.filter(v => v === "congee.png").length);
-    /* ④ 糊了 → 红叉贴图 */
-    d5.burnPlate(6);
+    /* ④ 糊了 → 红叉贴图（bf-13：盘上不会自然变糊，糊盘只来自「锅里糊了再端上盘」）*/
+    d5.trash(6);                                     // 先清掉刚才那份包子盘
+    A(d5.burnPlate(6) === true, "锅里烧糊 → 端上盘，造一份糊盘（盘上唯一的糊盘来源）");
     b5.record.drawImage.length = 0;
     b5.pump(1);
     A(b5.record.drawImage.some(x => /art\/icons\/ui\/cross\.png$/.test(x.src)),

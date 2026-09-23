@@ -1,0 +1,29 @@
+  /** 造一条专属盘记录（owningStation = 它唯一的归属灶位）。
+      tier 用 age = 0 取值 —— 也就是「冻结在落盘那一刻」的档位（完美份 → 热乎 14 分）。 */
+  function mkPlate(st, stationIdx, foodId, state) {
+    var tier = heatTierOf(state, 0);                  // age=0：落盘即定格，之后不再降档
+    return { station:stationIdx, food:foodId, state:state, tier:tier, hot:(tier === "hot"),
+             at:st.elapsed, left:PLATE_NO_TIMER, burning:false, burntAt:0,
+             cookSec:Math.round((st.stations[stationIdx].t || 0)) / 1000, seen:false };
+  }
+  /** 刷新一盘：只更新「放了多久」（p.age，纯记录值），**档位 / 倒计时一律不再变**。
+      · 盘上永久保鲜：tier 恒等于落盘那一刻的档（对 heatTierOf 传 age = 0 就是这件事的写法）；
+      · left 恒为 PLATE_NO_TIMER（Infinity）：没有倒计时 → UI 不画「N.Ns 内送出」；
+      · burning 恒为 false：盘上永远不会「正在烧糊」。
+      唯一的 burnt 支路是「锅里已经糊了再端上盘」（takePlate 允许，正常点击路径到不了）。 */
+  function refreshPlate(st, p) {
+    if (!p) return p;
+    p.age = round1(Math.max(0, st.elapsed - (p.at || 0)));       // 只记录，不驱动任何降档
+    if (p.state === "burnt") { p.tier = heatTierOf("burnt", 0); p.hot = false; p.left = 0; p.burning = true; return p; }
+    p.tier = heatTierOf(p.state, 0);                             // 永久保鲜：档位冻结在落盘那一刻
+    p.hot = (p.tier === "hot");
+    p.left = PLATE_NO_TIMER;                                     // 没有倒计时
+    p.burning = false;                                           // 盘上不会烧糊
+    return p;
+  }
+  /** 该盘是否已经「过期」—— bf-13 起**恒为 false**（盘上永久保鲜：放多久都不会消失、
+      也不会自己变糊）。函数保留：step() / 单测 / 旧调用方都还读得到这个语义。 */
+  function plateExpired(st, p) {
+    if (!p || p.state === "burnt") return false;
+    return plateBurntAt(Math.max(0, st.elapsed - (p.at || 0)));
+  }

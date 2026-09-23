@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    { "file": "tools/bf/shots/panel.js",
+      "from": "  const TOP = 168, BAND = 452;                           // 上标题带 / 下注解带（设备像素）",
+      "text": "  const TOP = 224, BAND = 452;                           // 上标题带 / 下注解带（设备像素）\n  /* 上带分四行：标题 / 说明 / 九列「盘龄→档位」/ 每列头顶的盘龄标签（贴在盘带正上方，不与标题压字）*/" },
+
+    { "file": "tools/bf/shots/panel.js",
+      "from": "  const AGES = [0.4, 2, 3.6, 6, 12, 25, 60, 150, 300];\n  AGES.forEach(function (a, i) { d.setPlateAge(i, a); });\n  d.tick(1 / 60);",
+      "text": "  adv(d, 1.2);                                           // 让「熟了 · 落到专属盘」飘字播完，出图干净\n  const AGES = [0.4, 2, 3.6, 6, 12, 25, 60, 150, 300];\n  AGES.forEach(function (a, i) { d.setPlateAge(i, a); });\n  d.tick(1 / 60);" },
+
+    { "file": "tools/bf/shots/panel.js",
+      "from": "    put(\"盘龄 \" + a + \"s\", cx, TOP - 54, 24, a >= 60 ? \"#5dffa0\" : \"#b0a08c\", \"center\");\n    put(a >= 60 ? \"旧：早就糊了\" : \"旧：会降档\", cx, TOP - 22, 19, a >= 60 ? \"#ff4d6d\" : \"#8a7a6a\", \"center\");",
+      "text": "    put(\"盘龄 \" + a + \"s\", cx, TOP - 46, 25, a >= 60 ? \"#5dffa0\" : \"#b0a08c\", \"center\");\n    /* 旧口径（heatTierOf 的老曲线：≤1.5s 热乎 14 分 / ≤3.0s 温 10 分 / ≤4.5s 凉 6 分 / >4.5s 糊）*/\n    const oldTxt = OLD_TIER[a] || \"旧：早就糊了\";\n    put(oldTxt, cx, TOP - 18, 19, OLD_TIER[a] ? \"#8a7a6a\" : \"#ff4d6d\", \"center\");" },
+
+    { "file": "tools/bf/shots/panel.js",
+      "from": "  const TIER_CN = { hot: \"热乎\", warm: \"温\", cold: \"凉\", burnt: \"糊\" };",
+      "text": "  const TIER_CN = { hot: \"热乎\", warm: \"温\", cold: \"凉\", burnt: \"糊\" };\n  /* 同样的盘龄在**旧口径**下会是什么下场（只用于图中注解，代码里这条曲线已经不再作用于盘上）*/\n  const OLD_TIER = { 0.4: \"旧：热乎 14 分\", 2: \"旧：温 10 分\", 3.6: \"旧：凉 6 分\" };" }
+  ]
+}

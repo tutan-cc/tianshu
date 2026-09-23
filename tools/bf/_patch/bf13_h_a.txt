@@ -1,0 +1,28 @@
+  /* ── bf-13 盘上永久保鲜：放再久也不糊 / 不降档 / 不消失（用户要求「备用餐盘不要有倒计时」）──
+     旧断言是「盘上停留超过过火计时 → 变糊」，现在改成「放 90 秒仍是热乎档、仍是完美份」；
+     而「糊盘」这条交互 / 渲染路径改走它**唯一**的真实来源：锅里烧糊了再端上盘。 */
+  B.debug.drop("egg", null);
+  for (let i = 0; i < 300 && !B.debug.stations()[3].plate; i++) B.debug.tick(1 / 60);
+  A(B.debug.stations()[3].plate === "egg", "再做一份，等着它落盘");
+  B.debug.setPlateAge(3, B.SERVE_WINDOW + 0.5);         // 拨到「旧过火计时」之后
+  B.debug.tick(1 / 60);
+  A(B.debug.plates().some(p => p.station === 3 && p.state === "perfect"),
+    "盘上停留超过 4.5s **也不糊** → 永久保鲜（旧断言：变糊 / 要求 A5）", JSON.stringify(B.debug.plates()));
+  B.debug.setPlateAge(3, 90);                           // 90 秒
+  B.debug.tick(1 / 60);
+  const p90 = B.debug.plates().filter(p => p.station === 3)[0];
+  A(!!p90 && p90.tier === "hot" && p90.age === 90, "盘上放 90 秒仍是「热乎」最高档（14 分档）",
+    p90 ? ("tier=" + p90.tier + " age=" + p90.age + "s") : "盘不见了");
+  A(!!p90 && !isFinite(p90.left), "盘上没有倒计时（left = Infinity 哨兵）", p90 && ("left=" + p90.left));
+  A(B.debug.state().expire === 0, "「忘取」账是 0（盘上不存在忘取报废）");
+  /* 糊盘只能这样造：锅里按住看火烧糊 → 端上盘（盘上自己永远不会变糊） */
+  B.debug.trash(3);
+  A(B.debug.place("egg", null) === true, "按住看火下一份煎蛋（manual：不自动落盘）");
+  for (let i = 0; i < 400 && B.debug.stations()[3].state !== "burnt"; i++) B.debug.tick(1 / 60);
+  A(B.debug.stations()[3].state === "burnt", "锅内照样会糊（锅内路径不受影响）");
+  A(B.debug.burnPlate(3) === true, "锅里糊了再端上盘 → 造出「糊盘」（盘上唯一的糊盘来源）");
+  pump(1, 420);
+  cv.dispatch("mousedown", { clientX: PLATE3.x, clientY: PLATE3.y, preventDefault() {} });
+  pump(1, 420);
+  A(B.debug.stations()[3].plate === "egg", "糊的那份单击被拒：还留在盘上（提示「糊了，只能丢掉」）",
+    (m.texts.slice(-40).filter(x => /糊/.test(x))[0] || ""));

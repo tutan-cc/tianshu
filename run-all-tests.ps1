@@ -69,8 +69,14 @@ $SUITES = @(
   #    火花判定用单调累加器 fxCount，不要比较 fx 数组长度 —— 粒子有生命周期会被回收。
   # ⑥ 立绘走 Lovart 出图；测试环境没有真 Image，必须验证"立绘未就绪 → 回落骨骼"这条路仍然能跑。
   # ⑦ 两个角色必须"一眼能分辨"：体型参数方向、POSES 两套、配色冷暖两系，出拳幅度差 ≥1.5 倍。
-  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（机制+调平+侧视舞台）"; Script = "tests/fight2.test.cjs";         Expect = 176 }
-  [pscustomobject]@{ Layer = "headless"; Name = "早餐店无头证据链";             Script = "tools/bf/headless.js";            Expect = 465 }
+  # ⑧ 卡牌系统：开局抽牌 / 打牌耗行动力 / 回合刷新且牌张守恒 / 抽牌堆空了洗弃牌堆 / 卸力与治疗生效。
+  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（机制+调平+侧视舞台）"; Script = "tests/fight2.test.cjs";         Expect = 224 }
+  # 自然语言影子模式（nlroute.js + 本地反代）：TypeSafe Jev 判定 → 只记录、绝不跳转。
+  # 为什么单列：它挂在游戏旁边跑，出错的代价不是「玩法坏了」，而是「悄悄改了游戏行为」或「悄悄丢语料」。
+  # 这一套把「没 key / 没端点就绝不联网」「三条加固规则」「超时可配且区分超时与不可达」
+  # 「60s 回填且只回填一次」「反代来源白名单：跨源 POST → 403 且不转发」都钉成断言；反代那段起的是真 HTTP 服务。
+  [pscustomobject]@{ Layer = "logic";    Name = "自然语言影子模式（nlroute+反代）"; Script = "tests/nlroute.test.cjs";     Expect = 405 }
+  [pscustomobject]@{ Layer = "headless"; Name = "早餐店无头证据链";             Script = "tools/bf/headless.js";            Expect = 526 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将浏览器实测（CDP→mshta）";  Script = "tools/e2e/mj-browser.js";         Expect = 190 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将系统 E2E（mshta）";         Script = "tools/e2e/mj-system.js";          Expect = 115 }
   [pscustomobject]@{ Layer = "browser";  Name = "闲暇玩法 E2E（打斗/麻将/彩票）"; Script = "tools/e2e/leisure.js";           Expect = 8 }

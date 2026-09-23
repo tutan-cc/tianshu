@@ -24,6 +24,8 @@ const { encodePng } = require("./png-write.cjs");
 const html = readHtml();
 const api = new vm.Script("(function(){\n" +
   "const FIGHT2_TUNE = " + grabConst(html, "FIGHT2_TUNE") + ";\n" +
+  /* Fight2Stage.drawCards 要读卡池（每张牌的名字/类型/消耗），必须一起抽出来 */
+  "const FIGHT2_CARDS = " + grabConst(html, "FIGHT2_CARDS") + ";\n" +
   "const Fight2Stage = " + serialize(evalConstIn(html, "Fight2Stage")) + ";\n" +
   "var document={getElementById:function(){return {style:{},dataset:{},innerHTML:\"\",textContent:\"\",\n" +
   "  classList:{add:function(){},remove:function(){},contains:function(){return false;}},\n" +
@@ -40,7 +42,8 @@ S.begin({ getContext: () => sink.ctx, width: 1680, height: 900, addEventListener
 S.running = false; S.arcadeOn = false; S.arcade = 0; S.arcadeMode = true;
 /* 给 HUD 喂一份状态：--png 导出帧时要能看到血条上的身份标签（你 / 对手） */
 S.sync({ hp:99, maxHp:99, foeHp:268, foeMax:320, stamMine:0.8, stamFoe:0.6,
-         turn:5, ap:4, phase:"act", meName:"陈默", foeName:"花衬衫" });
+         turn:5, ap:4, phase:"act", meName:"陈默", foeName:"花衬衫",
+         hand:["jab","combo","breathe","unload"] });
 
 const R = S.screenRect();
 const TOL = 0.001;                                        // 0.1%：见文件头的说明
@@ -66,7 +69,9 @@ const ratio = inside ? outside / inside : 1;
 S.drawMachineFrame = rawFrame;
 S.drawMachineOverlay = rawOverlay;
 sink.px.fill(0);
-S.frameOnce();
+/* 推 6 帧而不是 1 帧：手牌有"依次飞入"的动画（handDrawn 每帧 +0.06），
+   只推一帧的话卡牌几乎还停在屏幕下方，--png 导出来看不到牌。 */
+for (let i = 0; i < 6; i++) S.frameOnce();
 let minX = 1e9, maxX = -1, minY = 1e9, maxY = -1;
 for (let y = 0; y < 900; y++) for (let x = 0; x < 1680; x++) {
   const i = (y * 1680 + x) * 3;

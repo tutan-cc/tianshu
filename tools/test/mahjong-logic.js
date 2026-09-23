@@ -656,7 +656,33 @@ group("16. 智脑提示（选牌 / 听牌 / 有效牌）");
   ok(tenpaiCases > 0, "样本里含「一打即听」的局面（" + tenpaiCases + " / " + checked + "）");
   ok(nonTenpai > 0, "样本里也含非听牌局面（" + nonTenpai + " / " + checked + "）");
 
-  /* ⑦ 缓存 + 性能（目标 < 300ms） */
+  /* ⑦ 缓存 + 性能：口径 = 「p50 判死 · p95/最坏只记录」
+     ── 原口径「60 次采样里最坏那一次 < 300ms」为什么必然随机红：
+        max 是极值统计量 —— 60 次里只要有一次被打断（GC、杀软扫描、同机别的 node/浏览器
+        进程、CPU 降频）就会被顶上去。本轮实测（同一份代码，只换口径不换算法）：
+          安静时 5 连跑：最坏 116 / 129 / 144 / 208 / 228ms，改前基线还有一次 349ms（红）
+          4 并发高负载：最坏 222 / 227 / 227 / 330ms；机器另有负载时 319 / 419 / 433 / 604ms
+        也就是说 300ms 这条线本来就压在噪声里 —— 它测的不是提示算法，是「谁抢了 CPU」。
+        按指南 §6 的断言口径黄金法则：这是典型的「读持续演化、依赖真实时钟/真实负载的世界状态」。
+     ── 新口径：先预热 20 次（吃掉 JIT 冷启动；旧口径的「平均 90ms」很大一部分就是冷启动），
+        再取 40 次采样的 **p50（中位数）** 判死，p95/最坏/最快只打印、不判死。
+        · 为什么 p50 稳：要有**半数**样本被拖慢才会动，单次抖动改不了它；
+        · 阈值 200ms 的来处（本机实测 p50）：
+            安静时 36 / 37 / 39 / 41 / 44 / 47 / 49 / 50ms
+            并发/带负载时 56 / 72 / 81 / 83 / 95 / 107 / 113 / 121 / 126 / 131 / 134 / 135ms
+          → 200ms = 实测最坏 p50（135ms）的 1.5 倍，又远低于旧口径动不动就 300ms+ 的极值。
+     ── 诚实交代（不想让下一个人再踩一遍）：
+        这台机器的墙钟噪声带本身就有 ~3 倍（安静 p50≈40ms ↔ 有负载 p50≈120ms），
+        而「提示算法慢 3 倍」正好落在同一量级（40×3 = 120ms）——
+        所以**任何**能扛住负载的绝对阈值，都无法在单次运行里分辨 3 倍回归，
+        这不是阈值调得好不好的问题（我试过用「同机参照工作量」做归一化：参照 30ms 的活
+        自己就有 ±60% 抖动，比值反而比裸 p50 更飘，遂放弃）。
+        因此把「抓 3 倍回归」做成**可选严格口径**：在安静机器 / CI 独占机上
+          MJ_HINT_STRICT=1 node tools/test/mahjong-logic.js
+        会额外汇总要求 p50 < MJ_HINT_STRICT_MS（默认 100ms = 安静基线的 2.5 倍，
+        真慢 3 倍 → 120ms > 100ms 必红）。默认关闭，断言总数不变。
+        想把裸最坏值也当硬断言跑：MJ_HINT_ASSERT_WORST=1（默认关闭）。 */
+  /* 缓存口径（本段原有断言，一条不能少：⑦ 的性能口径换了，缓存的语义断言没换） */
   T.hintCacheClear();
   const s1 = T.hintCacheStats();
   T.hintCalc({ hand: P("13579m 2468s 1357p 中"), melds: [], seen: {}, honors: true });
@@ -666,21 +692,49 @@ group("16. 智脑提示（选牌 / 听牌 / 有效牌）");
   eq(s1.size, 0, "⑦ 缓存初始为空");
   eq(s2.size, 1, "⑦ 首次计算写入缓存");
   eq(s3.hits, 1, "⑦ 相同手牌第二次直接命中缓存");
-  let worst = 0, worstHand = "", sum = 0, n = 0;
-  for (let it = 0; it < 60; it++) {
+  const PERF_WARM = +(process.env.MJ_HINT_WARM || 20);        // 预热：吃掉 JIT / 首次分配
+
+  const PERF_N = +(process.env.MJ_HINT_N || 40);              // 采样：取分布
+  /* ⚠ 预热 20 + 采样 40 = 60 次，与旧口径的 60 次循环**逐次同构**：
+     每轮一次 mkRand14()（= 一次 135 次交换的洗牌）→ 消耗的 Math.random 序列与改前一模一样，
+     后面那些随机用例（§22 整局自走）看到的随机流不变 —— 不会因为「本轮多洗了几次牌」
+     把后段的随机结果带偏（这是改测试时最容易忽略的副作用）。 */
+  const P50_LIMIT = +(process.env.MJ_HINT_P50_MS || 200);     // 主断言（阈值由上面实测数据论证）
+  const mkRand14 = () => {
     const pool = [];
     for (const t of T.KINDS_ALL) for (let q = 0; q < 4; q++) pool.push(t);
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
-    const h = pool.slice(0, 14);
+    return pool.slice(0, 14);
+  };
+  const perfSamples = [];
+  for (let it = 0; it < PERF_WARM + PERF_N; it++) {
+    const h = mkRand14();
     T.hintCacheClear();
     const t0 = Date.now();
     T.hintCalc({ hand: h, melds: [], seen: {}, honors: true });
     const ms = Date.now() - t0;
-    sum += ms; n++;
-    if (ms > worst) { worst = ms; worstHand = T.sortTiles(h).join(" "); }
+    if (it >= PERF_WARM) perfSamples.push({ ms: ms, hand: T.sortTiles(h).join(" ") });
   }
-  ok(worst < 300, "⑦ 单次提示计算最坏耗时 " + worst + "ms < 300ms（平均 " + (sum / n).toFixed(0) + "ms）");
-  console.log("  提示最坏耗时 " + worst + "ms / 平均 " + (sum / n).toFixed(0) + "ms（" + worstHand + "）");
+  const msAsc = perfSamples.map(s => s.ms).sort((a, b) => a - b);
+  const pickQ = q => msAsc[Math.min(msAsc.length - 1, Math.floor(q * msAsc.length))];
+  const best = msAsc[0], p50 = pickQ(0.5), p95 = pickQ(0.95), worst = msAsc[msAsc.length - 1];
+  const worstHand = (perfSamples.filter(s => s.ms === worst)[0] || {}).hand || "";
+  const perfSum = msAsc.reduce((a, b) => a + b, 0), perfN = msAsc.length;
+  ok(p50 < P50_LIMIT, "⑦ 提示计算中位数 p50 " + p50 + "ms < " + P50_LIMIT + "ms（" + perfN + " 次采样 · 预热 " +
+    PERF_WARM + " 次 · 稳健口径：p95/最坏只记录不判死）");
+  console.log("  提示耗时分布（" + perfN + " 次）：最快 " + best + "ms · p50 " + p50 + "ms · p95 " + p95 +
+    "ms · 最坏 " + worst + "ms · 平均 " + (perfSum / perfN).toFixed(0) + "ms  ← 只有 p50 判死（<" + P50_LIMIT +
+    "ms），最快/p95/最坏仅记录（最坏那次：" + worstHand + "）");
+  if (process.env.MJ_HINT_STRICT === "1") {
+    ok(p50 < +(process.env.MJ_HINT_STRICT_MS || 100),
+      "⑦[严格] 提示计算 p50 " + p50 + "ms < " + (+(process.env.MJ_HINT_STRICT_MS || 100)) +
+      "ms（仅 MJ_HINT_STRICT=1 时判死：安静机器上用它抓 2.5~3 倍回归）");
+  }
+  if (process.env.MJ_HINT_ASSERT_WORST === "1") {
+    ok(worst < +(process.env.MJ_HINT_WORST_MS || 600),
+      "⑦[可选] 单次提示计算最坏耗时 " + worst + "ms < " + (+(process.env.MJ_HINT_WORST_MS || 600)) + "ms（仅 MJ_HINT_ASSERT_WORST=1 时判死）");
+  }
+
 }
 
 /* ═══════════════ 17. 结算亮牌数据结构 ═══════════════ */
