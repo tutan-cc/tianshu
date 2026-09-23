@@ -53,6 +53,7 @@ const MODULES = [
   { file: "index.html",   tag: "idx" },
   { file: "mahjong.js",   tag: "mj"  },
   { file: "breakfast.js", tag: "bf"  },
+  { file: "jade.js",      tag: "jd"  },   // v1.32 新增「开窗」赌石模块
   { file: "map3d.js",     tag: "map" },
 ];
 
@@ -180,6 +181,7 @@ function wmText(s) {
     "ch " + s.ch,
     "bf " + kb.bf + "K",
     "mj " + kb.mj + "K",
+    "jd " + kb.jd + "K",
     "idx " + kb.idx + "K",
     "map " + kb.map + "K",
   ].join(" · ");

@@ -188,6 +188,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .overlay{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
   background:rgba(4,3,8,.72);backdrop-filter:blur(3px)}
 .overlay.on{display:flex}
+/* 侧栏小游戏面板（麻将 / 刮刮乐 / 早餐店 / 开窗）：**必须留在电影层之外**，并压过它。
+   两个原因：① #cine 平时 display:none —— 装在它里面等于永久隐藏（"点了开窗没反应"的根因，
+   实测面板 .on 为真但 rect 0x0）；② 剧情播放中（#cine z-index:60）打开时也要看得见。 */
+.overlay.side{position:fixed;z-index:80}
 /* 连打/判定条是**玩法内部**的二级覆盖层（组合拳连打、蓄力反击），
    必须压在 #fight / #talk 这些一级玩法面板之上（它们同为 .overlay，DOM 序在 qte 之后）。
    不给这条规则的话，连打条会被打斗面板整块盖住 —— 玩家按空格但看不见进度。 */
@@ -371,6 +375,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     <button id="dbgFight2" style="padding:9px 22px;border:1px solid #ffd76e;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,215,110,.08)">⚑ 跳到打斗 2.0</button>
     <button id="dbgMj" style="padding:9px 22px;border:1px solid var(--cyan);color:var(--cyan);font-size:12px;letter-spacing:2px;background:rgba(77,216,255,.08)">⚑ 跳到麻将</button>
     <button id="dbgBf" style="padding:9px 22px;border:1px solid #ff9ec7;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,158,199,.08)">⚑ 跳到早餐店</button>
+    <button id="dbgJade" style="padding:9px 22px;border:1px solid #c9a24a;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(201,162,74,.08)">⚑ 跳到赌石（开窗）</button>
     <button id="dbgTalk" style="padding:9px 22px;border:1px solid var(--line);color:var(--dim);font-size:12px;letter-spacing:2px;background:rgba(255,255,255,.04)">⚑ 全部解锁</button>
   </div>
   <div class="tmeta">互动影游原型 v0.5 · 序章 + 第一章 + 第二章 · 14 节点 · 5 种小游戏 · 全台词配音<br>实拍素材来自本地素材库（授权未核实）</div>
@@ -397,6 +402,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       <button class="btn-m" id="bfBtn" style="border-color:#ff9ec7;color:#ffd76e"><img class="gm-ico" src="art/icons/game/breakfast.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🍳</span> 做份早餐</button>
       <div id="bfNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <div id="mjRec" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:6px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
+      <button class="btn-m" id="jadeBtn" style="border-color:#c9a24a;color:#ffd76e"><img class="gm-ico" src="art/icons/game/jade.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🪨</span> 开窗（赌石）</button>
+      <div id="jadeNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="saveBtn">▣ 保存进度</button>
       <button class="btn-m" id="exportBtn">⇪ 导出存档</button>
       <button class="btn-m" id="importBtn">⇩ 导入存档</button>
@@ -599,33 +606,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     </div></div>
 
     <!-- 麻将 · 听牌挑战 -->
-    <div class="overlay" id="mj"><div class="panel">
-      <h3 id="mjTitle">麻将 · 听牌挑战</h3><div class="sub2" id="mjSub"></div>
-      <div id="mjInfo" style="font-size:12px;color:var(--dim);margin-bottom:10px"></div>
-      <div id="mjHand" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:52px"></div>
-      <div style="display:flex;gap:8px">
-        <button class="mbtn" id="mjDraw" style="flex:1">摸 牌<b>从牌墙取一张</b></button>
-        <button class="mbtn" id="mjWin" style="flex:1;display:none">胡 ！<b>结算本局</b></button>
-        <button class="mbtn" id="mjHint" style="flex:1">提 示<b>花费 ¥20</b></button>
-      </div>
-      <div class="hint" style="margin-top:8px">点手牌即打出（需先摸牌）· 金老板第 5 巡必胡</div>
-    </div></div>
 
-    <!-- 刮彩票 -->
-    <div class="overlay" id="lottery"><div class="panel" style="width:min(560px,94%)">
-      <h3>刮 刮 乐</h3><div class="sub2">按住鼠标在票面上涂抹，刮开 35% 自动揭晓 · ¥20 / 张</div>
-      <canvas id="scratchCv" width="480" height="260" style="display:block;width:100%;border:1px solid var(--line);cursor:crosshair;touch-action:none"></canvas>
-      <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="lotteryClose" style="flex:1">关 闭</button></div>
-    </div></div>
-
-    <!-- 早餐店 · 选对象面板（面板本身由 breakfast.js 渲染） -->
-    <div class="overlay bf-overlay" id="bfPick"><div class="panel bf-panel" id="bfPickHost"></div></div>
-
-    <!-- 早餐店 · 拼手速（Canvas 由 breakfast.js 渲染） -->
-    <div class="overlay bf-overlay" id="bfGame"><div class="panel bf-panel bf-game-panel" id="bfGameHost"></div></div>
-
-    <!-- 自由局开局（三档注码 + 打法；面板本身由 mahjong.js 渲染） -->
-    <div class="overlay" id="mjLobby"><div id="mjLobbyHost"></div></div>
 
     <!-- 章末卡 -->
     <div class="overlay" id="endcard"><div class="panel">
@@ -645,6 +626,45 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   </div>
 </div>
 
+<!-- 侧栏小游戏面板（麻将 / 刮刮乐 / 早餐店 / 开窗）
+     ⚠ 这 6 个面板**必须留在电影层之外**：它们由侧栏按钮打开，而侧栏只在沙盘视图（电影层关闭）可点，
+     而 #cine 平时是 display:none —— 之前它们被塞在 #cine > #frame 里，导致「点了小游戏没反应」：
+     面板 .on 状态是对的、内容也建好了，但整棵子树被 display:none 藏起来（实测 rect 0x0）。
+     .overlay.side 给了 position:fixed + z-index:80，所以剧情播放中（#cine z-index:60）也能压在它上面显示。 -->
+<div class="overlay side" id="mj"><div class="panel">
+  <h3 id="mjTitle">麻将 · 听牌挑战</h3><div class="sub2" id="mjSub"></div>
+  <div id="mjInfo" style="font-size:12px;color:var(--dim);margin-bottom:10px"></div>
+  <div id="mjHand" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:52px"></div>
+  <div style="display:flex;gap:8px">
+    <button class="mbtn" id="mjDraw" style="flex:1">摸 牌<b>从牌墙取一张</b></button>
+    <button class="mbtn" id="mjWin" style="flex:1;display:none">胡 ！<b>结算本局</b></button>
+    <button class="mbtn" id="mjHint" style="flex:1">提 示<b>花费 ¥20</b></button>
+  </div>
+  <div class="hint" style="margin-top:8px">点手牌即打出（需先摸牌）· 金老板第 5 巡必胡</div>
+</div></div>
+
+<!-- 刮彩票 -->
+<div class="overlay side" id="lottery"><div class="panel" style="width:min(560px,94%)">
+  <h3>刮 刮 乐</h3><div class="sub2">按住鼠标在票面上涂抹，刮开 35% 自动揭晓 · ¥20 / 张</div>
+  <canvas id="scratchCv" width="480" height="260" style="display:block;width:100%;border:1px solid var(--line);cursor:crosshair;touch-action:none"></canvas>
+  <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="lotteryClose" style="flex:1">关 闭</button></div>
+</div></div>
+
+<!-- 开窗 · 赌石（玩法与绘制都在 jade.js，这里只给容器） -->
+<div class="overlay side" id="jade"><div class="panel" style="width:min(760px,96%)">
+  <h3>开 窗</h3><div class="sub2">老城区 · 夜市地摊 —— 拖放大镜在皮壳上找茬，出价，一刀切开见分晓</div>
+  <div id="jadeHost"></div>
+  <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="jadeClose" style="flex:1">收 摊</button></div>
+</div></div>
+
+<!-- 早餐店 · 选对象面板（面板本身由 breakfast.js 渲染） -->
+<div class="overlay side bf-overlay" id="bfPick"><div class="panel bf-panel" id="bfPickHost"></div></div>
+
+<!-- 早餐店 · 拼手速（Canvas 由 breakfast.js 渲染） -->
+<div class="overlay side bf-overlay" id="bfGame"><div class="panel bf-panel bf-game-panel" id="bfGameHost"></div></div>
+
+<!-- 自由局开局（三档注码 + 打法；面板本身由 mahjong.js 渲染） -->
+<div class="overlay side" id="mjLobby"><div id="mjLobbyHost"></div></div>
 <div id="toasts"></div>
 
 <!-- NPC 邀约条（手机消息风格，由 mahjong.js 渲染；固定在右下角，不挡沙盘） -->
@@ -654,6 +674,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 <script src="mahjong.js"></script>
 <script src="map3d.js"></script>
 <script src="breakfast.js"></script>
+<script src="jade.js"></script>
 <script>
 "use strict";
 /* ═══════════════ 数据层 ═══════════════ */
@@ -977,6 +998,7 @@ const ACHV = {
   mjPayer:{n:"包赔三家", d:"杠被抢胡，包赔三家"},
   mjRival:{n:"冤家", d:"单局输光所选注码"},
   bfWin:{n:"早餐店老板", d:"在早餐店拼手速过关"},
+  onedaofu:{n:"一刀富", d:"赌石单块净赚 ≥ ¥800（要蟒带+松花的高货）"},
 };
 
 /* ═══════════════ 音频层 ═══════════════
@@ -1354,6 +1376,8 @@ function newState(){ return {version:SAVE_VER, done:[], stats:{cash:10, cha:5, p
   mjWins:0, mjLosses:0, mjNet:0, mjRep:50, mjStreak:0, mjInvites:{},
   /* ── 早餐店 · 拼手速：每日一次 / 战绩 / 结果 ── */
   breakfastDay:{day:0, sent:[]}, bfWin:false, bfLast:null,
+  /* ── 开窗 · 赌石：局数 / 累计净收支 / 单块最好 / 是否开出过一刀富 ── */
+  jadeRuns:0, jadeNet:0, jadeBest:0, jadeJackpot:false,
   rpg:{xp:0, owned:[], equipped:{hand:null,outfit:null,accessory:null}, bag:{}}, buffs:{time:0,window:0,hp:0,capital:0}}; }
 function save(){ try{ localStorage.setItem("cs2_save", JSON.stringify(S)); }catch(e){} }
 /* 唯一入口：量纲 → 引用白名单 → 状态机边界 → 子系统缺省补齐；坏档一律返回 null */
@@ -1447,6 +1471,11 @@ function restore(raw){
         score:num0(bl.score,0,-9999999,99999999), delta:num0(bl.delta,0,-10,10),
         day:num0(bl.day,out.day,0,99), t:Number.isFinite(Number(bl.t))? Number(bl.t):0 };
     } else out.bfLast = null;
+    // ── 开窗 · 赌石字段：旧档缺 jade* 一律补默认值（与 mj*/bf* 同策略，绝不因此判坏档）──
+    out.jadeRuns    = num0(s.jadeRuns, 0, 0, 99999);
+    out.jadeNet     = num0(s.jadeNet, 0, -99999999, 99999999);
+    out.jadeBest    = num0(s.jadeBest, 0, 0, 99999999);
+    out.jadeJackpot = s.jadeJackpot === true;
     return out;
   }catch(e){ return null; }
 }
@@ -1486,6 +1515,7 @@ function checkAchv(){
   if(S.fightWon) got("brawlWin");
   if(S.mjWin) got("mjWin");
   if(S.bfWin) got("bfWin");
+  if(S.jadeJackpot) got("onedaofu");
   if(S.rpg && Object.values(S.rpg.equipped).filter(Boolean).length>=3) got("gear");
 }
 function hudTitle(){ const s=S.stats; const m=Object.entries(s).sort((a,b)=>b[1]-a[1])[0];
@@ -1500,6 +1530,7 @@ function render(){
   $("clockDay").textContent="Day "+S.day; $("clockPer").textContent=PER[S.per];
   const recEl=$("mjRec"); if(recEl) recEl.innerHTML=mjRecordHtml();
   const bfEl=$("bfNote"); if(bfEl){ try{ bfEl.innerHTML=bfNoteHtml()+bfSinceLast(); }catch(e){ bfEl.textContent="🍳 做份早餐"; } }
+  const jdEl=$("jadeNote"); if(jdEl){ try{ jdEl.innerHTML=jadeNoteHtml(); }catch(e){ jdEl.textContent="🪨 开窗（赌石）"; } }
   const bd=$("bonds"); bd.innerHTML="";
   for(const k in BONDS){ const v=S.bonds[k]; bd.innerHTML+=`<div class="bond"><div class="face">${BONDS[k].f}</div>
     <div style="flex:1"><div class="nm">${BONDS[k].n} <span class="rl">${BONDS[k].r}</span></div>
@@ -4503,6 +4534,66 @@ function scratchLottery(){
   $("lotteryClose").onclick=()=>{ $("lottery").classList.remove("on"); };
 }
 
+/* ═══════════════ 开窗 · 赌石（玩法与绘制都在 jade.js，这里只负责接 S / toast） ═══════════════
+   ⚠ 现金结算口径：模块内部只**记账**（出价时累加 spend，并据此禁用买不起的档位），
+   真正的钱是每块切开时按「净收益 = 真实价值 − 出价」一次性落账（onSettle）。
+   所以中途点「收摊」不吃本金、也不白送 —— 与刮刮乐的即时结算口径一致。 */
+/* 成就【一刀富】的门槛：**从模块读**，不在这里写死 ——
+   整条金钱刻度缩放时（首档 ¥250→¥60 那次），门槛与三档价格是同一把尺子，
+   写死就会出现"成就文案说 ¥800、模块按别的数判定"的错位。 */
+function jadeAchvLine(){ return (window.Jade && Jade.rules && Jade.rules.JACKPOT_NET) || 800; }
+/* 立刻回填成就文案：金额的唯一来源是 jade.js 的 JACKPOT_NET（ACHV 里那句静态文案只是兜底） */
+ACHV.onedaofu.d = "赌石单块净赚 ≥ ¥" + jadeAchvLine() + "（要蟒带+松花的高货）";
+function jadeNoteHtml(){
+  const r = S.jadeRuns || 0;
+  const min = (window.Jade && Jade.TUNE) ? Jade.TUNE.PRICES[0] : 250;
+  if(!r) return `🪨 开窗 · 夜市地摊赌石（3 块一局）<br><span style="color:var(--dim)">最低 ¥${min} 起 · 拖放大镜找裂、找松花</span>`;
+  const net = S.jadeNet || 0;
+  const col = net>0 ? "var(--green)" : (net<0 ? "var(--red)" : "var(--dim)");
+  return `🪨 开窗：<b>${r}</b> 局 · 累计 <b style="color:${col}">${net>0?"+":""}¥${net}</b><br>`+
+    `<span style="color:var(--dim)">单块最好 ${S.jadeBest>0?"+¥"+S.jadeBest:"—"}${S.jadeJackpot?" · ✦ 出过一刀富":""}</span>`;
+}
+function openJade(practice){
+  if(!window.Jade){ toast("赌石模块未加载（缺 jade.js）"); return false; }
+  AudioSys.init(); AudioSys.click();
+  if(Jade.isBusy()){ $("jade").classList.add("on"); return true; }
+  const min = Jade.TUNE.PRICES[0];
+  /* 钱不够不劝退：直接给一局练手局（不结算财富），否则新档只有 ¥10，一局都开不了 */
+  let prac = !!practice;
+  if(!prac && S.stats.cash < min){
+    prac = true;
+    toast(`财富不足（开窗最低 ¥${min}，当前 ¥${S.stats.cash}）—— 这次给你开<b>练手局</b>，不结算财富`);
+  }
+  $("jade").classList.add("on");
+  const ok = Jade.start($("jadeHost"), {
+    practice: prac,
+    cash:  ()=>S.stats.cash,
+    intel: ()=>S.stats.int,
+    onSettle: (net, info)=>{
+      if(info && info.practice) return;                 // 练手局：演示结算，不落账
+      S.stats.cash = Math.max(0, S.stats.cash + net);
+      if(info && info.jackpot){ S.jadeJackpot = true; checkAchv(); }
+      if(net>0) toast(`🪨 开窗涨了 <b>+¥${net}</b>`);
+      else if(net<0) toast(`🪨 开窗垮了 <b>−¥${-net}</b>`);
+      save(); render();
+    },
+    onFinish: (sum)=>{
+      if(prac) return;                                  // 练手局不进台账
+      S.jadeRuns = (S.jadeRuns||0) + 1;
+      S.jadeNet  = (S.jadeNet||0) + sum.net;
+      if(sum.best > (S.jadeBest||0)) S.jadeBest = sum.best;
+      save(); render(); checkAchv();
+      toast(`🪨 收摊：本局 <b>${sum.net>0?"+":""}¥${sum.net}</b> · 涨 ${sum.ups} / 垮 ${sum.downs}`);
+    }
+  });
+  if(!ok){ $("jade").classList.remove("on"); toast("赌石模块启动失败（详见控制台）"); }
+  return ok;
+}
+$("jadeBtn").addEventListener("click", ()=>{ openJade(); });
+$("jadeClose").addEventListener("click", ()=>{ AudioSys.click();
+  if(window.Jade && Jade.isBusy()) Jade.dispose();     // 中途收摊：不结算、不吃本金
+  $("jade").classList.remove("on"); render(); });
+
 /* ── 章末卡 ── */
 const CHN=["序章","第一章","第二章","第三章"];
 function showEndcard(){
@@ -4616,6 +4707,21 @@ window.__cs2 = {
   bfGlue: ()=>({ running:bfRunning, story:bfNode, node:(typeof curNode!=="undefined"&&curNode)?curNode.id:null, last:bfLastResult }),
   askInvite: mjMaybeInvite,
   hideInvite: hideMjInvite,
+  /* 开窗 · 赌石钩子（浏览器验收脚本用）—— 直接转发 Jade.debug，不另存一份状态 */
+  get jade(){ return (window.Jade && Jade.debug) ? Jade.debug : null; },
+  get jadeState(){ return (window.Jade && Jade.debug) ? Jade.debug.state() : null; },
+  get jadeStone(){ return (window.Jade && Jade.debug) ? Jade.debug.stone() : null; },
+  get jadeFound(){ return (window.Jade && Jade.debug) ? Jade.debug.found() : null; },
+  jadeLens: (x,y)=> (window.Jade ? Jade.debug.lens(x,y) : false),
+  jadeTap: (x,y)=> (window.Jade ? Jade.debug.tap(x,y) : null),
+  jadeHint: ()=> (window.Jade ? Jade.debug.hint() : false),
+  jadeBid: (i)=> (window.Jade ? Jade.debug.bid(i) : false),
+  jadeWalk: ()=> (window.Jade ? Jade.debug.walk() : false),
+  jadeSkipSearch: ()=> (window.Jade ? Jade.debug.skipSearch() : false),
+  jadeCutNow: ()=> (window.Jade ? Jade.debug.cutNow() : false),
+  jadeNext: ()=> (window.Jade ? Jade.debug.next() : false),
+  jadeFinish: ()=> (window.Jade ? Jade.debug.finishNow() : false),
+  openJade: openJade,
 };
 
 /* ═══════════════ 启动 ═══════════════ */
@@ -4633,6 +4739,12 @@ $("dbgMj").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("mahjong"
 $("dbgBf").addEventListener("click",()=>{ enterGame();
   setTimeout(()=>{ if(startBreakfastGame("fang", { practice:true, force:true })!==true)
     if(openBreakfast()===false) toast("早餐店模块未加载（缺 breakfast.js）"); }, 300); });
+/* ⚑ 跳到赌石（开窗）：与「跳到早餐店」同款 —— 点下去直接开一局**练手局**。
+   为什么需要它：侧栏的小游戏入口在羁绊/任务列表**下面**，要滚动才看得见；
+   而「开始重生」会直接进序章电影层，遮住侧栏 —— 两条路都不好找（用户实测反馈）。
+   练手局不结算财富，所以新档（只有 ¥10）也能直接试玩。 */
+$("dbgJade").addEventListener("click",()=>{ enterGame();
+  setTimeout(()=>{ if(openJade(true)===false) toast("赌石模块未加载（缺 jade.js）"); }, 300); });
 $("dbgTalk").addEventListener("click",()=>{ AudioSys.init(); CS2_DEBUG.unlockAll();
   $("title").classList.add("hide"); $("game").classList.add("on"); render(); });
 /* ═══ 进入游戏运行时（开始重生 / 各调试跳转共用，避免 S 未初始化就 render） ═══ */
@@ -4693,11 +4805,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260922-1417" data-fp="3d3a29"
-     title="构建版本戳 · build 20260922-1417 · 内容指纹 3d3a29（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260923-1020" data-fp="f43baa"
+     title="构建版本戳 · build 20260923-1020 · 内容指纹 f43baa（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260922-1417 · ch 3d3a29 · bf 211K · mj 320K · idx 292K · map 68K</div>
-<script>window.__BUILD={"build":"20260922-1417","fingerprint":"3d3a29","sizes":{"idx":292,"mj":320,"bf":211,"map":68},"files":{"index.html":298660,"mahjong.js":327444,"breakfast.js":216155,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1789964551633,"map3d.js":1789789317181},"idxContentHash":"dc169b5fb182c3c25083640086d9f582bec47b81","idxContentBytes":297363,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1020 · ch f43baa · bf 211K · mj 320K · jd 54K · idx 301K · map 68K</div>
+<script>window.__BUILD={"build":"20260923-1020","fingerprint":"f43baa","sizes":{"idx":301,"mj":320,"bf":211,"jd":54,"map":68},"files":{"index.html":307923,"mahjong.js":327444,"breakfast.js":216215,"jade.js":55659,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790130010115,"map3d.js":1790070275672},"idxContentHash":"c2530fa05f4caa34f763830d80a2de27175e8a15","idxContentBytes":306575,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
