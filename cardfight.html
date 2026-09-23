@@ -189,8 +189,11 @@ body{
 #deck .card.pickable:hover{transform:translateY(-7px) scale(1.07);filter:brightness(1.25)}
 #deck .card.pickable:hover .back{box-shadow:inset 0 0 0 2px rgba(255,215,110,.95), 0 8px 20px rgba(0,0,0,.6)}
 #deck .card.picked{opacity:0;transform:scale(.7);transition:opacity .25s, transform .25s;pointer-events:none}
-/* 空着的卡槽在"抽牌阶段"要更显眼，让玩家知道牌会落到哪里 */
+/* 已经用掉的手牌：灰掉 + 略微下沉，但仍留在原位（因为一轮要打三次，需要对照看）*/
+.slot .card.spent{filter:grayscale(.85) brightness(.45);opacity:.5;transform:scale(.92);cursor:default}
+/* 抽满三张、可以开打时，卡槽描边变亮 */
 .slot.waiting{border-color:rgba(255,215,110,.4);background:rgba(255,215,110,.05)}
+#slots.ready .slot{border-color:rgba(93,255,160,.4);background:rgba(93,255,160,.05)}
 #deckPile{position:absolute;right:6px;top:694px;width:152px;text-align:center;
       font-size:11px;color:#a99fc4;letter-spacing:.5px;line-height:1.45}
 
@@ -373,7 +376,7 @@ body{
 
     <div id="roundTag" style="position:absolute;top:18px;left:50%">
       <div class="r" id="roundTxt">第 1 轮</div>
-      <div class="s">共 5 轮</div>
+      <div class="s" id="roundSub">共 5 轮 · 第 1/3 次交锋</div>
     </div>
 
     <canvas id="arena" width="1080" height="430"></canvas>
@@ -779,6 +782,9 @@ const Stage = {
    2. 规则常量
    ══════════════════════════════════════════════════════════════════ */
 const MAXHP = 60, ROUNDS = 5, HAND = 3, DECK = 12;
+/* 一局的总交锋次数 = 轮数 × 每轮张数 = 15。
+   需求原话："总共五轮抽牌，一轮抽三张，进行三次pk"。 */
+const BOUTS = ROUNDS * HAND;
 
 /* ══════════════════════════════════════════════════════════════════
    3. 状态
@@ -786,18 +792,21 @@ const MAXHP = 60, ROUNDS = 5, HAND = 3, DECK = 12;
 let S = null;                        // 每局重置
 function newState() {
   return {
-    round: 1, over: false,
+    round: 1, over: false, bout: 0,
     p: { hp: MAXHP, shield: 0, charge: false, curse: false, dealt: 0 },
     e: { hp: MAXHP, shield: 0, charge: false, curse: false, dealt: 0 },
-    deck: [],                        // 抽牌堆（洗过牌）
-    hand: [],                        // 本轮已抽到的牌（最多 HAND 张）
-    /* phase 是这一轮的阶段机：draw（你点牌堆抽）→ pick（选一张打）→ resolve → 下一轮。
+    /* ⚠ 没有"抽牌堆"这个概念了：抽牌是**放回式**的，每轮都从完整的 12 张卡池里抽。
+       玩家原话："不是没抽一张牌牌池就没了这张牌，是每一轮都是从 12 张牌里抽"。
+       所以只需要记"本轮抽到了哪三张"（hand）以及"哪几张已经打过了"（usedBy）。 */
+    hand: [],                        // 本轮抽到的三张
+    usedBy: [],                      // 与 hand 同长：本轮这张是否已用于某次交锋
+    /* phase 是这一轮的阶段机：draw（你点牌堆抽）→ pick（点一张开打）→ resolve → 下一次交锋。
        ⚠ 必须显式存它，不能用"手牌数量"推断：手牌张数在飞行动画期间是不确定的，
-         靠数量判断会在动画中途把玩家放进"选牌"阶段（点空白处没反应）。 */
+         靠数量判断会在动画中途把玩家放进"开打"阶段（点下去没反应）。 */
     phase: "draw",
     drawn: 0,                        // 本轮已抽几张（上限 HAND）
     picked: -1,                      // 玩家选中的槽位
-    eCard: null,                     // 对手本轮出的牌
+    eCard: null,                     // 对手这一次交锋出的牌
     log: [],
   };
 }
@@ -906,24 +915,31 @@ function paintHud() {
   $("pBadges").innerHTML = badge(S.p);
   $("eBadges").innerHTML = badge(S.e);
   $("roundTxt").textContent = "第 " + S.round + " 轮";
-  /* 牌堆标签要跟着阶段说清"现在该你做什么" —— 这里是玩家唯一会盯着看的地方 */
+  $("roundSub").textContent = "共 " + ROUNDS + " 轮 · 第 " + (S.bout + 1) + "/" + HAND + " 次交锋";
+  /* 右侧状态文字跟着阶段说人话 —— 这是玩家唯一会盯着看的地方 */
   const left = HAND - (S.drawn || 0);
   $("deckPile").textContent = (S.phase === "draw")
-    ? "点牌堆抽 " + left + " 张\n（牌堆 " + S.deck.length + " 张）"
-    : "牌堆 " + S.deck.length + " 张";
+    ? "点牌堆抽 " + left + " 张\n每轮都从这 12 张里抽"
+    : "本轮已抽：" + (S.hand || []).map((k) => (CARD_BY_KEY[k] ? CARD_BY_KEY[k].nm.replace(/\s/g, "") : "?")).join(" / ") +
+      "\n点下方卡牌开打";
   $("deckPile").style.whiteSpace = "pre-line";
   /* 抽牌阶段给空卡槽加提示描边，抽满就撤掉 */
   document.querySelectorAll("#slots .slot").forEach((el, i) => {
     el.classList.toggle("waiting", S.phase === "draw" && i >= (S.drawn || 0));
   });
+  /* 手牌用完一次就标灰（一轮三张各用一次），玩家一眼看得出还剩几次交锋 */
+  document.querySelectorAll("#slots .card").forEach((el) => {
+    const idx = Number(el.dataset.slot);
+    el.classList.toggle("spent", !!(S.usedBy && S.usedBy[idx]));
+  });
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   7. 中央牌堆：12 张卡背（玩家自己点着抽）
-   现在不需要"模拟牌堆"了：中央显示的张数**就是** S.deck.length，
-   玩家点掉一张，S.deck 少一张、DOM 也少一张 —— 两边天然一致。
-   （旧版是自动抽牌，得靠 syncDeckVisual 反推"应该剩几张"，
-     那种"视觉投影"很容易和真牌堆走偏，已删除。）
+   7. 中央卡池：12 张卡背（玩家自己点着抽）
+   **放回式**：每轮都是完整 12 张，点一张取一张（那张从中央消失、其余不动），
+   抽满 3 张后本轮结束、下一轮又恢复成 12 张。
+   玩家原话："不是没抽一张牌牌池就没了这张牌，是每一轮都是从 12 张牌里抽"。
+   （早期版本是消耗式抽牌，得靠 syncDeckVisual 反推"应该剩几张"，那层模拟已删除。）
    ══════════════════════════════════════════════════════════════════ */
 function buildDeckVisual(n) {
   const box = $("deck");
@@ -968,44 +984,32 @@ async function flyFrom(from, toEl, delayMs) {
 /* ══════════════════════════════════════════════════════════════════
    9. 一轮的流程
    ══════════════════════════════════════════════════════════════════ */
-/** 抽 n 张进手牌。**只动逻辑，不做动画** —— 飞牌动画归 pickDrawFromDeck 管。 */
-function drawCards(n) {
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    if (!S.deck.length) S.deck = shuffle(CARDS.map((c) => c.key));   // 抽完洗牌循环
-    out.push(S.deck.pop());
-  }
-  return out;
-}
-/** 确保牌堆至少剩 n 张；不够就把卡池洗回来（抽空循环使用）。
-    ⚠ 必须在**发牌之前**调用：12 张牌抽 4 轮正好抽干，第 5 轮需要重洗。
-     如果只在 drawCards 内部重洗，逻辑会补上牌、但**中央卡背还停在 0 张** ——
-     玩家看到的是空牌堆、没有可点的卡，整局卡死在第 5 轮的抽牌阶段
-     （实测：循环 90 次都停在「第 5 轮 ph=draw pick=0」，只有真跑才会暴露）。 */
-function ensureDrawable(n) {
-  if (S.deck.length < n) {
-    S.deck = shuffle(CARDS.map((c) => c.key));
-    buildDeckVisual(S.deck.length);        // 视觉也跟着重建，玩家才有点得着的牌
-    return true;
-  }
-  return false;
+/** 从卡池随机取一张（**放回式**：卡池本身不变）。
+    需求："每一轮都是从 12 张牌里抽" / "抽完后可以重新洗牌循环使用"。 */
+function drawOne() {
+  return CARDS[rnd(CARDS.length)].key;
 }
 
 /** 玩家从中央 12 张卡背里**自己点选**要抽的那张。
     需求原话："需要我点击选择了那几张卡牌，卡牌才会翻转显示技能并使用" ——
     所以这里必须由玩家点，不能自动飞（第一版是自动抽，玩家反馈"这不是我自己选择抽的"）。
-    流程：记下被点卡背的坐标 → 从牌堆逻辑抽一张 → 飞向第一个空卡槽 → 3D 翻面。 */
+
+    ⚠ 抽牌是**放回式**的：每一轮都从完整的 12 张里抽，卡池不会被抽空。
+      玩家补充原话："不是没抽一张牌牌池就没了这张牌，是每一轮都是从 12 张牌里抽"。
+      所以这里**不改卡池**（CARDS 始终 12 张），
+      只在 S.hand/S.usedBy 里记下"本轮抽到了哪三张、哪几张已经打过"。 */
 async function pickDrawFromDeck(backEl) {
   if (S.over || S.phase !== "draw") return;
   if (S.drawn >= HAND) return;
   const slot = S.drawn;
   S.drawn++;
-  /* 立即把这张卡背标成"已选中"并停止接收点击，避免连点抽超 */
+  /* 立即标成"已抽"并停止接收点击，避免连点抽超 */
   backEl.classList.add("picked");
   const src = rectIn(backEl);
-  const key = drawCards(1)[0];
+  const key = drawOne();                             // 从卡池随机取一张（放回式）
   S.hand[slot] = key;
-  backEl.remove();                                   // 视觉上从中间牌堆消失
+  S.used[slot] = key;
+  backEl.remove();                                   // 这一张从中央消失（视觉上"被取走"）
   const slots = Array.from(document.querySelectorAll(".slot"));
   await flyFrom(src, slots[slot], 0);
   const cardEl = makeCard(CARD_BY_KEY[key], true);
@@ -1016,16 +1020,17 @@ async function pickDrawFromDeck(backEl) {
   await sleep(140);
   paintHud();
   if (S.drawn >= HAND) {
-    /* 三张都抽完了 → 交给"选一张出招"阶段 */
+    /* 三张抽齐 → 进入"逐张交锋"阶段（3 张 = 3 次 PK）。
+       三张牌都可点：点哪张就是这一轮的第 N 次交锋用哪张。 */
     S.phase = "pick";
+    S.usedBy = [];
     document.querySelectorAll("#deck .card").forEach((el) => el.classList.remove("pickable"));
     document.querySelectorAll("#slots .card").forEach((el) => {
       el.classList.add("pickable");
       el.addEventListener("click", () => pickCard(Number(el.dataset.slot)));
     });
-    showCallout("选 一 张 出 手");
-    /* 状态行同步（hintNow 走的是 paintHud → 这里补一句提示） */
-    $("deckPile").textContent = "三张已抽好 —— 点下面的牌出招";
+    $("slots").classList.add("ready");
+    showCallout("三 张 已 就 位 —— 点 一 张 开 打");
   } else {
     showCallout("再 抽 " + (HAND - S.drawn) + " 张");
   }
@@ -1036,40 +1041,46 @@ async function startRound() {
   S.picked = -1;
   S.eCard = null;
   S.hand = [];
+  S.used = [];
   S.drawn = 0;
-  S.phase = "draw";                                  // draw（你来抽）| pick（选一张打）
+  S.bout = 0;
+  S.phase = "draw";                                  // draw（你抽牌）| pick（交锋中）
   $("foeCard").innerHTML = "";
   $("foeLabel").classList.remove("on");
+  $("slots").classList.remove("ready");
   const slots = Array.from(document.querySelectorAll(".slot"));
   slots.forEach((s) => {
     const old = s.querySelector(".card");
     if (old) old.remove();
     s.classList.remove("hot");
   });
-  /* 中央牌背 = 真牌堆剩余的张数（视觉与真值一致）。
-     ⚠ 先 ensureDrawable：第 5 轮会把 12 张抽干，必须**在发牌前**重洗并重建卡背，
-       否则玩家看到空牌堆、无牌可点（实测整局卡死在这一步）。 */
-  ensureDrawable(1);
-  buildDeckVisual(S.deck.length);
+  /* 中央恢复成**完整 12 张卡背**：每轮都是全新的一副牌在等你抽。
+     （放回式抽牌，所以不会再出现"牌堆被抽空"的情况 —— 上一版的 ensureDrawable
+       是为消耗式抽牌写的，现在整个不需要了。） */
+  buildDeckVisual(DECK);
   document.querySelectorAll("#deck .card").forEach((el) => {
     el.classList.add("pickable");
     el.addEventListener("click", () => pickDrawFromDeck(el));
   });
   paintHud();
-  showCallout("点 牌 堆 抽 三 张");
+  showCallout("第 " + S.round + " 轮 · 点 牌 堆 抽 三 张");
 }
 
-/** 玩家点选要打出的那张：选中高亮、其余变暗，然后自动进入结算 */
+/** 点一张手牌 = 用它打**这一次**交锋（一轮共 3 次）。
+    打过的牌留在原位并标记"已用"，因为一张牌只用一次、三次各用一张。 */
 function pickCard(i) {
-  if (S.picked >= 0 || S.over || S.phase !== "pick") return;
+  if (S.over || S.phase !== "pick" || S.usedBy && S.usedBy[i]) return;
   S.picked = i;
   S.phase = "resolve";
+  if (!S.usedBy) S.usedBy = [];
+  S.usedBy[i] = true;
   document.querySelectorAll("#slots .card").forEach((el) => {
     const idx = Number(el.dataset.slot);
-    el.classList.toggle("chosen", idx === i);
-    el.classList.toggle("dimmed", idx !== i);
     el.classList.remove("pickable");
     el.style.cursor = "default";
+    if (idx === i) el.classList.add("chosen");
+    else if (S.usedBy[idx]) el.classList.add("spent");     // 之前用过的：保持灰掉
+    else el.classList.remove("dimmed");                    // 还没用的：恢复可点
   });
   resolveRound();
 }
@@ -1094,6 +1105,12 @@ function foePick() {
    这样先手不会因为顺序占便宜。反击/吸血这类依赖"本轮所受伤害"的效果
    放在最后一步（④）用已经落地的伤害来算。
    ══════════════════════════════════════════════════════════════════ */
+/** 一次交锋：玩家用第 i 张手牌 vs 对手随机一张，双方同时结算。
+    ⚠ 现在一轮要打 **3 次**（抽 3 张 = 3 次 PK），所以:
+      · 手牌**不消耗**（三次各用一张，用完才进下一轮）；
+      · 每次交锋独立结算护盾/伤害/治疗/特殊 —— 护盾会跨交锋累积，
+        这是"先加盾后打人"的战术来源；
+      · 每次都检查血量，一方归零就立刻结束整局（剩下没打的不打了）。 */
 async function resolveRound() {
   const pCard = CARD_BY_KEY[S.hand[S.picked]];
   const eCard = foePick();
@@ -1105,6 +1122,7 @@ async function resolveRound() {
   if ((eCard.dmg || eCard.reprisal) && !eCard.charge) Stage.attack("enemy");
 
   /* 对手出牌：在对手区域展示并翻面 */
+  $("foeLabel").textContent = "赤鬼出牌（第 " + (S.picked + 1) + "/" + HAND + " 次交锋）";
   $("foeLabel").classList.add("on");
   const fc = makeCard(eCard, true);
   fc.style.position = "relative";
@@ -1113,8 +1131,8 @@ async function resolveRound() {
   await sleep(320);
   flip(fc, true);
   await sleep(420);
-  showCallout("同 时 出 手");
-  await sleep(760);
+  showCallout("第 " + (S.picked + 1) + " 次 交 锋");
+  await sleep(700);
 
   /* 蓄力：本轮伤害翻倍（在结算前读，然后清掉标记） */
   const pMul = S.p.charge ? 2 : 1;
@@ -1241,15 +1259,38 @@ async function resolveRound() {
   await sleep(520);
   Stage.reset();                                  // 双方回待机（下一轮再起手）
 
-  /* 日志 */
-  S.log.push("第 " + S.round + " 轮：你出「" + pCard.nm + "」 vs 赤鬼出「" + eCard.nm + "」" +
-    " → 你 " + S.p.hp + " 血 / 赤鬼 " + S.e.hp + " 血");
+  /* 日志：按"第几轮 第几次交锋"记，5 轮 × 3 次 = 最多 15 条 */
+  S.log.push("第 " + S.round + " 轮 · 第 " + (S.picked + 1) + " 次：你出「" + pCard.nm +
+    "」 vs 赤鬼出「" + eCard.nm + "」 → 你 " + S.p.hp + " 血 / 赤鬼 " + S.e.hp + " 血");
 
-  /* 结束判定 */
+  /* ── 这一轮的三次交锋打完了吗？ ──
+     顺序很关键：先判血量（有人归零立刻收局），再看三次是否打完，最后才进下一轮。 */
   if (S.p.hp <= 0 || S.e.hp <= 0) return endGame();
+  if (S.picked + 1 < HAND) {
+    /* 还有牌没打 → 继续下一次交锋（同一轮内）。
+       ⚠ 必须**重新挂上可点状态**：`.pickable` 只在"抽满三张"那一刻加过一次，
+         而这里打完一次就把 phase 设回 pick。不重新加的话，第二次交锋时三张牌
+         全都不可点，pickCard 又要求 phase==="pick" ⇒ **玩家卡死在第 2 次交锋**。
+         （实测：无头脚本 200 次循环都停在 bout:1、pick:0。） */
+    S.bout = S.picked + 1;
+    S.phase = "pick";
+    Stage.reset();
+    paintHud();
+    document.querySelectorAll("#slots .card").forEach((el) => {
+      const idx = Number(el.dataset.slot);
+      if (S.usedBy[idx]) return;                    // 用过的保持灰掉
+      el.classList.add("pickable");
+      el.classList.remove("chosen");
+      el.style.cursor = "pointer";
+    });
+    await sleep(360);
+    showCallout("还 剩 " + (HAND - S.bout) + " 次 交 锋");
+    return;
+  }
+  /* 三次打完 → 进下一轮（或收局） */
   if (S.round >= ROUNDS) return endGame();
   S.round++;
-  await sleep(300);
+  await sleep(420);
   startRound();
 }
 
@@ -1259,21 +1300,30 @@ async function resolveRound() {
 function endGame() {
   S.over = true;
   const win = S.p.hp > S.e.hp, draw = S.p.hp === S.e.hp;
-  /* 舞台收尾：输的一方倒地（谁归零谁倒；都没归零则血少的一方倒） */
+  /* 舞台收尾：**只有输的一方倒地**。
+     ⚠ 判据别写成 "if (e.hp<=0 || (!draw && !win)) ko(enemy)" 那种叠加式：
+       我血归零时 win=false，于是 "!draw && !win" 也成立 → 两条都命中 → 赢家也倒地
+       （实测 poses 打出过 ko/ko）。直接按胜负定谁倒，只倒一个。 */
   Stage.shake = 10;
-  if (S.e.hp <= 0 || (!draw && !win)) Stage.ko("enemy");
-  if (S.p.hp <= 0 || (!draw && win)) Stage.ko("player");
+  if (!draw) {
+    if (win) Stage.ko("enemy");
+    else Stage.ko("player");
+  }
   const box = $("result");
   box.classList.remove("on", "win", "lose", "draw");
   box.classList.add(draw ? "draw" : win ? "win" : "lose");
   $("rTtl").textContent = draw ? "平 局" : win ? "胜 利" : "败 北";
-  $("rSub").textContent = draw ? "双方同归于尽"
+  $("rSub").textContent = (draw ? "双方同归于尽"
     : win ? (S.e.hp <= 0 ? "你把赤鬼打倒了" : "5 轮结束，你的生命更高")
-          : (S.p.hp <= 0 ? "你被赤鬼打倒了" : "5 轮结束，赤鬼的生命更高");
+          : (S.p.hp <= 0 ? "你被赤鬼打倒了" : "5 轮结束，赤鬼的生命更高")) +
+    "（" + S.round + " 轮 · " + S.log.length + "/" + BOUTS + " 次交锋）";
   $("rHp").textContent = S.p.hp;
   $("rEhp").textContent = S.e.hp;
   $("rRounds").textContent = S.round + " 轮";
   $("rLog").innerHTML = S.log.map((l) => "<div>" + l + "</div>").join("");
+  /* 日志可能有 15 条（5 轮 × 3 次交锋），要**自动滚到底**，
+     否则玩家只看得到前几条、以为后面没打（实测截图就是这样）。 */
+  $("rLog").scrollTop = $("rLog").scrollHeight;
   void box.offsetWidth;
   box.classList.add("on");
 }
@@ -1284,7 +1334,7 @@ function endGame() {
 async function begin() {
   S = newState();
   window.S = S;                    // 同上：让无头脚本能读到阶段（每局重建后要重新挂）
-  S.deck = shuffle(CARDS.map((c) => c.key));
+  /* 抽牌是放回式的，所以这里没有"洗一副牌堆"这一步 —— 每轮直接从 CARDS 里随机取。 */
   $("result").classList.remove("on");
   $("foeCard").innerHTML = "";
   $("foeLabel").classList.remove("on");

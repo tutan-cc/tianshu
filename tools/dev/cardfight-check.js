@@ -228,34 +228,44 @@ function settle(pk, ek, P, E) {
 }
 
 /* ── ④ 牌堆循环：抽满 5 轮会不会断牌 ─────────────────────────────── */
-console.log("\n【牌堆循环】");
+console.log("\n【牌堆循环（放回式）】");
+/* ⚠ 规则改过一次，这里记清楚免得再改回去：
+   旧版是"消耗式"——12 张抽 4 轮抽干、第 5 轮重洗（还得在发牌前 ensureDrawable，
+   否则中央卡背停在 0 张、玩家无牌可点，实测整局卡死）。
+   现在按玩家要求改成**放回式**："不是没抽一张牌牌池就没了这张牌，是每一轮都是从 12 张牌里抽"。
+   于是每轮中央都是完整 12 张，不存在抽空问题。 */
 {
-  let deck = CARDS.map((c) => c.key);
-  /* 与服务端同款洗牌（这里只需长度正确，用顺序即可） */
-  let drawn = 0, reshuffles = 0;
-  for (let r = 1; r <= 5; r++) {
-    for (let i = 0; i < 3; i++) {
-      if (!deck.length) { deck = CARDS.map((c) => c.key); reshuffles++; }
-      deck.pop(); drawn++;
+  const N = 200;
+  let emptyHits = 0;
+  for (let r = 0; r < N; r++) {
+    for (let rd = 1; rd <= C.ROUNDS; rd++) {
+      /* 每轮抽 3 张，每张都从**完整卡池**里取 */
+      for (let i = 0; i < C.HAND; i++) if (CARDS.length < 1) emptyHits++;
     }
   }
-  A(drawn === 15, "5 轮共抽出 15 张（每轮 3 张）", "抽出 " + drawn);
-  A(reshuffles === 1, "12 张的牌堆在第 5 轮前恰好重洗 1 次（不会抽空断牌）", "重洗 " + reshuffles + " 次");
+  A(emptyHits === 0, "无论抽多少轮，卡池始终有牌可抽（放回式，" + N + " 轮模拟）");
+  A(/function drawOne/.test(script) && /CARDS\[rnd\(CARDS\.length\)\]\.key/.test(script),
+    "抽牌实现是「从 CARDS 随机取一张」（放回式，不改卡池）");
+  A(!/function ensureDrawable/.test(script),
+    "旧的 ensureDrawable 已删除（放回式不需要「牌堆够不够」的判断）");
+  A(!/function syncDeckVisual/.test(script), "旧的「模拟牌堆」函数也没有了");
+  A(/buildDeckVisual\(DECK\)/.test(script), "每轮 startRound 都把中央重建为完整 12 张");
 }
-/* ⚠ 玩家自己抽牌之后新增的坑：重洗必须发生在**发牌之前**。
-   只在 drawCards 内部重洗的话，逻辑会补牌、但中央卡背还停在 0 张 ——
-   玩家看到空牌堆、没有可点的卡，整局卡死在第 5 轮的抽牌阶段。
-   （实测：无头脚本循环 90 次都停在「第 5 轮 ph=draw pick=0」。） */
+/* 一次交锋 = 一张牌；一轮 3 张 = 3 次 PK；5 轮 = 15 次 */
 {
-  A(/function ensureDrawable/.test(script), "有 ensureDrawable（发牌前保证牌堆够用）");
-  A(/ensureDrawable\(1\);[\s\S]{0,120}buildDeckVisual\(S\.deck\.length\)/.test(script),
-    "startRound 里**先** ensureDrawable 再重画卡背（顺序反了就会卡死）");
-  A(/function pickDrawFromDeck/.test(script) && /S\.phase = "draw"/.test(script),
-    "抽牌是玩家点牌堆触发的（pickDrawFromDeck + phase 阶段机）");
-  A(!/function syncDeckVisual/.test(script),
-    "旧的「模拟牌堆」函数已删除（玩家自己抽之后，中央张数就是真牌堆张数）");
-  A(/S\.phase = "pick"/.test(script) && /S\.phase !== "pick"/.test(script),
-    "抽满 3 张后才允许出牌（phase !== pick 时 pickCard 直接返回）");
+  A(/const BOUTS = ROUNDS \* HAND/.test(script), "源码里有 BOUTS = 轮数 × 每轮张数（=15 次交锋）");
+  A(/S\.picked \+ 1 < HAND/.test(script),
+    "打满 3 次才进下一轮（一轮抽 3 张 = 3 次 PK，不是三张里挑一张）");
+  A(/S\.usedBy\[i\] = true/.test(script) && /S\.usedBy\[idx\]/.test(script),
+    "每张手牌只能用一次（usedBy 记录，用完标灰）");
+  A(/S\.bout = S\.picked \+ 1/.test(script), "交锋计数器会随三次 PK 推进（供界面显示第 N/3 次）");
+  A(/第 " \+ \(S\.picked \+ 1\) \+ " 次/.test(script), "对手出牌区标出这是第几次交锋");
+  /* 结束画面只该有一个倒地者 —— 叠加式判据会让赢家也倒（实测 poses 出过 ko/ko） */
+  A(/if \(win\) Stage\.ko\("enemy"\);\s*\n\s*else Stage\.ko\("player"\);/.test(script),
+    "只有输的一方倒地（赢家不倒，避免 ko/ko）");
+  /* 第二次交锋必须重新挂上可点状态：不加就卡死在第 2 次交锋 */
+  A(/S\.bout = S\.picked \+ 1;[\s\S]{0,700}el\.classList\.add\("pickable"\)/.test(script),
+    "打满一次后剩下的牌重新可点（否则卡死在第 2 次交锋）");
 }
 
 /* ── ⑤ 5 轮结束 / 生命归零两种终局都要有出口 ─────────────────────── */

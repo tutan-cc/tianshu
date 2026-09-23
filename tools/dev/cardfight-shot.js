@@ -175,25 +175,34 @@ function getJson(url) {
   /* ── 把整局打完：验证 5 轮上限、血量归零、结果面板 ──
      只跑到第 2 轮不足以证明"一局能结束"（可能在第 4 轮某处卡住不动）。
      每轮点第一张手牌，然后等"轮次文字变化"或"结果面板出现"，最多等 12 秒。 */
-  console.log("阶段 6：打完剩下的轮次，验证结果面板");
-  /* ⚠ 循环上限要够：一轮 = 3 次抽牌 + 1 次出牌 + 若干次等待，5 轮至少 20+ 次迭代。
-     原来写 30 会在第 4 轮用尽（实测 over:false、flies=12 而不是 15）。 */
+  console.log("阶段 6：打完整局（5 轮 × 每轮 3 次交锋 = 15 次），验证结果面板");
+  /* ⚠ 两处与旧流程不同，都是规则改动带来的：
+       · 抽牌是**放回式**：每轮中央都是完整 12 张，不存在抽空；
+       · 一轮要打 **3 次**（抽 3 张 = 3 次 PK），所以每次交锋点一张
+         **还没用过**的牌（用完的会被摘掉 .pickable，直接选它就行）。 */
   let guard = 0, lastRound = "", stallLog = [];
-  while (guard++ < 90) {
+  while (guard++ < 200) {
     if (await evaluate('document.getElementById("result").classList.contains("on")')) break;
-    const probe = await evaluate('JSON.stringify({ph:(window.S?S.phase:"?"),d:(window.S?S.drawn:-1),slot:document.querySelectorAll("#slots .card").length,pick:document.querySelectorAll("#deck .card.pickable").length,r:document.getElementById("roundTxt").textContent})');
+    const probe = await evaluate('JSON.stringify({ph:(window.S?S.phase:"?"),d:(window.S?S.drawn:-1),bout:(window.S?S.bout:-1),slot:document.querySelectorAll("#slots .card").length,pick:document.querySelectorAll("#slots .card.pickable").length,deck:document.querySelectorAll("#deck .card.pickable").length,r:document.getElementById("roundTxt").textContent})');
     const P = JSON.parse(probe);
-    if (guard % 10 === 0 || guard > 60) stallLog.push(guard + ":" + probe);
+    if (guard % 20 === 0 || guard > 170) stallLog.push(guard + ":" + probe);
     const need = P.ph === "draw" ? (3 - P.d) : 0;
     if (need > 0) { await evaluate(tapBack); await sleep(1000); continue; }
-    if (P.ph === "pick") {
+    if (P.ph === "pick" && P.pick > 0) {
       lastRound = P.r;
-      await evaluate('(function(){var e=document.querySelectorAll("#slots .card"); if(e.length) e[0].click();})()');
-      for (let w = 0; w < 30; w++) {
+      const boutBefore = P.bout;
+      const spentBefore = await evaluate('document.querySelectorAll("#slots .card.spent").length');
+      await evaluate('(function(){var e=document.querySelectorAll("#slots .card.pickable"); if(e.length) e[0].click();})()');
+      /* 等这一**次交锋**结算完。判据用"已用牌数变化 / 交锋号变化 / 进下一轮 / 收局" ——
+         ⚠ 不能拿点击**之前**探测到的 bout 去和循环里新读的值比：
+           那样条件在点击前就已经成立，会立刻 break 并重复点同一张牌（实测空转 200 次）。 */
+      for (let w = 0; w < 36; w++) {
         await sleep(500);
-        const st = await evaluate('JSON.stringify({r:document.getElementById("roundTxt").textContent,o:document.getElementById("result").classList.contains("on")})');
+        const st = await evaluate('JSON.stringify({r:document.getElementById("roundTxt").textContent,o:document.getElementById("result").classList.contains("on"),ph:(window.S?S.phase:""),b:(window.S?S.bout:-1),spent:document.querySelectorAll("#slots .card.spent").length})');
         const o = JSON.parse(st);
-        if (o.o || o.r !== lastRound) break;
+        if (o.o) break;
+        if (o.r !== lastRound) break;                        // 进下一轮
+        if (o.ph === "pick" && (o.b !== boutBefore || o.spent !== spentBefore)) break;  // 可打下一次
       }
       continue;
     }
