@@ -38,13 +38,13 @@ Set-Location $repo
 # 期望数只是「基线参考」：对不上会标红提示，但不直接判失败（真正判失败的是进程退出码）
 $SUITES = @(
   [pscustomobject]@{ Layer = "logic";    Name = "内核单测（存档/剧情图/装备）"; Script = "tests/core.test.cjs";             Expect = 8 }
-  [pscustomobject]@{ Layer = "logic";    Name = "早餐店纯逻辑";                 Script = "tests/breakfast.test.cjs";        Expect = 67 }
+  [pscustomobject]@{ Layer = "logic";    Name = "早餐店纯逻辑";                 Script = "tests/breakfast.test.cjs";        Expect = 83 }
   # 开窗 · 赌石（v1.32 新增）：一条 UI 都不测，只锁规则结构不变量与经济不变量
   # （盲出必亏 / 技能有回报 / 完美读料不失控 / 估价绝不读隐藏信息）。
   # 改 jade.js 的 TUNE、PRICES、种水色分布或涨特征条件概率后，这一层必须重跑。
   [pscustomobject]@{ Layer = "logic";    Name = "开窗 · 赌石（规则+经济不变量）"; Script = "tests/jade.test.cjs";          Expect = 12 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将系统单测";                 Script = "tests/mj-system.test.cjs";        Expect = 15 }
-  [pscustomobject]@{ Layer = "logic";    Name = "麻将逻辑（最大的一套）";       Script = "tools/test/mahjong-logic.js";     Expect = 978 }
+  [pscustomobject]@{ Layer = "logic";    Name = "麻将逻辑（最大的一套）";       Script = "tools/test/mahjong-logic.js";     Expect = 1181 }
   [pscustomobject]@{ Layer = "logic";    Name = "index.html 内联脚本语法闸";     Script = "tools/dev/check-inline.js";       Expect = 0 }
   # 音频路径解析（素材 ↔ 代码 之间那道缝）。
   # 必要性来自实测：素材库同时存在 `ui-click.mp3` 与 `sfx-fight-hit.mp3` 两种命名，
@@ -69,9 +69,9 @@ $SUITES = @(
   #    火花判定用单调累加器 fxCount，不要比较 fx 数组长度 —— 粒子有生命周期会被回收。
   # ⑥ 立绘走 Lovart 出图；测试环境没有真 Image，必须验证"立绘未就绪 → 回落骨骼"这条路仍然能跑。
   # ⑦ 两个角色必须"一眼能分辨"：体型参数方向、POSES 两套、配色冷暖两系，出拳幅度差 ≥1.5 倍。
-  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（机制+调平+侧视舞台）"; Script = "tests/fight2.test.cjs";         Expect = 170 }
-  [pscustomobject]@{ Layer = "headless"; Name = "早餐店无头证据链";             Script = "tools/bf/headless.js";            Expect = 351 }
-  [pscustomobject]@{ Layer = "browser";  Name = "麻将浏览器实测（CDP→mshta）";  Script = "tools/e2e/mj-browser.js";         Expect = 168 }
+  [pscustomobject]@{ Layer = "logic";    Name = "打斗 2.0（机制+调平+侧视舞台）"; Script = "tests/fight2.test.cjs";         Expect = 176 }
+  [pscustomobject]@{ Layer = "headless"; Name = "早餐店无头证据链";             Script = "tools/bf/headless.js";            Expect = 465 }
+  [pscustomobject]@{ Layer = "browser";  Name = "麻将浏览器实测（CDP→mshta）";  Script = "tools/e2e/mj-browser.js";         Expect = 190 }
   [pscustomobject]@{ Layer = "browser";  Name = "麻将系统 E2E（mshta）";         Script = "tools/e2e/mj-system.js";          Expect = 115 }
   [pscustomobject]@{ Layer = "browser";  Name = "闲暇玩法 E2E（打斗/麻将/彩票）"; Script = "tools/e2e/leisure.js";           Expect = 8 }
   # 素材接线核对：确认代码点名的音频文件**真的能取到**。
