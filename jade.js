@@ -53,18 +53,25 @@
     HINT_MS:        950,     // 探照高亮持续
     /* 一局 */
     STONES_PER_RUN: 3,
-    /* 三档出价。定标依据是**实测的真实价值分布**（80000 块蒙特卡洛）：
-         E[价值] = 198 · p50 = 80 · p75 = 200 · p90 = 460 · p99 = 2080 · max = 47100
-         E[价值 | 蟒带] = 258 · | 松花 = 241 · | 蟒+松 = 369 · | 蟒+松+无裂 = 813
-       ¥250 —— 首档贴着 E[价值]：盲出小亏（−52），**看出一个信号就能下场**（蟒+松 → +119）
-       ¥450 —— 强读档：蟒+松 369 还差点意思（−81），要"双sign 且没发现裂"才赚（813 → +363）
-       ¥800 —— 全押档：只有完美读料才勉强打平（813 → +13），**靠尾巴翻身**（p99 2080 / max 4.7 万）
+    /* 三档出价。**整条刻度按 ×0.25 缩过一次**，因为原来的首档 ¥250 不合理：
+       游戏自己的价钱阶梯是 刮刮乐 ¥20 · 消耗品 ¥30–60 · 麻将最低注码 ¥50，
+       而新档初始财富只有 ¥10 —— ¥250 的首档等于"跑完六七个节点才敢开一局"。
+       现在的首档 ¥60 ≈ 一个消耗品的价钱 ≈ 跑完 2–3 个节点就能下场。
+       ⚠ 不能只降首档：三档必须**全部高于** E[真实价值]，否则盲出就是正期望（刷钱机）。
+          所以底价区间 / PRIOR_MID / 成就门槛都跟着一起缩了同样的倍数。
+
+       定标依据（80000 块蒙特卡洛，缩放后实测）：
+         E[价值] = 54.5 · p50 = 20 · p90 = 125 · p99 = 580 · max = 12000
+         E[价值 | 蟒带] = 74 · | 松花 = 70 · | 蟒+松 = 95 · | 蟒+松+无裂 = 202
+       ¥60  —— 首档贴着 E[价值]：盲出小亏（−6），看出一个信号就能下场
+       ¥110 —— 强读档：蟒+松 95 还差点意思（−15），双sign+无裂 202 → +92
+       ¥200 —— 全押档：完美读料 ≈ 打平（+2），**靠尾巴翻身**（p99 580 / max 12000）
        ⚠ 三条踩过的坑，别再踩：
-         · 首档不能高于 E 太多：试过 ¥280，出价率掉到 1–5%，玩家 95% 时间只能"走人"
+         · 首档不能高于 E 太多：试过 ¥280（缩放前），出价率掉到 1–5%，玩家 95% 时间只能"走人"
          · 全押档不能定到完美读也够不着（试过 ¥1200 → 完美读仍 −519，成了死按钮）
          · 三档都要 > E[价值]，否则盲出就是正期望（刷钱机）
        改这里必须重跑 tests/jade.test.cjs 的经济不变量。 */
-    PRICES:         [250, 450, 800],
+    PRICES:         [60, 110, 200],
     /* 切石动画 */
     CUT_MS:         1000
   };
@@ -113,18 +120,21 @@
     { id:"diwang",  n:"帝王绿", p:0.005, pSonghua:0.03, mul:15.0, col:"#12c95f" }
   ];
 
-  var BASE_MIN = 40, BASE_MAX = 150;      // 底价区间（皮壳 tint 会再微调）
-  /* ⚠ 底价区间与 TUNE.PRICES 是一对：调了涨特征→种水色的条件概率之后（E[种×色] 被抬高），
-     这里必须同步缩一档，否则"无脑出中档"就变成正期望 —— 实测过，E[价值] 265 时乱买
-     每块赚 65，等于刷钱机。改动后请重跑 tests/jade.test.cjs 的两条经济不变量。 */
+  var BASE_MIN = 10, BASE_MAX = 38;       // 底价区间（皮壳 tint 会再微调）
+  /* ⚠ 底价区间 · PRICES · PRIOR_MID · 成就门槛 是**同一把尺子**，要动一起动。
+     这条尺子被整体缩过一次（×0.25），原因见 TUNE.PRICES 上方的说明。 */
   var FLAW_COUNT_P = [0.25, 0.35, 0.22, 0.12, 0.06];   // 0..4 条垮特征
   var GOOD_COUNT_P = [0.30, 0.50, 0.20];               // 0..2 条涨特征
 
   /* 玩家的"先验"：对一块**没看过的**原石的期望与区间。
      这两个数是 estimateOf 的基准，也是"估价不读隐藏信息"这条纪律的落点。
      PRIOR_MID 必须等于总体 E[价值]（实测 226）—— 改分布要重测，否则先验就偏了。 */
-  var PRIOR_MID = 216;
+  var PRIOR_MID = 55;
   var PRIOR_LO_MUL = 0.35, PRIOR_HI_MUL = 2.6;
+  /* 【一刀富】门槛：单块净赚到多少算"暴富"。与 index.html 的 JADE_ACHV_LINE 必须一致。
+     缩放前是 ¥3000，跟着整条刻度 ×0.25 变成 ¥800 —— 仍要求吃到一个高货（玻璃/帝王绿级别），
+     实测占比 < 0.3%，不是随手就能撞上的。 */
+  var JACKPOT_NET = 800;
 
   var VIEW = { W: 640, H: 440 };          // 逻辑尺寸
   var TEX = 2;                            // 离屏纹理倍率（放大镜下才不糊）
@@ -170,7 +180,9 @@
     return probs.length - 1;
   }
   function rand(rng, a, b) { return a + rng() * (b - a); }
-  function round10(v) { return Math.round(v / 10) * 10; }
+  /* 取整到 5：整条刻度缩小到"几十元"之后，round10 会把低端四舍五入得面目全非
+     （比如 15×1×1×0.35 = 5.25 → 10，假皮惩罚凭空翻倍）。5 元是这套刻度的最小颗粒。 */
+  function round10(v) { return Math.round(v / 5) * 5; }
 
   /** 石头外形：半径随角度轻微起伏（不是正圆，看着才像原石） */
   function shapeR(theta, k) {
@@ -314,8 +326,8 @@
       var f = st.feats[foundIdx[i]];
       if (!f) continue;
       if (f.isFlaw) mid *= FLAWS[f.kind].mul;          // 找到的垮特征：确定要打折
-      else if (f.kind === "songhua") mid *= 1.292;     // 松花 → 有色概率高
-      else if (f.kind === "mangdai") mid *= 1.342;     // 蟒带 → 种老概率高
+      else if (f.kind === "songhua") mid *= 1.288;     // 松花 → 有色概率高
+      else if (f.kind === "mangdai") mid *= 1.353;     // 蟒带 → 种老概率高
     }
     /* 找到的越多越有把握 → 区间收窄；但永远收不成一个点（底价看不见） */
     var seen = foundIdx.length;
@@ -325,10 +337,11 @@
     return { mid: round10(mid), low: round10(Math.max(0, lo)), high: round10(hi), seen: seen };
   }
 
-  /** 结算：净收益 = 真实价值 − 出价。切开即算，不等一局结束 */
+  /** 结算：净收益 = 真实价值 − 出价。切开即算，不等一局结束。
+      jackpot 门槛 ¥800 与成就【一刀富】同值（整条刻度 ×0.25 后从 ¥3000 缩下来的）。 */
   function settle(st, bid) {
     var v = st.trueValue;
-    return { value: v, bid: bid, net: v - bid, jackpot: (v - bid) >= 3000 };
+    return { value: v, bid: bid, net: v - bid, jackpot: (v - bid) >= JACKPOT_NET };
   }
 
   /* ═══════════════ 3. 渲染 ═══════════════ */
@@ -1069,6 +1082,7 @@
       BASE_MIN: BASE_MIN, BASE_MAX: BASE_MAX, FLAW_COUNT_P: FLAW_COUNT_P, GOOD_COUNT_P: GOOD_COUNT_P,
       PRIOR_MID: PRIOR_MID, PRIOR_LO_MUL: PRIOR_LO_MUL, PRIOR_HI_MUL: PRIOR_HI_MUL },
     PRICES: TUNE.PRICES,
+    JACKPOT_NET: JACKPOT_NET,
     makeRng: makeRng, genStone: genStone, trueValueOf: trueValueOf,
     flawsOf: flawsOf, goodsOf: goodsOf, listOf: listOf, estimateOf: estimateOf, settle: settle,
     insideStone: insideStone, shapeR: shapeR

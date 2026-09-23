@@ -988,7 +988,7 @@ const ACHV = {
   mjPayer:{n:"包赔三家", d:"杠被抢胡，包赔三家"},
   mjRival:{n:"冤家", d:"单局输光所选注码"},
   bfWin:{n:"早餐店老板", d:"在早餐店拼手速过关"},
-  onedaofu:{n:"一刀富", d:"赌石单块净赚 ≥ ¥3000（要蟒带+松花的高货）"},
+  onedaofu:{n:"一刀富", d:"赌石单块净赚 ≥ ¥800（要蟒带+松花的高货）"},
 };
 
 /* ═══════════════ 音频层 ═══════════════
@@ -4528,7 +4528,12 @@ function scratchLottery(){
    ⚠ 现金结算口径：模块内部只**记账**（出价时累加 spend，并据此禁用买不起的档位），
    真正的钱是每块切开时按「净收益 = 真实价值 − 出价」一次性落账（onSettle）。
    所以中途点「收摊」不吃本金、也不白送 —— 与刮刮乐的即时结算口径一致。 */
-const JADE_ACHV_LINE = 3000;              // 成就【一刀富】的门槛（jade.js 的 jackpot 同值）
+/* 成就【一刀富】的门槛：**从模块读**，不在这里写死 ——
+   整条金钱刻度缩放时（首档 ¥250→¥60 那次），门槛与三档价格是同一把尺子，
+   写死就会出现"成就文案说 ¥800、模块按别的数判定"的错位。 */
+function jadeAchvLine(){ return (window.Jade && Jade.rules && Jade.rules.JACKPOT_NET) || 800; }
+/* 立刻回填成就文案：金额的唯一来源是 jade.js 的 JACKPOT_NET（ACHV 里那句静态文案只是兜底） */
+ACHV.onedaofu.d = "赌石单块净赚 ≥ ¥" + jadeAchvLine() + "（要蟒带+松花的高货）";
 function jadeNoteHtml(){
   const r = S.jadeRuns || 0;
   const min = (window.Jade && Jade.TUNE) ? Jade.TUNE.PRICES[0] : 250;
@@ -4790,11 +4795,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260923-1002" data-fp="c9205d"
-     title="构建版本戳 · build 20260923-1002 · 内容指纹 c9205d（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260923-1009" data-fp="a7a20e"
+     title="构建版本戳 · build 20260923-1009 · 内容指纹 a7a20e（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1002 · ch c9205d · bf 211K · mj 320K · jd 51K · idx 299K · map 68K</div>
-<script>window.__BUILD={"build":"20260923-1002","fingerprint":"c9205d","sizes":{"idx":299,"mj":320,"bf":211,"jd":51,"map":68},"files":{"index.html":306497,"mahjong.js":327444,"breakfast.js":216215,"jade.js":52668,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790128928032,"map3d.js":1790070275672},"idxContentHash":"4d8d47177fb6abf17663ca5c9d2fdba4b167bd29","idxContentBytes":305149,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1009 · ch a7a20e · bf 211K · mj 320K · jd 52K · idx 300K · map 68K</div>
+<script>window.__BUILD={"build":"20260923-1009","fingerprint":"a7a20e","sizes":{"idx":300,"mj":320,"bf":211,"jd":52,"map":68},"files":{"index.html":306991,"mahjong.js":327444,"breakfast.js":216215,"jade.js":53754,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790129362457,"map3d.js":1790070275672},"idxContentHash":"8338956f6d3f216565d0e375497c090c1e9c1d75","idxContentBytes":305643,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>

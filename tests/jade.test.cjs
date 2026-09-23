@@ -114,8 +114,8 @@ test("估价随信息单调：找到垮特征越低、找到涨特征越高、�
      round10 会把相对宽度放大到失真 —— 那是度量的锅，不是玩法的锅。 */
   const rel = (e) => (e.high - e.low) / Math.max(1, e.mid);
   assert.ok(rel(good) < rel(none), `看得越多相对区间应更窄：${rel(good).toFixed(2)} vs ${rel(none).toFixed(2)}`);
-  const three = R.estimateOf(st, [0, 1, 2]);     // 蟒带+松花+裂：mid 仍在百元量级
-  assert.ok(three.mid > 20 && rel(three) < rel(good),
+  const three = R.estimateOf(st, [0, 1, 2]);     // 蟒带+松花+裂：mid 仍在同一量级
+  assert.ok(three.mid > R.SPEC.PRIOR_MID * 0.3 && rel(three) < rel(good),
     `同一量级下，多看出一处特征应更窄：${rel(three).toFixed(2)} vs ${rel(good).toFixed(2)}`);
 });
 
@@ -125,7 +125,7 @@ test("结算恒等式：净收益 = 真实价值 − 出价；假皮几乎归零
     for (const p of R.PRICES) {
       const s = R.settle(st, p);
       assert.equal(s.net, st.trueValue - p, "结算恒等式被破坏");
-      assert.equal(s.jackpot, (st.trueValue - p) >= 3000);
+      assert.equal(s.jackpot, (st.trueValue - p) >= R.JACKPOT_NET);
     }
   }
   /* 假皮：价值必须被压到近乎归零（这是"看走眼"的最惨下场） */
@@ -211,8 +211,11 @@ test("经济不变量 ④：完美读料也不失控（每块期望有上限，�
     if (best > 0) ev += st.trueValue - best;
   }
   const perStone = ev / N;
-  assert.ok(perStone < 120,
-    `完美读料的每块期望 ${perStone.toFixed(1)} 过高（>120）—— 这就是刷钱机，请抬价或缩分布`);
+  /* 上限用**相对刻度**（E[价值] 的 55%）而不是绝对数：
+     整条金钱刻度缩过一次（首档 ¥250→¥60），绝对数会让测试无谓地红。 */
+  const cap = R.SPEC.PRIOR_MID * 0.55;
+  assert.ok(perStone < cap,
+    `完美读料的每块期望 ${perStone.toFixed(1)} 过高（> ${cap.toFixed(1)} = E 的 55%）—— 这就是刷钱机，请抬价或缩分布`);
 });
 
 test("分布形状：中位数远低于期望（大部分石头是垮的，少数高货撑起平均）", () => {
@@ -221,5 +224,8 @@ test("分布形状：中位数远低于期望（大部分石头是垮的，少�
   assert.ok(p50 < E * 0.6, `中位数 ${p50} 应明显低于期望 ${E.toFixed(0)}（赌石的手感来源）`);
   assert.ok(p99 > R.PRICES[2], `p99=${p99} 应高于最高档 ¥${R.PRICES[2]}，否则全押档永远没意义`);
   const maxV = Math.max.apply(null, vals);
-  assert.ok(maxV > 4000, "要存在真正的一刀富（单块 > ¥4000），实际最高 " + maxV);
+  /* 同样用相对刻度：最高档的 5 倍以上才算"真有一刀富"（绝对数会随刻度缩放失效） */
+  assert.ok(maxV > R.PRICES[2] * 5,
+    `要存在真正的一刀富（单块 > 最高档的 5 倍 = ¥${R.PRICES[2] * 5}），实际最高 ${maxV}`);
+  assert.ok(R.JACKPOT_NET < maxV, `成就门槛 ¥${R.JACKPOT_NET} 必须够得着（最高 ${maxV}）`);
 });
