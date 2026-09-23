@@ -16,7 +16,7 @@ const http = require("http");
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const OUT = path.join(__dirname, "..", "..", "_shots");
 const PORT = 9333;
-const GAME = "file:///C:/Users/chris/Desktop/%E9%87%8D%E7%94%9F2-%E5%8E%9F%E5%9E%8B/cardfight.html";
+const GAME = "file:///" + path.join(__dirname, "..", "..", "cardfight.html").replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
 
 fs.mkdirSync(OUT, { recursive: true });
 

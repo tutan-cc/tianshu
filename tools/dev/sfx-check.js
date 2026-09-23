@@ -4,7 +4,7 @@ const http = require("http");
 const path = require("path");
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const PORT = 9350;
-const URL = "file:///C:/Users/chris/Desktop/%E9%87%8D%E7%94%9F2-%E5%8E%9F%E5%9E%8B/sfx-preview.html";
+const URL = "file:///" + path.join(__dirname, "..", "..", "sfx-preview.html").replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const getJson = (u) => new Promise((res, rej) => {
   http.get(u, (r) => { let d = ""; r.on("data", (c) => (d += c)); r.on("end", () => res(JSON.parse(d))); }).on("error", rej);

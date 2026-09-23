@@ -38,7 +38,7 @@ Set-Location $repo
 # 期望数只是「基线参考」：对不上会标红提示，但不直接判失败（真正判失败的是进程退出码）
 $SUITES = @(
   [pscustomobject]@{ Layer = "logic";    Name = "内核单测（存档/剧情图/装备）"; Script = "tests/core.test.cjs";             Expect = 8 }
-  [pscustomobject]@{ Layer = "logic";    Name = "早餐店纯逻辑";                 Script = "tests/breakfast.test.cjs";        Expect = 83 }
+  [pscustomobject]@{ Layer = "logic";    Name = "早餐店纯逻辑";                 Script = "tests/breakfast.test.cjs";        Expect = 90 }
   # 开窗 · 赌石（v1.32 新增）：一条 UI 都不测，只锁规则结构不变量与经济不变量
   # （盲出必亏 / 技能有回报 / 完美读料不失控 / 估价绝不读隐藏信息）。
   # 改 jade.js 的 TUNE、PRICES、种水色分布或涨特征条件概率后，这一层必须重跑。

@@ -15,7 +15,7 @@ const http = require("http");
 const path = require("path");
 
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const GAME = "file:///C:/Users/chris/Desktop/%E9%87%8D%E7%94%9F2-%E5%8E%9F%E5%9E%8B/cardfight.html";
+const GAME = "file:///" + path.join(__dirname, "..", "..", "cardfight.html").replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
 const PORT = 9341;
 const GAMES = Number(process.argv[2] || 3);
 const EXPECT_BOUTS = 15, EXPECT_ROUNDS = 5, EXPECT_PER_ROUND = 3;
