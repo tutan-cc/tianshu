@@ -140,7 +140,9 @@ function getJson(url) {
   console.log("    " + st3);
 
   console.log("阶段 4：点第一张手牌 → 对手出牌 + 结算");
-  await evaluate('document.querySelector("#slots .card").click()');
+  /* ⚠ 这一次点击会**消耗掉本轮的第 1 次交锋**（规则：抽 3 张 = 打 3 次），
+     所以 stage 6 的循环必须能接着往下打，不能假设"此刻还没开打"。 */
+  await evaluate('(function(){var e=document.querySelectorAll("#slots .card.pickable");if(e.length)e[0].click();})()');
   await sleep(2600);
   await shot("04-foe.png");
   console.log("    对手牌 = " + await evaluate('document.querySelectorAll("#foeCard .card").length'));
@@ -148,6 +150,10 @@ function getJson(url) {
   /* 单独验证"打斗动作"：直接触发一次出招/挨打，抓姿势切换那一瞬间。
      只看静态截图分不清"在打"还是"站着"，所以还要读姿势与位移。 */
   console.log("阶段 4.5：动作验证（出招姿势 + 前冲位移 + 挨打后仰）");
+  /* ⚠ 这一段是**离屏探测**（直接调 Stage 的动作接口），会临时改人物姿势。
+     之后必须先等当前那次交锋的结算动画走完，再让 stage 6 接管，
+     否则 stage 6 会在 resolve 中途看到"不能点"而空转（踩过一次）。 */
+  const boutN0 = await evaluate('(window.S ? S.bouts.length : 0)');
   await evaluate('Stage.attack("player"); Stage.attack("enemy")');
   await sleep(150);
   const poseInfo = await evaluate('JSON.stringify({p:Stage.F.player.pose, e:Stage.F.enemy.pose, pf:Math.round(Stage.F.player.fwd), ef:Math.round(Stage.F.enemy.fwd)})');
@@ -172,44 +178,26 @@ function getJson(url) {
   })`);
   console.log("    " + st5);
 
-  /* ── 把整局打完：验证 5 轮上限、血量归零、结果面板 ──
-     只跑到第 2 轮不足以证明"一局能结束"（可能在第 4 轮某处卡住不动）。
-     每轮点第一张手牌，然后等"轮次文字变化"或"结果面板出现"，最多等 12 秒。 */
+  /* ── 把整局打完：验证 5 轮 × 3 次 = 15 次交锋、结果面板 ──
+     ⚠ 这一段改过四版，教训记全（免得以后又绕回去）：
+       1) 固定 sleep 会把点击落在结算动画中间 → 点击被忽略 → 看起来像"点了没反应"；
+       2) 用"轮次/交锋号/已用牌数"这类派生量当等待条件，条件常在点击**之前**就成立，
+          于是立刻 break 并重复点同一张牌 → 空转 200 次；
+       3) 用 S.bouts.length 增长当条件也不够 —— push 发生在 `S.phase = "pick"` 之前，
+          那一刻点还是无效；
+       4) **最终方案**：不在外部模拟点击，改用游戏内建的 window.__auto.step()
+          （观察状态 → 采取唯一合法动作，逻辑与动画同源，没有任何时序竞态）。
+          脚本只负责"反复推一步直到收局"。 */
   console.log("阶段 6：打完整局（5 轮 × 每轮 3 次交锋 = 15 次），验证结果面板");
-  /* ⚠ 两处与旧流程不同，都是规则改动带来的：
-       · 抽牌是**放回式**：每轮中央都是完整 12 张，不存在抽空；
-       · 一轮要打 **3 次**（抽 3 张 = 3 次 PK），所以每次交锋点一张
-         **还没用过**的牌（用完的会被摘掉 .pickable，直接选它就行）。 */
-  let guard = 0, lastRound = "", stallLog = [];
-  while (guard++ < 200) {
-    if (await evaluate('document.getElementById("result").classList.contains("on")')) break;
-    const probe = await evaluate('JSON.stringify({ph:(window.S?S.phase:"?"),d:(window.S?S.drawn:-1),bout:(window.S?S.bout:-1),slot:document.querySelectorAll("#slots .card").length,pick:document.querySelectorAll("#slots .card.pickable").length,deck:document.querySelectorAll("#deck .card.pickable").length,r:document.getElementById("roundTxt").textContent})');
-    const P = JSON.parse(probe);
-    if (guard % 20 === 0 || guard > 170) stallLog.push(guard + ":" + probe);
-    const need = P.ph === "draw" ? (3 - P.d) : 0;
-    if (need > 0) { await evaluate(tapBack); await sleep(1000); continue; }
-    if (P.ph === "pick" && P.pick > 0) {
-      lastRound = P.r;
-      const boutBefore = P.bout;
-      const spentBefore = await evaluate('document.querySelectorAll("#slots .card.spent").length');
-      await evaluate('(function(){var e=document.querySelectorAll("#slots .card.pickable"); if(e.length) e[0].click();})()');
-      /* 等这一**次交锋**结算完。判据用"已用牌数变化 / 交锋号变化 / 进下一轮 / 收局" ——
-         ⚠ 不能拿点击**之前**探测到的 bout 去和循环里新读的值比：
-           那样条件在点击前就已经成立，会立刻 break 并重复点同一张牌（实测空转 200 次）。 */
-      for (let w = 0; w < 36; w++) {
-        await sleep(500);
-        const st = await evaluate('JSON.stringify({r:document.getElementById("roundTxt").textContent,o:document.getElementById("result").classList.contains("on"),ph:(window.S?S.phase:""),b:(window.S?S.bout:-1),spent:document.querySelectorAll("#slots .card.spent").length})');
-        const o = JSON.parse(st);
-        if (o.o) break;
-        if (o.r !== lastRound) break;                        // 进下一轮
-        if (o.ph === "pick" && (o.b !== boutBefore || o.spent !== spentBefore)) break;  // 可打下一次
-      }
-      continue;
-    }
-    await sleep(400);
+  let guard = 0;
+  while (guard++ < 400) {
+    const s = JSON.parse(await evaluate("JSON.stringify(window.__auto.snap())") || "null");
+    if (!s) { await sleep(250); continue; }
+    if (s.over) break;
+    const act = await evaluate("window.__auto.step()");
+    await sleep(act === "wait" || act === "no-pickable" ? 240 : 400);
   }
-  console.log("    （循环 " + guard + " 次）");
-  if (stallLog.length) console.log("    阶段轨迹: " + stallLog.join(" | "));
+  console.log("    （推了 " + guard + " 步）");
   const fin = await evaluate(`JSON.stringify({
     over: document.getElementById("result").classList.contains("on"),
     ttl: document.getElementById("rTtl").textContent,
@@ -222,12 +210,22 @@ function getJson(url) {
   })`);
   console.log("    " + fin);
   await shot("06-result.png");
+  /* ⚠ 交锋记录必须在点「再来一局」**之前**读：那个按钮会 newState()，
+     状态归零后就什么都读不到了（第一版就是在这里读到 0 次，白排查了一阵）。 */
+  const boutsBefore = JSON.parse(await evaluate("JSON.stringify(window.S ? S.bouts : [])") || "[]");
   await evaluate('document.getElementById("againBtn").click()');
   await sleep(1000);
   await shot("07-again.png");
   console.log("    再来一局后面板已关闭 = " + await evaluate('!document.getElementById("result").classList.contains("on")'));
 
   const dbg = await evaluate("JSON.stringify(window.__dbg)");
+  const perRound = {};
+  boutsBefore.forEach((b) => { perRound[b.r] = (perRound[b.r] || 0) + 1; });
+  const rounds = Object.keys(perRound).map(Number).sort((a, b) => a - b);
+  const okBouts = boutsBefore.length === 15 && rounds.every((r) => perRound[r] === 3);
+  console.log("    交锋记录 = " + boutsBefore.length + " 次 · " +
+    rounds.map((r) => "第" + r + "轮:" + perRound[r] + "次").join(" ") +
+    (okBouts ? " ✔ 一轮三张 = 三次交锋" : " ✘ 次数不对"));
   console.log("    内部计数 = " + dbg + "（flies 每轮 3 次，5 轮 = 15）");
 
   console.log("\nJS 运行时错误：" + (errors.length ? "\n  " + errors.slice(0, 6).join("\n  ") : "无 ✔"));

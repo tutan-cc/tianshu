@@ -254,18 +254,33 @@ console.log("\n【牌堆循环（放回式）】");
 /* 一次交锋 = 一张牌；一轮 3 张 = 3 次 PK；5 轮 = 15 次 */
 {
   A(/const BOUTS = ROUNDS \* HAND/.test(script), "源码里有 BOUTS = 轮数 × 每轮张数（=15 次交锋）");
-  A(/S\.picked \+ 1 < HAND/.test(script),
-    "打满 3 次才进下一轮（一轮抽 3 张 = 3 次 PK，不是三张里挑一张）");
-  A(/S\.usedBy\[i\] = true/.test(script) && /S\.usedBy\[idx\]/.test(script),
-    "每张手牌只能用一次（usedBy 记录，用完标灰）");
-  A(/S\.bout = S\.picked \+ 1/.test(script), "交锋计数器会随三次 PK 推进（供界面显示第 N/3 次）");
-  A(/第 " \+ \(S\.picked \+ 1\) \+ " 次/.test(script), "对手出牌区标出这是第几次交锋");
-  /* 结束画面只该有一个倒地者 —— 叠加式判据会让赢家也倒（实测 poses 出过 ko/ko） */
-  A(/if \(win\) Stage\.ko\("enemy"\);\s*\n\s*else Stage\.ko\("player"\);/.test(script),
-    "只有输的一方倒地（赢家不倒，避免 ko/ko）");
-  /* 第二次交锋必须重新挂上可点状态：不加就卡死在第 2 次交锋 */
-  A(/S\.bout = S\.picked \+ 1;[\s\S]{0,700}el\.classList\.add\("pickable"\)/.test(script),
-    "打满一次后剩下的牌重新可点（否则卡死在第 2 次交锋）");
+  A(/for \(let bout = 0; bout < HAND; bout\+\+\)/.test(script),
+    "一轮用 for 循环连续打 HAND 次（抽 3 张 = 3 次 PK）");
+  A(/async function runRound/.test(script), "有 runRound 统一驱动一轮的三次交锋");
+  A(/S\.bout = bout/.test(script), "交锋计数器随循环推进（界面显示第 N/3 次）");
+  /* ⚠ 可点状态只能有一处挂/摘。曾经散在三处（分支末尾 + finally 收口 + 预输入兑现），
+     互相耦合出过"卡在 resolve、还有牌没用却点不动"的死状态，排查了很久。
+     这组断言就是防止以后又把它拆散。 */
+  A(/function waitForPick/.test(script), "有 waitForPick（唯一等待玩家选牌的地方）");
+  {
+    /* 手牌的可点状态只允许 waitForPick 一处挂/摘。
+       判据：按顶层函数切分，找出**函数体里同时出现 dataset.slot 与 pickable** 的那些函数。
+       牌堆那处（startRound 给 #deck 卡背挂 pickable）用的是 #deck 元素，没有 dataset.slot，
+       所以天然被排除 —— 它属于抽牌阶段，是另一回事。
+       （第一版写成"同一行同时包含两个模式"，而实际代码里 dataset.slot 在上一行，误判成 0 处。） */
+    const fns = script.split(/\nasync function |\nfunction /).slice(1);
+    const hit = fns.filter((f) => /dataset\.slot/.test(f) && /classList\.(toggle|add)\("pickable"/.test(f));
+    const names = hit.map((f) => (f.slice(0, f.indexOf("(")).trim() || "?"));
+    A(hit.length === 1,
+      "手牌的可点状态只有一处挂/摘（收敛路径唯一，不会再有「忘了恢复」的分支）",
+      hit.length + " 处：" + names.join(","));
+  }
+  A(/if \(S\._resolving\) return;/.test(script),
+    "resolveRound 有防重入闸（连点不会重复结算）");
+  A(!/handBackToPlayer/.test(script),
+    "旧的多处收口函数 handBackToPlayer 已删除（逻辑收进 runRound/waitForPick）");
+  A(/function pickCard\(i\) \{[\s\S]{0,400}S\._pickDone\(i\)/.test(script),
+    "pickCard 只负责把选择交给 waitForPick 的等待者（不再自己改 phase）");
 }
 
 /* ── ⑤ 5 轮结束 / 生命归零两种终局都要有出口 ─────────────────────── */

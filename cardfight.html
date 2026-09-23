@@ -237,10 +237,14 @@ body{
 /* ── 对手出的牌 ─────────────────────────────────────────────────── */
 
 /* ── 过程文字（"双方同时出手…"）───────────────────────────────── */
+/* 过程大字（"第 N 次交锋"）。
+   ⚠ 位置必须避开下方手牌：原来在 top:52% 会正好压住三张手牌，
+     玩家看不到"哪张牌打出去了"，还会以为这一轮只打了两次。
+     现在放到 top:26%（战场中偏上，人物腰部以上），并稍微收小字号。 */
 #callout{
-  position:absolute;left:50%;top:52%;transform:translate(-50%,-50%) scale(.8);
-  font-size:40px;font-weight:900;letter-spacing:6px;color:#fff;opacity:0;
-  text-shadow:0 0 26px rgba(255,180,80,.8),0 4px 16px rgba(0,0,0,.8);
+  position:absolute;left:50%;top:26%;transform:translate(-50%,-50%) scale(.8);
+  font-size:34px;font-weight:900;letter-spacing:6px;color:#fff;opacity:0;
+  text-shadow:0 0 26px rgba(255,180,80,.85),0 4px 16px rgba(0,0,0,.85);
   pointer-events:none;white-space:nowrap;
 }
 #callout.show{animation:callout .95s cubic-bezier(.2,1.3,.3,1) both}
@@ -805,6 +809,7 @@ function newState() {
          靠数量判断会在动画中途把玩家放进"开打"阶段（点下去没反应）。 */
     phase: "draw",
     drawn: 0,                        // 本轮已抽几张（上限 HAND）
+    bouts: [],                       // 每次交锋的机器可读记录（调试/测试用）
     picked: -1,                      // 玩家选中的槽位
     eCard: null,                     // 对手这一次交锋出的牌
     log: [],
@@ -1008,7 +1013,6 @@ async function pickDrawFromDeck(backEl) {
   const src = rectIn(backEl);
   const key = drawOne();                             // 从卡池随机取一张（放回式）
   S.hand[slot] = key;
-  S.used[slot] = key;
   backEl.remove();                                   // 这一张从中央消失（视觉上"被取走"）
   const slots = Array.from(document.querySelectorAll(".slot"));
   await flyFrom(src, slots[slot], 0);
@@ -1020,17 +1024,16 @@ async function pickDrawFromDeck(backEl) {
   await sleep(140);
   paintHud();
   if (S.drawn >= HAND) {
-    /* 三张抽齐 → 进入"逐张交锋"阶段（3 张 = 3 次 PK）。
-       三张牌都可点：点哪张就是这一轮的第 N 次交锋用哪张。 */
-    S.phase = "pick";
+    /* 三张抽齐 → 交给 runRound 连续打三次。
+       手牌的可点状态、已用标记、每次交锋的结算，全部由 runRound + waitForPick 管；
+       这里只把"三张都到位"这件事告诉它。 */
     S.usedBy = [];
     document.querySelectorAll("#deck .card").forEach((el) => el.classList.remove("pickable"));
     document.querySelectorAll("#slots .card").forEach((el) => {
-      el.classList.add("pickable");
       el.addEventListener("click", () => pickCard(Number(el.dataset.slot)));
     });
     $("slots").classList.add("ready");
-    showCallout("三 张 已 就 位 —— 点 一 张 开 打");
+    runRound();
   } else {
     showCallout("再 抽 " + (HAND - S.drawn) + " 张");
   }
@@ -1041,7 +1044,7 @@ async function startRound() {
   S.picked = -1;
   S.eCard = null;
   S.hand = [];
-  S.used = [];
+  S.usedBy = [];                                     // 每轮重置"哪几张已经打过"
   S.drawn = 0;
   S.bout = 0;
   S.phase = "draw";                                  // draw（你抽牌）| pick（交锋中）
@@ -1064,25 +1067,8 @@ async function startRound() {
   });
   paintHud();
   showCallout("第 " + S.round + " 轮 · 点 牌 堆 抽 三 张");
-}
-
-/** 点一张手牌 = 用它打**这一次**交锋（一轮共 3 次）。
-    打过的牌留在原位并标记"已用"，因为一张牌只用一次、三次各用一张。 */
-function pickCard(i) {
-  if (S.over || S.phase !== "pick" || S.usedBy && S.usedBy[i]) return;
-  S.picked = i;
-  S.phase = "resolve";
-  if (!S.usedBy) S.usedBy = [];
-  S.usedBy[i] = true;
-  document.querySelectorAll("#slots .card").forEach((el) => {
-    const idx = Number(el.dataset.slot);
-    el.classList.remove("pickable");
-    el.style.cursor = "default";
-    if (idx === i) el.classList.add("chosen");
-    else if (S.usedBy[idx]) el.classList.add("spent");     // 之前用过的：保持灰掉
-    else el.classList.remove("dimmed");                    // 还没用的：恢复可点
-  });
-  resolveRound();
+  /* 抽牌阶段结束（pickDrawFromDeck 里抽满三张会调 runRound）——
+     这里只负责把牌铺好。 */
 }
 
 function showCallout(text) {
@@ -1105,13 +1091,106 @@ function foePick() {
    这样先手不会因为顺序占便宜。反击/吸血这类依赖"本轮所受伤害"的效果
    放在最后一步（④）用已经落地的伤害来算。
    ══════════════════════════════════════════════════════════════════ */
-/** 一次交锋：玩家用第 i 张手牌 vs 对手随机一张，双方同时结算。
-    ⚠ 现在一轮要打 **3 次**（抽 3 张 = 3 次 PK），所以:
-      · 手牌**不消耗**（三次各用一张，用完才进下一轮）；
-      · 每次交锋独立结算护盾/伤害/治疗/特殊 —— 护盾会跨交锋累积，
-        这是"先加盾后打人"的战术来源；
-      · 每次都检查血量，一方归零就立刻结束整局（剩下没打的不打了）。 */
+/** 一次交锋：玩家用第 S.picked 张手牌 vs 对手随机一张，双方同时结算。 */
 async function resolveRound() {
+  /* 防重入：连点/双击可能在前一次交锋还没结束时再进来一次，那样会多消耗一次交锋。
+     开打前就摘掉了 .pickable（第一道闸），这里是第二道。
+     ⚠ 这个标志位只用来**挡重复**，绝不用它表达"现在轮到谁" ——
+       曾经拿它判断阶段，结果它一旦没复位就永久停在"等动画"（实测空转 392 次）。
+       阶段只认 S.phase（draw / pick / resolve）。 */
+  if (S._resolving) return;
+  S._resolving = true;
+  try {
+    await resolveBody();
+  } catch (err) {
+    window.__dbg.errors.push("resolve: " + (err && err.message ? err.message : err));
+    const d = $("err");
+    if (d) { d.style.display = "block"; d.textContent = "结算出错：" + (err && err.message ? err.message : err); }
+  } finally {
+    S._resolving = false;
+  }
+}
+
+/** 一轮的驱动：反复"等玩家选一张 → 结算"，直到三次打完或有人归零。
+    ⚠ 为什么把三次交锋收进**一个循环**：
+      三次之间只需要"切换可点的牌 + 等玩家点击"，而最初那版把这套逻辑散在三处
+      （分支末尾手动恢复 + finally 收口 + 预输入兑现），三者互相耦合，
+      出现过"卡在 resolve、还有牌没用却点不动"的死状态，排查了很久。
+      现在"打完一次之后干什么"只有这一处决定，收敛路径唯一。 */
+async function runRound() {
+  if (!S || S.over || S._roundRunning) return;
+  S._roundRunning = true;
+  try {
+    for (let bout = 0; bout < HAND; bout++) {
+      S.bout = bout;
+      if (bout > 0) await sleep(340);
+      showCallout(bout === 0
+        ? ("第 " + S.round + " 轮 · 第 1 次交锋")
+        : ("还 剩 " + (HAND - bout) + " 次 交 锋"));
+      const idx = await waitForPick();
+      if (idx < 0) break;
+      await resolveRound();
+      if (S.over || S.p.hp <= 0 || S.e.hp <= 0) break;
+    }
+  } finally {
+    S._roundRunning = false;
+  }
+  if (S.p.hp <= 0 || S.e.hp <= 0) return endGame();
+  if (S.round >= ROUNDS) return endGame();
+  S.round++;
+  await sleep(420);
+  startRound();
+}
+
+/** 等玩家选一张牌（并立刻标成已用）。返回牌的下标；已收局返回 -1。
+    这里也是**唯一**给手牌挂/摘"可点"状态的地方。 */
+function waitForPick() {
+  return new Promise((resolve) => {
+    S.phase = "pick";
+    const paint = (chosen) => {
+      document.querySelectorAll("#slots .card").forEach((el) => {
+        const i = Number(el.dataset.slot);
+        const used = !!(S.usedBy && S.usedBy[i]);
+        el.classList.toggle("pickable", !used && chosen < 0);
+        el.classList.toggle("chosen", i === chosen);
+        el.classList.toggle("spent", used);
+        el.style.cursor = (!used && chosen < 0) ? "pointer" : "default";
+      });
+    };
+    paint(-1);
+    const done = (i) => {
+      if (S._pickDone !== done) return;
+      S._pickDone = null;
+      S.picked = i;
+      S.phase = "resolve";
+      if (!S.usedBy) S.usedBy = [];
+      S.usedBy[i] = true;
+      paint(i);
+      resolve(i);
+    };
+    S._pickDone = done;
+    /* 兜底轮询：正常对局永远走 done()；这条只为"页面被关/脚本异常"留出口，
+       避免 Promise 永久悬空。 */
+    const t0 = Date.now();
+    const tick = () => {
+      if (S._pickDone !== done) return;
+      if (S.over || S.p.hp <= 0 || S.e.hp <= 0) { S._pickDone = null; return resolve(-1); }
+      if (Date.now() - t0 > 600000) { S._pickDone = null; return resolve(-1); }
+      setTimeout(tick, 200);
+    };
+    setTimeout(tick, 200);
+  });
+}
+
+/** 玩家点一张手牌 ＝ 为本次交锋选它（交给 waitForPick 的等待者）。 */
+function pickCard(i) {
+  if (!S || S.over) return;
+  if (S.phase !== "pick" || !S._pickDone) return;
+  if (S.usedBy && S.usedBy[i]) return;
+  S._pickDone(i);
+}
+
+async function resolveBody() {
   const pCard = CARD_BY_KEY[S.hand[S.picked]];
   const eCard = foePick();
   S.eCard = eCard;
@@ -1262,36 +1341,19 @@ async function resolveRound() {
   /* 日志：按"第几轮 第几次交锋"记，5 轮 × 3 次 = 最多 15 条 */
   S.log.push("第 " + S.round + " 轮 · 第 " + (S.picked + 1) + " 次：你出「" + pCard.nm +
     "」 vs 赤鬼出「" + eCard.nm + "」 → 你 " + S.p.hp + " 血 / 赤鬼 " + S.e.hp + " 血");
+  /* 精确交锋记录（调试/测试用）：每次结算真正落地时都记一条，
+     用来证明"一轮抽三张 = 三轮交锋"，不依赖界面上那几行文字的观感。
+     ⚠ 之前排查"是不是只打了两次"时，靠截图和日志文字的条数推断会被动画时序骗到，
+       所以在这里存一份机器可读的事实。 */
+  S.bouts.push({ r: S.round, n: S.picked + 1, you: pCard.key, foe: eCard.key, pHp: S.p.hp, eHp: S.e.hp });
 
-  /* ── 这一轮的三次交锋打完了吗？ ──
-     顺序很关键：先判血量（有人归零立刻收局），再看三次是否打完，最后才进下一轮。 */
-  if (S.p.hp <= 0 || S.e.hp <= 0) return endGame();
-  if (S.picked + 1 < HAND) {
-    /* 还有牌没打 → 继续下一次交锋（同一轮内）。
-       ⚠ 必须**重新挂上可点状态**：`.pickable` 只在"抽满三张"那一刻加过一次，
-         而这里打完一次就把 phase 设回 pick。不重新加的话，第二次交锋时三张牌
-         全都不可点，pickCard 又要求 phase==="pick" ⇒ **玩家卡死在第 2 次交锋**。
-         （实测：无头脚本 200 次循环都停在 bout:1、pick:0。） */
-    S.bout = S.picked + 1;
-    S.phase = "pick";
-    Stage.reset();
-    paintHud();
-    document.querySelectorAll("#slots .card").forEach((el) => {
-      const idx = Number(el.dataset.slot);
-      if (S.usedBy[idx]) return;                    // 用过的保持灰掉
-      el.classList.add("pickable");
-      el.classList.remove("chosen");
-      el.style.cursor = "pointer";
-    });
-    await sleep(360);
-    showCallout("还 剩 " + (HAND - S.bout) + " 次 交 锋");
-    return;
-  }
-  /* 三次打完 → 进下一轮（或收局） */
-  if (S.round >= ROUNDS) return endGame();
-  S.round++;
-  await sleep(420);
-  startRound();
+  /* ⚠ resolveBody **只负责这一次交锋**：不推进轮次、不改可点状态、不进下一轮。
+     这些全部由 runRound 的循环统一决定（唯一收敛路径）。
+     早期版本在这里手动收尾（恢复可点 + 预输入兑现 + 提前进下一轮），
+     与 finally 里的收口、pickCard 里的预输入三者互相耦合，
+     出现过"卡在 resolve、还有牌没用却点不动"的死状态 —— 玩家看到的就是
+     "一轮只打了一两次，之后怎么点都没反应"。收进一个循环后这类问题不复存在。 */
+  if (S.p.hp <= 0 || S.e.hp <= 0) return;           // 收局交给 runRound 判定
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1363,6 +1425,51 @@ $("againBtn").addEventListener("click", () => {
   $("deck").classList.add("gone");
   S = null;
 });
+
+/* ══════════════════════════════════════════════════════════════════
+   13. 自测接口（仅供 tools/dev 的无头脚本使用，玩家侧不可见）
+   为什么内建而不是让脚本从外面点：这个游戏一局有 15 次交锋、每次都要等动画，
+   外部脚本只能靠"轮询 + 点击"，而点击时机一旦落在动画中间就会被吞 ——
+   实测为了这点反复误判成"游戏只打了两次"。
+   把"观察状态 → 采取唯一合法动作"放进游戏内部，逻辑与动画同源，
+   就不存在时序竞态了（脚本只负责"反复调 step 直到结束"）。
+   ══════════════════════════════════════════════════════════════════ */
+window.__auto = {
+  /** 结算是否还在进行中（只读，不再自愈 —— 状态收敛已收进 runRound/waitForPick）。 */
+  busy() { return !!(S && S._resolving); },
+  /** 走一步：处于抽牌阶段就抽一张，处于选牌阶段就打一张没用过的。返回做了什么。 */
+  step() {
+    if (!S || S.over) return "over";
+    /* 现在"三次交锋"由 runRound 里的一个循环连续驱动（唯一的收敛路径），
+       所以这里不再需要自愈代码 —— 状态机只有一处会写 S.phase。
+       保留这个 step 只是为了无头脚本能"推一步"，它自己不再改状态。 */
+    if (S.phase === "draw" && S.drawn < HAND) {
+      const backs = document.querySelectorAll("#deck .card.pickable");
+      if (backs.length) { pickDrawFromDeck(backs[0]); return "draw"; }
+      return "no-back";
+    }
+    if (S.phase === "pick") {
+      const pick = document.querySelectorAll("#slots .card.pickable");
+      if (pick.length) {
+        /* 一次只打一张：手上可能还有排队点击，交给正常流程处理 */
+        const idx = Number(pick[0].dataset.slot);
+        if (!S.usedBy[idx]) pickCard(idx);
+        return "pick";
+      }
+      return "no-pickable";
+    }
+    return "wait";                                  // resolve 中，等动画
+  },
+  /** 当前状态快照（脚本据此判断是否收局） */
+  snap() {
+    if (!S) return null;
+    return { round: S.round, bouts: S.bouts.length, phase: S.phase,
+             hp: S.p.hp, ehp: S.e.hp, over: !!S.over,
+             perRound: S.bouts.reduce((m, b) => { m[b.r] = (m[b.r] || 0) + 1; return m; }, {}) };
+  },
+  /** 一局的机器可读交锋记录 */
+  bouts() { return S ? S.bouts.slice() : []; },
+};
 
 /* 出错时把信息显示在页面上，别让玩家对着黑屏猜。
    另外挂一个**不显眼但可探测**的计数器：动画/异步流程出错时很容易被"看起来没事"掩盖，
