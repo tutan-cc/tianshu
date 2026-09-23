@@ -8,10 +8,13 @@
 
    对外 API（规格）：
      window.Jade.start(hostEl, opts) -> boolean
-       opts:{ cash:()=>number, intel:()=>number, onSettle:(net,info)=>{}, onFinish:(sum)=>{}, run:{stones} }
+       opts:{ cash:()=>number, intel:()=>number, onSettle:(net,info)=>{}, onFinish:(sum)=>{},
+              run:{stones}, practice:boolean }
+       practice=true → **练手局**：不卡本金（首档 ¥250 对新玩家太贵，新档只有 ¥10），
+                       结算照常演示、但由宿主决定不落账（早餐店练手局的同款约定）。
      window.Jade.isBusy(), dispose()
      window.Jade.debug = { state(), stone(), found(), tap(x,y), lens(x,y), hint(),
-                           bid(i), walk(), skip(), finishNow(), lifecycle() }
+                           bid(i), walk(), skip(), cutNow(), finishNow(), lifecycle() }
 
    附加（单测用，不属于规格）：window.Jade.rules = { genStone, trueValueOf,
      estimateOf, settle, PRICES, SPEC }  —— 纯函数，无 DOM，可在 vm 里单独注入。
@@ -539,6 +542,7 @@
       ST = {
         host: hostEl,
         cfg: opts,
+        practice: !!opts.practice,
         stones: [],
         idx: 0,
         phase: "search",           // search | bid | cut | result | summary
@@ -572,6 +576,8 @@
   }
 
   function cashNow() {
+    /* 练手局不卡本金：新档只有 ¥10，而首档就要 ¥250 —— 不放行的话新玩家一局都开不了 */
+    if (ST && ST.practice) return 999999;
     try { return ST && ST.cfg.cash ? (+ST.cfg.cash() || 0) : 99999; } catch (e) { return 0; }
   }
 
@@ -597,7 +603,8 @@
     wrap.id = "jdWrap";
 
     var bar = el("div", "jd-bar");
-    bar.innerHTML = '<span>第 <b id="jdIdx">1</b>/<b id="jdTotal">3</b> 块</span>' +
+    bar.innerHTML = '<span id="jdMode"></span>' +
+                    '<span>第 <b id="jdIdx">1</b>/<b id="jdTotal">3</b> 块</span>' +
                     '<span>剩余 <b id="jdTime">25.0</b>s</span>' +
                     '<span class="jd-timer" id="jdTimer"><i></i></span>' +
                     '<span>财富 <b id="jdCash">0</b></span>' +
@@ -716,7 +723,8 @@
     ST.phase = "result";
     sfx(r.net > 0 ? "sfx-stock-up" : "sfx-stock-down");
     if (r.net > 0) { try { if (root.AudioSys && AudioSys.good) AudioSys.good(); } catch (e) {} }
-    try { if (ST.cfg.onSettle) ST.cfg.onSettle(r.net, { value: r.value, bid: r.bid, stone: ST.idx, jackpot: r.jackpot }); } catch (e) {}
+    try { if (ST.cfg.onSettle) ST.cfg.onSettle(r.net, { value: r.value, bid: r.bid, stone: ST.idx,
+      jackpot: r.jackpot, practice: !!ST.practice }); } catch (e) {}
     paintUi();
   }
 
@@ -927,6 +935,8 @@
     var set = function (id, html) { var e = doc.getElementById(id); if (e) e.innerHTML = html; };
     set("jdIdx", String(ST.idx + 1));
     set("jdTotal", String(ST.stones.length));
+    /* 练手局要在最显眼的位置说明白"这局不算钱"，否则玩家会以为结算坏了 */
+    set("jdMode", ST.practice ? '<b style="color:#4dd8ff">练手局</b>（不结算财富）' : "夜市地摊");
     /* 只有相玉阶段才有倒计时；切开/结算阶段显示"—"（否则会出现"正在切石却还剩 25 秒"的怪象） */
     var searching = ST.phase === "search";
     set("jdTime", searching ? (ST.timeLeft / 1000).toFixed(1) : "—");
@@ -998,8 +1008,7 @@
         tip.innerHTML = "你放下了这块料。摊主哼了一声：「看不上？回头别后悔。」";
         res.innerHTML = '<div class="jd-hint">这块料的真实价值是 <b>¥' + r.value + "</b></div>";
       } else {
-        var gain = r.net >= 0;
-        var missed = [];
+        var gain = r.net >= 0;        var missed = [];
         for (i = 0; i < ST.cur.feats.length; i++) {
           var f = ST.cur.feats[i];
           if (f.isFlaw && ST.found.indexOf(i) < 0) missed.push(FLAWS[f.kind].n);
@@ -1012,7 +1021,8 @@
           (gain ? "+" : "") + r.net + "</b></span>" +
           (missed.length ? '<div class="jd-hint" style="color:#ff7d9c">没找到的 ' + missed.join("、") +
             "：切开后照样按比例扣钱 —— 这就是眼力的价钱。</div>" : '<div class="jd-hint" style="color:#5dffa0">该看的都看到了。</div>') +
-          (r.jackpot ? '<div class="jd-hint" style="color:#ffd76e">✦ 一刀富</div>' : "");
+          (r.jackpot ? '<div class="jd-hint" style="color:#ffd76e">✦ 一刀富</div>' : "") +
+          (ST.practice ? '<div class="jd-hint" style="color:#4dd8ff">练手局 · 这一局的收支不计入财富</div>' : "");
         tip.innerHTML = "第 " + (ST.idx + 1) + " 块切完了。";
       }
       res.style.display = "";

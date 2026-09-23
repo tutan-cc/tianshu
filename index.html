@@ -371,6 +371,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     <button id="dbgFight2" style="padding:9px 22px;border:1px solid #ffd76e;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,215,110,.08)">⚑ 跳到打斗 2.0</button>
     <button id="dbgMj" style="padding:9px 22px;border:1px solid var(--cyan);color:var(--cyan);font-size:12px;letter-spacing:2px;background:rgba(77,216,255,.08)">⚑ 跳到麻将</button>
     <button id="dbgBf" style="padding:9px 22px;border:1px solid #ff9ec7;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,158,199,.08)">⚑ 跳到早餐店</button>
+    <button id="dbgJade" style="padding:9px 22px;border:1px solid #c9a24a;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(201,162,74,.08)">⚑ 跳到赌石（开窗）</button>
     <button id="dbgTalk" style="padding:9px 22px;border:1px solid var(--line);color:var(--dim);font-size:12px;letter-spacing:2px;background:rgba(255,255,255,.04)">⚑ 全部解锁</button>
   </div>
   <div class="tmeta">互动影游原型 v0.5 · 序章 + 第一章 + 第二章 · 14 节点 · 5 种小游戏 · 全台词配音<br>实拍素材来自本地素材库（授权未核实）</div>
@@ -4537,17 +4538,24 @@ function jadeNoteHtml(){
   return `🪨 开窗：<b>${r}</b> 局 · 累计 <b style="color:${col}">${net>0?"+":""}¥${net}</b><br>`+
     `<span style="color:var(--dim)">单块最好 ${S.jadeBest>0?"+¥"+S.jadeBest:"—"}${S.jadeJackpot?" · ✦ 出过一刀富":""}</span>`;
 }
-function openJade(){
+function openJade(practice){
   if(!window.Jade){ toast("赌石模块未加载（缺 jade.js）"); return false; }
   AudioSys.init(); AudioSys.click();
   if(Jade.isBusy()){ $("jade").classList.add("on"); return true; }
   const min = Jade.TUNE.PRICES[0];
-  if(S.stats.cash < min){ AudioSys.bad(); toast(`财富不足（开窗最低要 ¥${min}，当前 ¥${S.stats.cash}）`); return false; }
+  /* 钱不够不劝退：直接给一局练手局（不结算财富），否则新档只有 ¥10，一局都开不了 */
+  let prac = !!practice;
+  if(!prac && S.stats.cash < min){
+    prac = true;
+    toast(`财富不足（开窗最低 ¥${min}，当前 ¥${S.stats.cash}）—— 这次给你开<b>练手局</b>，不结算财富`);
+  }
   $("jade").classList.add("on");
   const ok = Jade.start($("jadeHost"), {
+    practice: prac,
     cash:  ()=>S.stats.cash,
     intel: ()=>S.stats.int,
     onSettle: (net, info)=>{
+      if(info && info.practice) return;                 // 练手局：演示结算，不落账
       S.stats.cash = Math.max(0, S.stats.cash + net);
       if(info && info.jackpot){ S.jadeJackpot = true; checkAchv(); }
       if(net>0) toast(`🪨 开窗涨了 <b>+¥${net}</b>`);
@@ -4555,6 +4563,7 @@ function openJade(){
       save(); render();
     },
     onFinish: (sum)=>{
+      if(prac) return;                                  // 练手局不进台账
       S.jadeRuns = (S.jadeRuns||0) + 1;
       S.jadeNet  = (S.jadeNet||0) + sum.net;
       if(sum.best > (S.jadeBest||0)) S.jadeBest = sum.best;
@@ -4715,6 +4724,12 @@ $("dbgMj").addEventListener("click",()=>{ AudioSys.init(); debugJumpTo("mahjong"
 $("dbgBf").addEventListener("click",()=>{ enterGame();
   setTimeout(()=>{ if(startBreakfastGame("fang", { practice:true, force:true })!==true)
     if(openBreakfast()===false) toast("早餐店模块未加载（缺 breakfast.js）"); }, 300); });
+/* ⚑ 跳到赌石（开窗）：与「跳到早餐店」同款 —— 点下去直接开一局**练手局**。
+   为什么需要它：侧栏的小游戏入口在羁绊/任务列表**下面**，要滚动才看得见；
+   而「开始重生」会直接进序章电影层，遮住侧栏 —— 两条路都不好找（用户实测反馈）。
+   练手局不结算财富，所以新档（只有 ¥10）也能直接试玩。 */
+$("dbgJade").addEventListener("click",()=>{ enterGame();
+  setTimeout(()=>{ if(openJade(true)===false) toast("赌石模块未加载（缺 jade.js）"); }, 300); });
 $("dbgTalk").addEventListener("click",()=>{ AudioSys.init(); CS2_DEBUG.unlockAll();
   $("title").classList.add("hide"); $("game").classList.add("on"); render(); });
 /* ═══ 进入游戏运行时（开始重生 / 各调试跳转共用，避免 S 未初始化就 render） ═══ */
@@ -4775,11 +4790,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260922-1846" data-fp="63141e"
-     title="构建版本戳 · build 20260922-1846 · 内容指纹 63141e（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260923-1002" data-fp="c9205d"
+     title="构建版本戳 · build 20260923-1002 · 内容指纹 c9205d（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260922-1846 · ch 63141e · bf 211K · mj 320K · jd 51K · idx 298K · map 68K</div>
-<script>window.__BUILD={"build":"20260922-1846","fingerprint":"63141e","sizes":{"idx":298,"mj":320,"bf":211,"jd":51,"map":68},"files":{"index.html":305289,"mahjong.js":327444,"breakfast.js":216215,"jade.js":51765,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790073969008,"map3d.js":1790070275672},"idxContentHash":"71b9277f574b7f8b6033a5408c3ecb6bf4b127ca","idxContentBytes":303941,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1002 · ch c9205d · bf 211K · mj 320K · jd 51K · idx 299K · map 68K</div>
+<script>window.__BUILD={"build":"20260923-1002","fingerprint":"c9205d","sizes":{"idx":299,"mj":320,"bf":211,"jd":51,"map":68},"files":{"index.html":306497,"mahjong.js":327444,"breakfast.js":216215,"jade.js":52668,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790128928032,"map3d.js":1790070275672},"idxContentHash":"4d8d47177fb6abf17663ca5c9d2fdba4b167bd29","idxContentBytes":305149,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
