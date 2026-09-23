@@ -577,13 +577,13 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
         <div id="fight2Tell" style="display:none;position:absolute;left:50%;top:38%;transform:translateX(-50%);font-size:20px;letter-spacing:3px;padding:10px 22px;border:1px solid var(--red);background:rgba(26,13,18,.9);pointer-events:none;white-space:nowrap"></div>
       </div>
       <!-- 判定条与按钮留在 DOM 里：它们是交互入口，做成 canvas 会牺牲可点性与可测性 -->
-      <!-- 判定条图例：必须在**打的时候**看得见。规则原文在面板顶部的 #fight2Sub 里，
-           一滚就没了 —— 实测玩家因此完全不知道游标进绿带才有效、金色块是完美区。 -->
+      <!-- 判定条图例**已随推条一起退役**（永远 display:none）。
+           ⚠ 文案必须一起清掉：留着"游标扫进绿带…完美 ×1.9"这种死文案，
+             任何 grep / 断言都会读到它，而且将来谁把 display 改回来就会教错玩家。
+             判定条本身没删 —— 防守窗口（对手出招按方向闪）还在用它，
+             那条链路由 tests/fight-loop.test.cjs 与 tests/judge-bar.test.cjs 守着。 -->
       <div id="fight2Legend" style="display:none;font-size:11px;color:var(--dim);margin-bottom:5px;line-height:1.5">
-        游标扫进 <b style="color:var(--green)">绿带</b> 时<b>点一下</b>（点条子任意位置都行，按 <b>空格 / 回车</b> 也算）：
-        <b style="color:var(--gold)">金色块</b>=完美 ×1.9 ·
-        <b style="color:var(--green)">绿带其余</b>=良好 ×1.3 ·
-        <b style="color:var(--dim)">扫过去没点</b>=偏出 ×0.7（空挥）
+        （已停用：出招不再走时机判定。规则见上方状态行副标题。）
       </div>
       <div id="fight2Bar" style="display:none;position:relative;height:28px;background:#12101c;border:1px solid var(--line);margin-bottom:8px;overflow:hidden;cursor:pointer">
         <div id="fight2Zone" style="position:absolute;top:0;bottom:0;background:rgba(93,255,160,.35);border-left:1px solid var(--green);border-right:1px solid var(--green)">
@@ -2756,14 +2756,20 @@ const FIGHT2_TUNE = {
   AP:            4,
   /* 体干：玩家侧 */
   STAM_REGEN:    0.12,   // 每回合自然恢复
-  STAM_ON_HIT:   0.22,   // 攻击命中 → 对手掉
+  /* ⚠ STAM_ON_HIT 原来是 0.22，配上 FOE_REGEN 0.22 是 1:1 ——
+     玩家每回合两次命中就是 −0.44，对手只回 +0.22，净 −0.22/回合 ⇒
+     对手**必然被永久钉在"喘气/硬直"上**。实测后果：一局对手只有 6–10 次出手机会，
+     "对手出招 → 按方向闪"这条防守循环在很多局里根本轮不到发挥
+     （40 局"从不防守"里最低只掉 12 血）。现在改成"能压穿但要花力气"：
+     两次命中 −0.28 vs 对手 +0.30 ⇒ 略回血，连续压制 2–3 回合才会打空他。 */
+  STAM_ON_HIT:   0.14,   // 攻击命中 → 对手掉
   STAM_SELF:     0.04,   // 出招自己的消耗（保留字段，当前由每招的 stam 决定）
   STAM_ON_BLOCK: 0.18,   // 被格挡 → 对手掉
   STAM_ON_DODGE: 0.14,   // 闪避成功 → 自己掉（闪避不是免费的：一直闪也会把自己闪空）
   STAM_ON_TAKE:  0.30,   // 硬吃 → 自己掉（与伤害数值无关）
   /* 体干：对手侧（对手回得比玩家慢，但也不能慢到"根本出不了手"——
      出不了手 = 玩家永远不会挨打 = 防守机制失去意义。实测 0.06 时对手几乎全程在喘气） */
-  FOE_REGEN:     0.22,   // 对手每回合恢复
+  FOE_REGEN:     0.30,   // 对手每回合恢复
   FOE_REST_STAM: 0.06,   // 低于此值 → 这一手打不出来，只能喘气（亮反击窗口）
   REST_REGEN:    0.28,   // 喘口气恢复多少
   /* 倍率与节奏 */
@@ -2805,8 +2811,8 @@ const FIGHT2_TUNE = {
 };
 /* 玩家招式：stam 是自己掉的体干（低消耗招式能"养体干"） */
 const FIGHT2_MOVES = {
-  jab:   { n:"直 拳", ap:2, dmg:12, precise:true,  stam:0.20, desc:"2 行动力 · 12 · 精准（吃三档与反击加成）" },
-  combo: { n:"组合拳", ap:2, dmg:8,  precise:true,  stam:0.26, mash:true, desc:"2 行动力 · 8 + 连打" },
+  jab:   { n:"直 拳", ap:2, dmg:12, stam:0.20, desc:"2 行动力 · 12 · 连段第二手 ×1.5" },
+  combo: { n:"组合拳", ap:2, dmg:8,  stam:0.26, desc:"2 行动力 · 一段 8 + 二段 12（自动接）" },
   low:   { n:"低 扫", ap:2, dmg:17, precise:false, stam:0.24, desc:"2 行动力 · 17 · 不吃判定但稳定" },
   guard: { n:"抱 架", ap:1, dmg:0, precise:false, stam:-0.12, guard:20, desc:"1 行动力 · 格挡 +20 · 体干 +12" },
   read:  { n:"读 招", ap:1, dmg:0, precise:false, stam:-0.06, read:true, desc:"1 行动力 · 公示意图 · 体干 +6" },
@@ -2827,7 +2833,7 @@ const FIGHT2_MOVES = {
    kind 指向 FIGHT2_MOVES 里的动作，所以伤害、判定、体干都沿用已有那套，不新造数值。 */
 const FIGHT2_CARDS = {
   jab:      { kind:"jab",      type:"atk",  cost:2, n:"直 拳",   v:"12",  t:"先扣装甲 · 连段第二手 ×1.5" },
-  combo:    { kind:"combo",    type:"atk",  cost:2, n:"组合拳",  v:"20",  t:"一段 8 + 二段 12 · 自动接" },
+  combo:    { kind:"combo",    type:"atk",  cost:2, n:"组合拳",  v:"8+12", t:"两段自动接上 · 不吃连打手速" },
   low:      { kind:"low",      type:"atk",  cost:2, n:"低 扫",   v:"17",  t:"恒定伤害 · 不赌手感" },
   heavy:    { kind:"heavy",    type:"atk",  cost:3, n:"重 拳",   v:"26",  t:"命中后你下回合少 1 行动力" },
   guard:    { kind:"guard",    type:"def",  cost:1, n:"抱 架",   v:"+20", t:"格挡 20 · 体干 +12" },
@@ -4438,14 +4444,13 @@ function startFight2(it){
       if(foeHp<=0) return finish(true);
       cb && cb(grade);
     };
-    apply(1, "flat");
+    apply(1, "flat");                              // 推条已删：不再按档位选倍率
   }
-  /* 组合拳二段：不再靠连打，改成"连段"结算 ——
-     同一回合里先出过任意攻击牌，二段就必定接上并加伤。
-     玩家原话"蓄力连按很多下的意义是什么"，所以手速要素整个去掉。 */
-  function comboMash(cb){
-    cb({ count: 0, bonus: FIGHT2_TUNE.COMBO_BONUS_CAP, hit: true });
-  }
+  /* 组合拳尾段**已随连打一起删除**（玩家原话"蓄力连按很多下的意义是什么"）。
+     二段伤害现在在 `act("combo")` 里一次算完：一段 × CHAIN_MULT。
+     ⚠ 这里刻意不留 `comboMash` 空壳 —— 死代码会让人以为还有连打入口要维护
+       （上一版就留了一个返回固定值的空壳，害得 `COMBO_BONUS_CAP` 永远是死的）。
+     注意：**旧版 `fight` 面板的 comboMash 仍在**（拳击馆剧情用），那是另一条链路。 */
   /* ── 过场：点「开始战斗」= 化身进街机 ──
      进度 0→1 约 1.6 秒：机台升起 → 屏幕点亮 → 视角推进 → 收黑到战斗画面。
      期间**锁住出招**，免得玩家在过场里把行动力打空（那种"操作丢失"最劝退）。 */
@@ -4652,7 +4657,13 @@ function startFight2(it){
     playCard: (i)=> playCard(i),
     /** 主动结束回合（与界面上「结束回合」链接同一条路径；测试与调平工具要用） */
     endTurn: ()=>{ if(alive && phase === "act") endTurn(); },
-    setHand: (ids)=>{ hand = (ids || []).slice(); render(); return hand.slice(); },
+    /* ⚠ 必须同时重置 hidden：hand 与 hidden 是两个平行数组，只改 hand 会让长度不一致 ——
+       于是"构造出来的固定手牌"第一次点只会被翻开、行动力不掉、牌不进弃牌堆，
+       所有用 setHand 构造局面的测试与调平工具都会被它坑（子代理实测就是这条
+       让 5 条卡牌断言假失败）。默认 faceDown=false：调用方要的是"手里有这张牌、
+       立刻能打出"；要验证翻牌流程请显式传 true。 */
+    setHand: (ids, faceDown)=>{ hand = (ids || []).slice();
+      hidden = hand.map(()=> !!faceDown); render(); return hand.slice(); },
     setDraw: (ids)=>{ drawPile = (ids || []).slice(); return drawPile.slice(); },
     /** 本局牌堆总张数（含体魄/智慧加成），供测试算"牌张守恒" */
     deckSize: ()=> buildFight2Deck(S.stats).length,
