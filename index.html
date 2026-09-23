@@ -188,6 +188,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .overlay{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
   background:rgba(4,3,8,.72);backdrop-filter:blur(3px)}
 .overlay.on{display:flex}
+/* 侧栏小游戏面板（麻将 / 刮刮乐 / 早餐店 / 开窗）：**必须留在电影层之外**，并压过它。
+   两个原因：① #cine 平时 display:none —— 装在它里面等于永久隐藏（"点了开窗没反应"的根因，
+   实测面板 .on 为真但 rect 0x0）；② 剧情播放中（#cine z-index:60）打开时也要看得见。 */
+.overlay.side{position:fixed;z-index:80}
 /* 连打/判定条是**玩法内部**的二级覆盖层（组合拳连打、蓄力反击），
    必须压在 #fight / #talk 这些一级玩法面板之上（它们同为 .overlay，DOM 序在 qte 之后）。
    不给这条规则的话，连打条会被打斗面板整块盖住 —— 玩家按空格但看不见进度。 */
@@ -602,40 +606,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     </div></div>
 
     <!-- 麻将 · 听牌挑战 -->
-    <div class="overlay" id="mj"><div class="panel">
-      <h3 id="mjTitle">麻将 · 听牌挑战</h3><div class="sub2" id="mjSub"></div>
-      <div id="mjInfo" style="font-size:12px;color:var(--dim);margin-bottom:10px"></div>
-      <div id="mjHand" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:52px"></div>
-      <div style="display:flex;gap:8px">
-        <button class="mbtn" id="mjDraw" style="flex:1">摸 牌<b>从牌墙取一张</b></button>
-        <button class="mbtn" id="mjWin" style="flex:1;display:none">胡 ！<b>结算本局</b></button>
-        <button class="mbtn" id="mjHint" style="flex:1">提 示<b>花费 ¥20</b></button>
-      </div>
-      <div class="hint" style="margin-top:8px">点手牌即打出（需先摸牌）· 金老板第 5 巡必胡</div>
-    </div></div>
 
-    <!-- 刮彩票 -->
-    <div class="overlay" id="lottery"><div class="panel" style="width:min(560px,94%)">
-      <h3>刮 刮 乐</h3><div class="sub2">按住鼠标在票面上涂抹，刮开 35% 自动揭晓 · ¥20 / 张</div>
-      <canvas id="scratchCv" width="480" height="260" style="display:block;width:100%;border:1px solid var(--line);cursor:crosshair;touch-action:none"></canvas>
-      <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="lotteryClose" style="flex:1">关 闭</button></div>
-    </div></div>
-
-    <!-- 开窗 · 赌石（玩法与绘制都在 jade.js，这里只给容器） -->
-    <div class="overlay" id="jade"><div class="panel" style="width:min(760px,96%)">
-      <h3>开 窗</h3><div class="sub2">老城区 · 夜市地摊 —— 拖放大镜在皮壳上找茬，出价，一刀切开见分晓</div>
-      <div id="jadeHost"></div>
-      <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="jadeClose" style="flex:1">收 摊</button></div>
-    </div></div>
-
-    <!-- 早餐店 · 选对象面板（面板本身由 breakfast.js 渲染） -->
-    <div class="overlay bf-overlay" id="bfPick"><div class="panel bf-panel" id="bfPickHost"></div></div>
-
-    <!-- 早餐店 · 拼手速（Canvas 由 breakfast.js 渲染） -->
-    <div class="overlay bf-overlay" id="bfGame"><div class="panel bf-panel bf-game-panel" id="bfGameHost"></div></div>
-
-    <!-- 自由局开局（三档注码 + 打法；面板本身由 mahjong.js 渲染） -->
-    <div class="overlay" id="mjLobby"><div id="mjLobbyHost"></div></div>
 
     <!-- 章末卡 -->
     <div class="overlay" id="endcard"><div class="panel">
@@ -655,6 +626,45 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   </div>
 </div>
 
+<!-- 侧栏小游戏面板（麻将 / 刮刮乐 / 早餐店 / 开窗）
+     ⚠ 这 6 个面板**必须留在电影层之外**：它们由侧栏按钮打开，而侧栏只在沙盘视图（电影层关闭）可点，
+     而 #cine 平时是 display:none —— 之前它们被塞在 #cine > #frame 里，导致「点了小游戏没反应」：
+     面板 .on 状态是对的、内容也建好了，但整棵子树被 display:none 藏起来（实测 rect 0x0）。
+     .overlay.side 给了 position:fixed + z-index:80，所以剧情播放中（#cine z-index:60）也能压在它上面显示。 -->
+<div class="overlay side" id="mj"><div class="panel">
+  <h3 id="mjTitle">麻将 · 听牌挑战</h3><div class="sub2" id="mjSub"></div>
+  <div id="mjInfo" style="font-size:12px;color:var(--dim);margin-bottom:10px"></div>
+  <div id="mjHand" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:52px"></div>
+  <div style="display:flex;gap:8px">
+    <button class="mbtn" id="mjDraw" style="flex:1">摸 牌<b>从牌墙取一张</b></button>
+    <button class="mbtn" id="mjWin" style="flex:1;display:none">胡 ！<b>结算本局</b></button>
+    <button class="mbtn" id="mjHint" style="flex:1">提 示<b>花费 ¥20</b></button>
+  </div>
+  <div class="hint" style="margin-top:8px">点手牌即打出（需先摸牌）· 金老板第 5 巡必胡</div>
+</div></div>
+
+<!-- 刮彩票 -->
+<div class="overlay side" id="lottery"><div class="panel" style="width:min(560px,94%)">
+  <h3>刮 刮 乐</h3><div class="sub2">按住鼠标在票面上涂抹，刮开 35% 自动揭晓 · ¥20 / 张</div>
+  <canvas id="scratchCv" width="480" height="260" style="display:block;width:100%;border:1px solid var(--line);cursor:crosshair;touch-action:none"></canvas>
+  <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="lotteryClose" style="flex:1">关 闭</button></div>
+</div></div>
+
+<!-- 开窗 · 赌石（玩法与绘制都在 jade.js，这里只给容器） -->
+<div class="overlay side" id="jade"><div class="panel" style="width:min(760px,96%)">
+  <h3>开 窗</h3><div class="sub2">老城区 · 夜市地摊 —— 拖放大镜在皮壳上找茬，出价，一刀切开见分晓</div>
+  <div id="jadeHost"></div>
+  <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="jadeClose" style="flex:1">收 摊</button></div>
+</div></div>
+
+<!-- 早餐店 · 选对象面板（面板本身由 breakfast.js 渲染） -->
+<div class="overlay side bf-overlay" id="bfPick"><div class="panel bf-panel" id="bfPickHost"></div></div>
+
+<!-- 早餐店 · 拼手速（Canvas 由 breakfast.js 渲染） -->
+<div class="overlay side bf-overlay" id="bfGame"><div class="panel bf-panel bf-game-panel" id="bfGameHost"></div></div>
+
+<!-- 自由局开局（三档注码 + 打法；面板本身由 mahjong.js 渲染） -->
+<div class="overlay side" id="mjLobby"><div id="mjLobbyHost"></div></div>
 <div id="toasts"></div>
 
 <!-- NPC 邀约条（手机消息风格，由 mahjong.js 渲染；固定在右下角，不挡沙盘） -->
@@ -4795,11 +4805,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260923-1009" data-fp="a7a20e"
-     title="构建版本戳 · build 20260923-1009 · 内容指纹 a7a20e（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260923-1020" data-fp="f43baa"
+     title="构建版本戳 · build 20260923-1020 · 内容指纹 f43baa（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1009 · ch a7a20e · bf 211K · mj 320K · jd 52K · idx 300K · map 68K</div>
-<script>window.__BUILD={"build":"20260923-1009","fingerprint":"a7a20e","sizes":{"idx":300,"mj":320,"bf":211,"jd":52,"map":68},"files":{"index.html":306991,"mahjong.js":327444,"breakfast.js":216215,"jade.js":53754,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790129362457,"map3d.js":1790070275672},"idxContentHash":"8338956f6d3f216565d0e375497c090c1e9c1d75","idxContentBytes":305643,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1020 · ch f43baa · bf 211K · mj 320K · jd 54K · idx 301K · map 68K</div>
+<script>window.__BUILD={"build":"20260923-1020","fingerprint":"f43baa","sizes":{"idx":301,"mj":320,"bf":211,"jd":54,"map":68},"files":{"index.html":307923,"mahjong.js":327444,"breakfast.js":216215,"jade.js":55659,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790130010115,"map3d.js":1790070275672},"idxContentHash":"c2530fa05f4caa34f763830d80a2de27175e8a15","idxContentBytes":306575,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
