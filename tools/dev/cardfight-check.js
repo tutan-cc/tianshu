@@ -242,6 +242,21 @@ console.log("\n【牌堆循环】");
   A(drawn === 15, "5 轮共抽出 15 张（每轮 3 张）", "抽出 " + drawn);
   A(reshuffles === 1, "12 张的牌堆在第 5 轮前恰好重洗 1 次（不会抽空断牌）", "重洗 " + reshuffles + " 次");
 }
+/* ⚠ 玩家自己抽牌之后新增的坑：重洗必须发生在**发牌之前**。
+   只在 drawCards 内部重洗的话，逻辑会补牌、但中央卡背还停在 0 张 ——
+   玩家看到空牌堆、没有可点的卡，整局卡死在第 5 轮的抽牌阶段。
+   （实测：无头脚本循环 90 次都停在「第 5 轮 ph=draw pick=0」。） */
+{
+  A(/function ensureDrawable/.test(script), "有 ensureDrawable（发牌前保证牌堆够用）");
+  A(/ensureDrawable\(1\);[\s\S]{0,120}buildDeckVisual\(S\.deck\.length\)/.test(script),
+    "startRound 里**先** ensureDrawable 再重画卡背（顺序反了就会卡死）");
+  A(/function pickDrawFromDeck/.test(script) && /S\.phase = "draw"/.test(script),
+    "抽牌是玩家点牌堆触发的（pickDrawFromDeck + phase 阶段机）");
+  A(!/function syncDeckVisual/.test(script),
+    "旧的「模拟牌堆」函数已删除（玩家自己抽之后，中央张数就是真牌堆张数）");
+  A(/S\.phase = "pick"/.test(script) && /S\.phase !== "pick"/.test(script),
+    "抽满 3 张后才允许出牌（phase !== pick 时 pickCard 直接返回）");
+}
 
 /* ── ⑤ 5 轮结束 / 生命归零两种终局都要有出口 ─────────────────────── */
 console.log("\n【终局】");

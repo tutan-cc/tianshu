@@ -183,8 +183,16 @@ body{
       gap:6px 8px;place-content:center;transition:opacity .35s}
 #deck.gone{opacity:0}
 #deck .card{position:relative;width:66px;height:92px;--cw:66px;--ch:92px}
-#deckPile{position:absolute;right:12px;top:680px;width:140px;text-align:center;
-      font-size:11.5px;color:#8a80a8;letter-spacing:1px}
+/* 牌堆里的卡背**是可点的**（玩家自己抽），所以必须有可点的反馈：
+   悬停上浮 + 金色描边 + 手型光标；已抽走的那张淡出并立刻停止接收点击。 */
+#deck .card.pickable{cursor:pointer}
+#deck .card.pickable:hover{transform:translateY(-7px) scale(1.07);filter:brightness(1.25)}
+#deck .card.pickable:hover .back{box-shadow:inset 0 0 0 2px rgba(255,215,110,.95), 0 8px 20px rgba(0,0,0,.6)}
+#deck .card.picked{opacity:0;transform:scale(.7);transition:opacity .25s, transform .25s;pointer-events:none}
+/* 空着的卡槽在"抽牌阶段"要更显眼，让玩家知道牌会落到哪里 */
+.slot.waiting{border-color:rgba(255,215,110,.4);background:rgba(255,215,110,.05)}
+#deckPile{position:absolute;right:6px;top:694px;width:152px;text-align:center;
+      font-size:11px;color:#a99fc4;letter-spacing:.5px;line-height:1.45}
 
 /* ── 人物战场（canvas）─────────────────────────────────────────────
    延用打斗 2.0 的立绘与侧视舞台（art/fight2/*.png），所以这里是一块画布，
@@ -782,7 +790,12 @@ function newState() {
     p: { hp: MAXHP, shield: 0, charge: false, curse: false, dealt: 0 },
     e: { hp: MAXHP, shield: 0, charge: false, curse: false, dealt: 0 },
     deck: [],                        // 抽牌堆（洗过牌）
-    hand: [],                        // 本轮 3 张
+    hand: [],                        // 本轮已抽到的牌（最多 HAND 张）
+    /* phase 是这一轮的阶段机：draw（你点牌堆抽）→ pick（选一张打）→ resolve → 下一轮。
+       ⚠ 必须显式存它，不能用"手牌数量"推断：手牌张数在飞行动画期间是不确定的，
+         靠数量判断会在动画中途把玩家放进"选牌"阶段（点空白处没反应）。 */
+    phase: "draw",
+    drawn: 0,                        // 本轮已抽几张（上限 HAND）
     picked: -1,                      // 玩家选中的槽位
     eCard: null,                     // 对手本轮出的牌
     log: [],
@@ -893,38 +906,29 @@ function paintHud() {
   $("pBadges").innerHTML = badge(S.p);
   $("eBadges").innerHTML = badge(S.e);
   $("roundTxt").textContent = "第 " + S.round + " 轮";
-  $("deckPile").textContent = "牌堆 " + S.deck.length + " 张";
+  /* 牌堆标签要跟着阶段说清"现在该你做什么" —— 这里是玩家唯一会盯着看的地方 */
+  const left = HAND - (S.drawn || 0);
+  $("deckPile").textContent = (S.phase === "draw")
+    ? "点牌堆抽 " + left + " 张\n（牌堆 " + S.deck.length + " 张）"
+    : "牌堆 " + S.deck.length + " 张";
+  $("deckPile").style.whiteSpace = "pre-line";
+  /* 抽牌阶段给空卡槽加提示描边，抽满就撤掉 */
+  document.querySelectorAll("#slots .slot").forEach((el, i) => {
+    el.classList.toggle("waiting", S.phase === "draw" && i >= (S.drawn || 0));
+  });
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   7. 中央牌堆：12 张卡背
-   ⚠ 这里有个坑：手牌是从 S.deck 里 pop() 出来的，而中央那 12 张卡背只是它的
-     "视觉投影"。要让视觉与真牌堆一致，必须**用同一套洗牌/抽牌逻辑模拟一遍**
-     （见 syncDeckVisual），否则会出现"抽了牌但牌堆没少"或反过来。
+   7. 中央牌堆：12 张卡背（玩家自己点着抽）
+   现在不需要"模拟牌堆"了：中央显示的张数**就是** S.deck.length，
+   玩家点掉一张，S.deck 少一张、DOM 也少一张 —— 两边天然一致。
+   （旧版是自动抽牌，得靠 syncDeckVisual 反推"应该剩几张"，
+     那种"视觉投影"很容易和真牌堆走偏，已删除。）
    ══════════════════════════════════════════════════════════════════ */
 function buildDeckVisual(n) {
   const box = $("deck");
   box.innerHTML = "";
   for (let i = 0; i < n; i++) box.appendChild(makeCard(CARDS[i % CARDS.length], true));
-}
-/** 按真牌堆重画中央卡背：模拟"每抽 3 张、抽空重洗"，得到本轮应当剩几张。
- *  返回本轮被抽走的那几张卡背元素（已从 DOM 移除，但坐标已记下）。 */
-function syncDeckVisual() {
-  const box = $("deck");
-  /* 模拟：从 12 张开始，按同样的规则一路抽到当前轮 */
-  let left = DECK;
-  const drawnThisRound = [];
-  for (let r = 1; r <= S.round; r++) {
-    for (let i = 0; i < HAND; i++) {
-      if (left <= 0) { left = DECK; buildDeckVisual(left); }   // 抽空重洗 → 视觉上也重建
-      left--;
-      if (r === S.round) drawnThisRound.push(box.children[left] || null);
-    }
-  }
-  /* 记下坐标（此刻它们还在 DOM 里、还有真实尺寸），再移除 */
-  const spots = drawnThisRound.map((el) => (el ? rectIn(el) : null));
-  drawnThisRound.forEach((el) => { if (el) el.remove(); });
-  return spots;
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -964,6 +968,7 @@ async function flyFrom(from, toEl, delayMs) {
 /* ══════════════════════════════════════════════════════════════════
    9. 一轮的流程
    ══════════════════════════════════════════════════════════════════ */
+/** 抽 n 张进手牌。**只动逻辑，不做动画** —— 飞牌动画归 pickDrawFromDeck 管。 */
 function drawCards(n) {
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -972,50 +977,93 @@ function drawCards(n) {
   }
   return out;
 }
+/** 确保牌堆至少剩 n 张；不够就把卡池洗回来（抽空循环使用）。
+    ⚠ 必须在**发牌之前**调用：12 张牌抽 4 轮正好抽干，第 5 轮需要重洗。
+     如果只在 drawCards 内部重洗，逻辑会补上牌、但**中央卡背还停在 0 张** ——
+     玩家看到的是空牌堆、没有可点的卡，整局卡死在第 5 轮的抽牌阶段
+     （实测：循环 90 次都停在「第 5 轮 ph=draw pick=0」，只有真跑才会暴露）。 */
+function ensureDrawable(n) {
+  if (S.deck.length < n) {
+    S.deck = shuffle(CARDS.map((c) => c.key));
+    buildDeckVisual(S.deck.length);        // 视觉也跟着重建，玩家才有点得着的牌
+    return true;
+  }
+  return false;
+}
+
+/** 玩家从中央 12 张卡背里**自己点选**要抽的那张。
+    需求原话："需要我点击选择了那几张卡牌，卡牌才会翻转显示技能并使用" ——
+    所以这里必须由玩家点，不能自动飞（第一版是自动抽，玩家反馈"这不是我自己选择抽的"）。
+    流程：记下被点卡背的坐标 → 从牌堆逻辑抽一张 → 飞向第一个空卡槽 → 3D 翻面。 */
+async function pickDrawFromDeck(backEl) {
+  if (S.over || S.phase !== "draw") return;
+  if (S.drawn >= HAND) return;
+  const slot = S.drawn;
+  S.drawn++;
+  /* 立即把这张卡背标成"已选中"并停止接收点击，避免连点抽超 */
+  backEl.classList.add("picked");
+  const src = rectIn(backEl);
+  const key = drawCards(1)[0];
+  S.hand[slot] = key;
+  backEl.remove();                                   // 视觉上从中间牌堆消失
+  const slots = Array.from(document.querySelectorAll(".slot"));
+  await flyFrom(src, slots[slot], 0);
+  const cardEl = makeCard(CARD_BY_KEY[key], true);
+  cardEl.dataset.slot = slot;
+  slots[slot].appendChild(cardEl);
+  await sleep(160);
+  flip(cardEl, true);                                // 3D 翻面
+  await sleep(140);
+  paintHud();
+  if (S.drawn >= HAND) {
+    /* 三张都抽完了 → 交给"选一张出招"阶段 */
+    S.phase = "pick";
+    document.querySelectorAll("#deck .card").forEach((el) => el.classList.remove("pickable"));
+    document.querySelectorAll("#slots .card").forEach((el) => {
+      el.classList.add("pickable");
+      el.addEventListener("click", () => pickCard(Number(el.dataset.slot)));
+    });
+    showCallout("选 一 张 出 手");
+    /* 状态行同步（hintNow 走的是 paintHud → 这里补一句提示） */
+    $("deckPile").textContent = "三张已抽好 —— 点下面的牌出招";
+  } else {
+    showCallout("再 抽 " + (HAND - S.drawn) + " 张");
+  }
+}
 
 async function startRound() {
   if (S.over) return;
   S.picked = -1;
   S.eCard = null;
+  S.hand = [];
+  S.drawn = 0;
+  S.phase = "draw";                                  // draw（你来抽）| pick（选一张打）
   $("foeCard").innerHTML = "";
   $("foeLabel").classList.remove("on");
-  paintHud();
-
-  /* 抽 3 张（真牌堆），同时拿到中央那 3 张卡背的坐标 */
-  S.hand = drawCards(HAND);
   const slots = Array.from(document.querySelectorAll(".slot"));
   slots.forEach((s) => {
     const old = s.querySelector(".card");
     if (old) old.remove();
     s.classList.remove("hot");
   });
-  const srcs = syncDeckVisual();
-  /* 中央卡背 = 真牌堆剩余的张数（视觉与真值一致；吸干后重洗会重建回 12 张） */
+  /* 中央牌背 = 真牌堆剩余的张数（视觉与真值一致）。
+     ⚠ 先 ensureDrawable：第 5 轮会把 12 张抽干，必须**在发牌前**重洗并重建卡背，
+       否则玩家看到空牌堆、无牌可点（实测整局卡死在这一步）。 */
+  ensureDrawable(1);
   buildDeckVisual(S.deck.length);
+  document.querySelectorAll("#deck .card").forEach((el) => {
+    el.classList.add("pickable");
+    el.addEventListener("click", () => pickDrawFromDeck(el));
+  });
   paintHud();
-
-  /* 一张一张飞过去 → 落位 → 3D 翻面 */
-  for (let i = 0; i < HAND; i++) {
-    const src = srcs[i] || { x: 640, y: 300, w: 112, h: 164 };
-    await flyFrom(src, slots[i], i * 150);
-    const cardEl = makeCard(CARD_BY_KEY[S.hand[i]], true);
-    cardEl.classList.add("pickable");
-    cardEl.dataset.slot = i;
-    slots[i].appendChild(cardEl);
-    slots[i].classList.add("hot");
-    await sleep(170);
-    flip(cardEl, true);                                 // 3D 翻面
-    cardEl.addEventListener("click", () => pickCard(i));
-    await sleep(150);
-  }
-  await sleep(260);
-  showCallout("选 一 张 出 手");
+  showCallout("点 牌 堆 抽 三 张");
 }
 
-/** 玩家点选一张牌：选中高亮、其余变暗，然后自动进入结算 */
+/** 玩家点选要打出的那张：选中高亮、其余变暗，然后自动进入结算 */
 function pickCard(i) {
-  if (S.picked >= 0 || S.over) return;
+  if (S.picked >= 0 || S.over || S.phase !== "pick") return;
   S.picked = i;
+  S.phase = "resolve";
   document.querySelectorAll("#slots .card").forEach((el) => {
     const idx = Number(el.dataset.slot);
     el.classList.toggle("chosen", idx === i);
@@ -1235,6 +1283,7 @@ function endGame() {
    ══════════════════════════════════════════════════════════════════ */
 async function begin() {
   S = newState();
+  window.S = S;                    // 同上：让无头脚本能读到阶段（每局重建后要重新挂）
   S.deck = shuffle(CARDS.map((c) => c.key));
   $("result").classList.remove("on");
   $("foeCard").innerHTML = "";
@@ -1269,6 +1318,9 @@ $("againBtn").addEventListener("click", () => {
    另外挂一个**不显眼但可探测**的计数器：动画/异步流程出错时很容易被"看起来没事"掩盖，
    调试时（tools/dev/cardfight-shot.js）靠 window.__dbg 判断内部流程到底走到哪一步了。 */
 window.__dbg = { flies: 0, flips: 0, rounds: 0, errors: [] };
+/* 把当前状态挂到 window，供 tools/dev/cardfight-shot.js 判断"现在哪个阶段"。
+   纯只读观测口，不参与游戏逻辑（无头脚本靠它决定"该抽牌还是该出牌"）。 */
+window.S = S;
 window.addEventListener("error", (e) => {
   const d = $("err");
   d.style.display = "block";

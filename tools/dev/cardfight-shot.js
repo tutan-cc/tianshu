@@ -102,18 +102,33 @@ function getJson(url) {
   console.log("    立绘加载 = " + okCount + "/" + arr.length + (okCount === arr.length ? " ✔" : " ✘ 缺失：" + JSON.stringify(arr.filter((a) => !a[1]).map((a) => a[0]))));
   console.log("    战场画布 = " + await evaluate('(function(){var c=document.getElementById("arena");return c.width+"x"+c.height})()'));
 
-  console.log("阶段 3：等抽牌飞入 + 翻面");
-  /* 在**动画中途**取一帧：此时应当有卡背幽灵在飞（getAnimations 非空）。
-     只截图看不出"是飞过去的还是瞬间出现的"，所以这里直接问浏览器要动画列表。 */
-  await sleep(520);
-  /* ⚠ 探测飞牌动画要用 **document.getAnimations()**：
-     `#stage.getAnimations()` 只返回挂在 #stage 自身上的动画，不含后代 ——
-     幽灵卡是 #stage 的子元素，所以那个写法永远得 0（我第一版就误判成"牌是瞬现的"，
-     实际 window.__dbg.flies 证明动画在跑）。 */
-  const midAnim = await evaluate("document.getAnimations().length");
-  console.log("    动画中(document.getAnimations) = " + midAnim);
-  await shot("03a-flying.png");
-  await sleep(2900);
+  console.log("阶段 3：自己抽 3 张（点牌堆卡背）→ 飞入 + 翻面");
+  /* 按**真实屏幕坐标**挑左上角最靠前的那张卡背来点。
+     ⚠ 不要用 `#deck .card:nth-child(n)`：网格是 grid-auto-flow，
+       抽走一张之后其余会重排，"第 n 个"与"第 n 格"不是一回事。 */
+  const tapBack = `(function(){
+    var s = document.getElementById("stage").getBoundingClientRect();
+    var k = s.width / 1280;
+    var list = [].slice.call(document.querySelectorAll("#deck .card.pickable"));
+    list.sort(function(a,b){
+      var ra=a.getBoundingClientRect(), rb=b.getBoundingClientRect();
+      return (ra.top-rb.top) || (ra.left-rb.left);
+    });
+    var el = list[0];
+    if (!el) return "none";
+    var r = el.getBoundingClientRect();
+    var opt = {bubbles:true, cancelable:true, clientX:r.left+r.width/2, clientY:r.top+r.height/2};
+    el.dispatchEvent(new MouseEvent("click", opt));
+    return Math.round(r.left) + "," + Math.round(r.top);
+  })()`;
+  for (let i = 0; i < 3; i++) {
+    const at = await evaluate(tapBack);
+    const left = await evaluate('document.getElementById("deckPile").textContent');
+    console.log("    抽第 " + (i + 1) + " 张 → 点的位置 " + at + " · 提示「" + left + "」");
+    await sleep(900);
+    if (i === 0) await shot("03a-flying.png");
+  }
+  await sleep(900);
   await shot("03-hand.png");
   const st3 = await evaluate(`JSON.stringify({
     slots: document.querySelectorAll("#slots .card").length,
@@ -124,7 +139,7 @@ function getJson(url) {
   })`);
   console.log("    " + st3);
 
-  console.log("阶段 4：点第一张牌 → 对手出牌 + 结算");
+  console.log("阶段 4：点第一张手牌 → 对手出牌 + 结算");
   await evaluate('document.querySelector("#slots .card").click()');
   await sleep(2600);
   await shot("04-foe.png");
@@ -161,20 +176,31 @@ function getJson(url) {
      只跑到第 2 轮不足以证明"一局能结束"（可能在第 4 轮某处卡住不动）。
      每轮点第一张手牌，然后等"轮次文字变化"或"结果面板出现"，最多等 12 秒。 */
   console.log("阶段 6：打完剩下的轮次，验证结果面板");
-  let guard = 0;
-  while (guard++ < 30) {
+  /* ⚠ 循环上限要够：一轮 = 3 次抽牌 + 1 次出牌 + 若干次等待，5 轮至少 20+ 次迭代。
+     原来写 30 会在第 4 轮用尽（实测 over:false、flies=12 而不是 15）。 */
+  let guard = 0, lastRound = "", stallLog = [];
+  while (guard++ < 90) {
     if (await evaluate('document.getElementById("result").classList.contains("on")')) break;
-    const has = await evaluate('document.querySelectorAll("#slots .card").length');
-    if (!has) { await sleep(400); continue; }
-    const before = await evaluate('document.getElementById("roundTxt").textContent');
-    await evaluate('(function(){var e=document.querySelectorAll("#slots .card"); if(e.length) e[0].click();})()');
-    for (let w = 0; w < 24; w++) {
-      await sleep(500);
-      const now = await evaluate('document.getElementById("roundTxt").textContent');
-      const over = await evaluate('document.getElementById("result").classList.contains("on")');
-      if (over || now !== before) break;
+    const probe = await evaluate('JSON.stringify({ph:(window.S?S.phase:"?"),d:(window.S?S.drawn:-1),slot:document.querySelectorAll("#slots .card").length,pick:document.querySelectorAll("#deck .card.pickable").length,r:document.getElementById("roundTxt").textContent})');
+    const P = JSON.parse(probe);
+    if (guard % 10 === 0 || guard > 60) stallLog.push(guard + ":" + probe);
+    const need = P.ph === "draw" ? (3 - P.d) : 0;
+    if (need > 0) { await evaluate(tapBack); await sleep(1000); continue; }
+    if (P.ph === "pick") {
+      lastRound = P.r;
+      await evaluate('(function(){var e=document.querySelectorAll("#slots .card"); if(e.length) e[0].click();})()');
+      for (let w = 0; w < 30; w++) {
+        await sleep(500);
+        const st = await evaluate('JSON.stringify({r:document.getElementById("roundTxt").textContent,o:document.getElementById("result").classList.contains("on")})');
+        const o = JSON.parse(st);
+        if (o.o || o.r !== lastRound) break;
+      }
+      continue;
     }
+    await sleep(400);
   }
+  console.log("    （循环 " + guard + " 次）");
+  if (stallLog.length) console.log("    阶段轨迹: " + stallLog.join(" | "));
   const fin = await evaluate(`JSON.stringify({
     over: document.getElementById("result").classList.contains("on"),
     ttl: document.getElementById("rTtl").textContent,
