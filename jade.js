@@ -53,25 +53,33 @@
     HINT_MS:        950,     // 探照高亮持续
     /* 一局 */
     STONES_PER_RUN: 3,
-    /* 三档出价。**整条刻度按 ×0.25 缩过一次**，因为原来的首档 ¥250 不合理：
-       游戏自己的价钱阶梯是 刮刮乐 ¥20 · 消耗品 ¥30–60 · 麻将最低注码 ¥50，
-       而新档初始财富只有 ¥10 —— ¥250 的首档等于"跑完六七个节点才敢开一局"。
-       现在的首档 ¥60 ≈ 一个消耗品的价钱 ≈ 跑完 2–3 个节点就能下场。
+    /* 三档出价（地摊口吻：小料 / 中料 / 大料）。
+       **整条刻度缩过两次**：¥250/450/800 →（×0.25）¥60/110/200 →（再 ×1/3）¥20/40/70。
+       定档依据是游戏自己的价钱阶梯：刮刮乐 ¥20 · 消耗品 ¥30–60 · 麻将最低注码 ¥50 ·
+       新档初始财富 ¥10。**首档 ¥20 = 刮刮乐的价钱**，是这套玩法里最便宜的一注：
+       跑完一两个节点就能下场。（最初版 ¥250 要跑六七个节点，属于定价事故。）
        ⚠ 不能只降首档：三档必须**全部高于** E[真实价值]，否则盲出就是正期望（刷钱机）。
-          所以底价区间 / PRIOR_MID / 成就门槛都跟着一起缩了同样的倍数。
+          所以底价区间 / PRIOR_MID / 成就门槛每次都是跟着一起缩的。
 
-       定标依据（80000 块蒙特卡洛，缩放后实测）：
-         E[价值] = 54.5 · p50 = 20 · p90 = 125 · p99 = 580 · max = 12000
-         E[价值 | 蟒带] = 74 · | 松花 = 70 · | 蟒+松 = 95 · | 蟒+松+无裂 = 202
-       ¥60  —— 首档贴着 E[价值]：盲出小亏（−6），看出一个信号就能下场
-       ¥110 —— 强读档：蟒+松 95 还差点意思（−15），双sign+无裂 202 → +92
-       ¥200 —— 全押档：完美读料 ≈ 打平（+2），**靠尾巴翻身**（p99 580 / max 12000）
+       定标依据（80000 块蒙特卡洛，当前刻度实测）：
+         E[价值] = 18 · p50 = 5 · p90 = 40 · p99 = 180 · max = 3500
+         E[价值 | 蟒带] = 25 · | 松花 = 23 · | 蟒+松 = 32 · | 蟒+松+无裂 = 67
+       ¥20（小料）—— 贴着 E：盲出小亏，看出一个信号就够本
+       ¥40（中料）—— 强读档：双sign 且没发现裂才赚
+       ¥70（大料）—— 全押档：完美读料 ≈ 打平，靠尾巴翻身
        ⚠ 三条踩过的坑，别再踩：
          · 首档不能高于 E 太多：试过 ¥280（缩放前），出价率掉到 1–5%，玩家 95% 时间只能"走人"
          · 全押档不能定到完美读也够不着（试过 ¥1200 → 完美读仍 −519，成了死按钮）
          · 三档都要 > E[价值]，否则盲出就是正期望（刷钱机）
        改这里必须重跑 tests/jade.test.cjs 的经济不变量。 */
-    PRICES:         [60, 110, 200],
+    PRICES:         [20, 40, 70],
+    /* 档位的地摊叫法：赌石摊上没人说"出价 60 元"，说的是"这块料"。
+       名称 + 一句白话，照麻将开局面板的三档注码那样排（大字价格 + 小字说明）。 */
+    TIERS: [
+      { name: "小 料", desc: "蒙头货 · 全凭手气" },
+      { name: "中 料", desc: "有松花就值这个价" },
+      { name: "大 料", desc: "摊主压箱底的那块" }
+    ],
     /* 切石动画 */
     CUT_MS:         1000
   };
@@ -120,21 +128,21 @@
     { id:"diwang",  n:"帝王绿", p:0.005, pSonghua:0.03, mul:15.0, col:"#12c95f" }
   ];
 
-  var BASE_MIN = 10, BASE_MAX = 38;       // 底价区间（皮壳 tint 会再微调）
+  var BASE_MIN = 3, BASE_MAX = 13;        // 底价区间（皮壳 tint 会再微调）
   /* ⚠ 底价区间 · PRICES · PRIOR_MID · 成就门槛 是**同一把尺子**，要动一起动。
-     这条尺子被整体缩过一次（×0.25），原因见 TUNE.PRICES 上方的说明。 */
+     这条尺子被整体缩过两次（累计约 ×1/12），原因见 TUNE.PRICES 上方的说明。 */
   var FLAW_COUNT_P = [0.25, 0.35, 0.22, 0.12, 0.06];   // 0..4 条垮特征
   var GOOD_COUNT_P = [0.30, 0.50, 0.20];               // 0..2 条涨特征
 
   /* 玩家的"先验"：对一块**没看过的**原石的期望与区间。
      这两个数是 estimateOf 的基准，也是"估价不读隐藏信息"这条纪律的落点。
-     PRIOR_MID 必须等于总体 E[价值]（实测 226）—— 改分布要重测，否则先验就偏了。 */
-  var PRIOR_MID = 55;
+     PRIOR_MID 必须等于总体 E[价值]（当前实测 18）—— 改分布/改刻度都要重测，否则先验就偏了。 */
+  var PRIOR_MID = 18;
   var PRIOR_LO_MUL = 0.35, PRIOR_HI_MUL = 2.6;
-  /* 【一刀富】门槛：单块净赚到多少算"暴富"。与 index.html 的 JADE_ACHV_LINE 必须一致。
-     缩放前是 ¥3000，跟着整条刻度 ×0.25 变成 ¥800 —— 仍要求吃到一个高货（玻璃/帝王绿级别），
-     实测占比 < 0.3%，不是随手就能撞上的。 */
-  var JACKPOT_NET = 800;
+  /* 【一刀富】门槛：单块净赚到多少算"暴富"。与 index.html 的成就文案同源（那边从这儿读）。
+     缩放前是 ¥3000 → ¥800 → 现在 ¥250，三次都是跟着整条刻度一起缩的。
+     选 ¥250 的依据：实测约 0.49% 的石头够得着，与最初设计的 0.4% 目标一致。 */
+  var JACKPOT_NET = 250;
 
   var VIEW = { W: 640, H: 440 };          // 逻辑尺寸
   var TEX = 2;                            // 离屏纹理倍率（放大镜下才不糊）
@@ -180,9 +188,9 @@
     return probs.length - 1;
   }
   function rand(rng, a, b) { return a + rng() * (b - a); }
-  /* 取整到 5：整条刻度缩小到"几十元"之后，round10 会把低端四舍五入得面目全非
-     （比如 15×1×1×0.35 = 5.25 → 10，假皮惩罚凭空翻倍）。5 元是这套刻度的最小颗粒。 */
-  function round10(v) { return Math.round(v / 5) * 5; }
+  /* 取整到 1：整条刻度缩到"几元到几十元"之后，连 round5 都太粗
+     （3×1×1×0.35 = 1.05 → 0，假皮与绺的差别会被抹平）。1 元是这套刻度的最小颗粒。 */
+  function roundCash(v) { return Math.round(v); }
 
   /** 石头外形：半径随角度轻微起伏（不是正圆，看着才像原石） */
   function shapeR(theta, k) {
@@ -283,7 +291,7 @@
       var f = st.feats[i];
       if (f.isFlaw) v *= FLAWS[f.kind].mul;
     }
-    return round10(v);
+    return roundCash(v);
   }
 
   function flawsOf(st) {
@@ -326,15 +334,15 @@
       var f = st.feats[foundIdx[i]];
       if (!f) continue;
       if (f.isFlaw) mid *= FLAWS[f.kind].mul;          // 找到的垮特征：确定要打折
-      else if (f.kind === "songhua") mid *= 1.288;     // 松花 → 有色概率高
-      else if (f.kind === "mangdai") mid *= 1.353;     // 蟒带 → 种老概率高
+      else if (f.kind === "songhua") mid *= 1.280;     // 松花 → 有色概率高
+      else if (f.kind === "mangdai") mid *= 1.332;     // 蟒带 → 种老概率高
     }
     /* 找到的越多越有把握 → 区间收窄；但永远收不成一个点（底价看不见） */
     var seen = foundIdx.length;
     var shrink = Math.max(0.42, 1 - seen * 0.13);
     var lo = mid - mid * (1 - PRIOR_LO_MUL) * shrink;
     var hi = mid + mid * (PRIOR_HI_MUL - 1) * shrink;
-    return { mid: round10(mid), low: round10(Math.max(0, lo)), high: round10(hi), seen: seen };
+    return { mid: roundCash(mid), low: roundCash(Math.max(0, lo)), high: roundCash(hi), seen: seen };
   }
 
   /** 结算：净收益 = 真实价值 − 出价。切开即算，不等一局结束。
@@ -519,6 +527,13 @@
       ".jd-btn:hover{border-color:#ffd76e;color:#ffd76e}",
       ".jd-btn.primary{border-color:#5dffa0;color:#5dffa0;background:rgba(93,255,160,.06)}",
       ".jd-btn.ghost{border-color:#2a2840;color:#8a87a3}",
+      /* 三档地摊档位：大字价格 + 档位名 + 一句白话（照麻将开局面板的三档注码排法） */
+      ".jd-btn.tier{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 14px;min-width:124px}",
+      ".jd-tname{font-size:12.5px;letter-spacing:3px;color:#eceaf4}",
+      ".jd-tprice{font-size:16px;font-weight:800;color:#ffd76e;font-variant-numeric:tabular-nums}",
+      ".jd-tdesc{font-size:10px;color:#8a87a3;letter-spacing:0}",
+      ".jd-btn.tier:hover .jd-tname{border-color:#ffd76e}",
+      ".jd-btn.tier[disabled] .jd-tprice{color:#eceaf4}",
       ".jd-btn[disabled]{opacity:.45;cursor:not-allowed}",
       ".jd-btn[disabled]:hover{border-color:#3a3752;color:#eceaf4}",
       ".jd-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}",
@@ -713,6 +728,7 @@
     ST.phase = "cut";
     ST.cutT = 0;
     ST.pendingBid = price;
+    ST.pendingTier = tier;
     sfx("sfx-mj-chip");
     paintUi();
     return true;
@@ -941,6 +957,11 @@
   }
 
   /* ── UI 文本 ── */
+  /** 档位名（小料/中料/大料）—— 结果面板里要能看出"刚才买的是哪一档" */
+  function tierNameOf(k) {
+    var t = TUNE.TIERS[k];
+    return t ? "（" + String(t.name).replace(/\s/g, "") + "）" : "";
+  }
   function paintUi() {
     if (!ST || !doc) return;
     var wrap = doc.getElementById("jdWrap");
@@ -992,23 +1013,29 @@
       btns.appendChild(nb);
       if (ST.miss) tip.innerHTML += ' <span style="color:#ff7d9c">空点 ' + ST.miss + " 次</span>";
     } else if (ST.phase === "bid") {
-      tip.innerHTML = "你的判断：<b>¥" + est.low + " – ¥" + est.high + "</b>（找到 " + est.seen + " 处特征）。" +
-        "出价买下它，切开才见分晓 —— <b>没找到的裂，切开后照样扣钱</b>。";
+      var t0 = TUNE.TIERS[0], t1 = TUNE.TIERS[1], t2 = TUNE.TIERS[2];
+      tip.innerHTML = "摊主把三块料往你面前一推：「" + t0.name.replace(/\s/g, "") + " ¥" + TUNE.PRICES[0] +
+        "，" + t1.name.replace(/\s/g, "") + " ¥" + TUNE.PRICES[1] + "，" + t2.name.replace(/\s/g, "") + " ¥" + TUNE.PRICES[2] +
+        " —— 挑一块？」<br>你手上这块的判断：<b>¥" + est.low + " – ¥" + est.high + "</b>（看到 " + est.seen +
+        " 处特征）。切开才见分晓 —— <b>没找到的裂，切开后照样扣钱</b>。";
       res.style.display = "none";
       btns.innerHTML = "";
       var cash = cashNow() - ST.spend;
       for (i = 0; i < TUNE.PRICES.length; i++) {
         (function (k) {
-          var p = TUNE.PRICES[k];
+          var p = TUNE.PRICES[k], t = TUNE.TIERS[k] || { name: "", desc: "" };
           var ok = p <= cash;
-          var b = el("button", "jd-btn" + (k === 1 ? " primary" : ""), "出价 ¥" + p);
+          var b = el("button", "jd-btn tier" + (k === 1 ? " primary" : ""),
+            '<span class="jd-tname">' + t.name + '</span>' +
+            '<span class="jd-tprice">¥' + p + '</span>' +
+            '<span class="jd-tdesc">' + t.desc + '</span>');
           b.disabled = !ok;
           b.title = ok ? "" : "财富不足（需 ¥" + p + "，可用 ¥" + cash + "）";
           b.onclick = function () { bid(k); };
           btns.appendChild(b);
         })(i);
       }
-      var wb = el("button", "jd-btn ghost", "不买，走人");
+      var wb = el("button", "jd-btn ghost", "摇摇头走了");
       wb.onclick = function () { walkAway(); };
       btns.appendChild(wb);
     } else if (ST.phase === "cut") {
@@ -1018,7 +1045,7 @@
     } else if (ST.phase === "result") {
       var r = ST.last;
       if (r.walked) {
-        tip.innerHTML = "你放下了这块料。摊主哼了一声：「看不上？回头别后悔。」";
+        tip.innerHTML = "你摇摇头走了。摊主在背后啧了一声：「看不上？回头别后悔。」";
         res.innerHTML = '<div class="jd-hint">这块料的真实价值是 <b>¥' + r.value + "</b></div>";
       } else {
         var gain = r.net >= 0;        var missed = [];
@@ -1029,7 +1056,7 @@
         res.innerHTML =
           '<div class="big">开窗：<b style="color:' + ST.cur.quality.col + '">' + ST.cur.quality.n + "</b> · " +
           '<b style="color:' + ST.cur.color.col + '">' + ST.cur.color.n + "</b></div>" +
-          "真实价值 <b>¥" + r.value + "</b> · 出价 <b>¥" + r.bid + "</b> · " +
+          "真实价值 <b>¥" + r.value + "</b> · 出价 <b>¥" + r.bid + "</b>" + tierNameOf(ST.pendingTier) + " · " +
           '<span class="' + (gain ? "up" : "down") + '">' + (gain ? "涨" : "垮") + " <b>" +
           (gain ? "+" : "") + r.net + "</b></span>" +
           (missed.length ? '<div class="jd-hint" style="color:#ff7d9c">没找到的 ' + missed.join("、") +
