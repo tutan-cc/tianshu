@@ -31,6 +31,9 @@ const prelude = `
   const FIGHT2_TUNE = ${grabConst(html, "FIGHT2_TUNE")};
   const FIGHT2_FOE_MOVES = ${grabConst(html, "FIGHT2_FOE_MOVES")};
   const FIGHT2_MOVES = ${grabConst(html, "FIGHT2_MOVES")};
+  /* 卡牌：startFight2 会建牌堆（buildFight2Deck），Fight2Stage.drawCards 会读卡池 */
+  const FIGHT2_CARDS = ${grabConst(html, "FIGHT2_CARDS")};
+  ${grabFn(html, "buildFight2Deck")}
   ${grabFn(html, "judgeGrade")}
   ${grabFn(html, "mashLoop")}
   ${grabFn(html, "judgeBar")}

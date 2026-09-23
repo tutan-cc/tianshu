@@ -29,8 +29,11 @@ $outDir = Join-Path $repo $Out
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 # 角色 → 源图（按文件名里的哈希前缀认，避免依赖生成顺序）
+# ⚠ puncher 换过一次图：旧的是 Lovart 按"雷姐"参考图生成的女教练，但陈默在剧情里
+#   明确是男性（人物介绍用「他」、对手喊「小子」、顾曼称「先生」），所以重出了一版
+#   22 岁瘦高男性。旧图留在 _ref/out 里没删，需要回退就把这里改回 lovart_4d20a45ed9bb.png。
 $MAP = @(
-  @{ slug = "puncher"; src = "lovart_4d20a45ed9bb.png"; poses = @("idle","strike","hit","ko") },
+  @{ slug = "puncher"; src = "lovart_aebfd84b04fa.png"; poses = @("idle","strike","hit","ko") },
   @{ slug = "brawler"; src = "lovart_feced8016717.png"; poses = @("idle","strike","hit","ko") }
 )
 

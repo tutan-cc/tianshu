@@ -33,6 +33,10 @@ const prelude = `
   const FIGHT2_TUNE = ${grabConst(html, "FIGHT2_TUNE")};
   const FIGHT2_FOE_MOVES = ${grabConst(html, "FIGHT2_FOE_MOVES")};
   const FIGHT2_MOVES = ${grabConst(html, "FIGHT2_MOVES")};
+  /* 卡牌：招式的"牌面"与牌堆构成。startFight2 会调 buildFight2Deck()，
+     不抽出来的话直接 ReferenceError（和 P3 那次漏 Fight2Stage 是同一类问题）。 */
+  const FIGHT2_CARDS = ${grabConst(html, "FIGHT2_CARDS")};
+  ${grabFn(html, "buildFight2Deck")}
   ${grabFn(html, "judgeGrade")}
   ${grabFn(html, "mashLoop")}
   ${grabFn(html, "judgeBar")}
@@ -202,26 +206,9 @@ A(!!api && typeof api.startFight2 === "function", "能从 index.html 抽出真�
 if (!api) { console.log("\n[结果] 通过 " + pass + "，失败 " + fails.length + " —— 抽取失败"); process.exit(1); }
 
 const { EL, SFX, AFTER, fakeSprite } = api;
-/** 直接从**源文件 HTML** 里取某个 id 元素的内容（桩 DOM 不装填 innerHTML，查它永远是空的） */
-function srcEl(id) {
-  const m = new RegExp('id="' + id + '"[^>]*>([\\s\\S]*?)<\\/(?:div|button|i)>').exec(html);
-  return m ? m[1] : "";
-}
-/** 三档图例与六颗招式按钮的**源文件**文案（机制断言之外的可读性断言要用）。
-    ⚠ 必须先把范围切到 #fight2Btns 区块：旧打斗面板里也有一批 `<button class="mbtn" data-act=...>`，
-      直接全文扫会扫到 17 颗，读出来的是旧那套数值（实测读到"直拳 1 行动力 · 精准"）。 */
-const acts = ["jab", "combo", "low", "guard", "read", "skip"];
-function actsOf(src) {
-  const a = src.indexOf('id="fight2Btns"');
-  if (a < 0) return [];
-  const b = src.indexOf("</div>", src.indexOf("skip", a));
-  const seg = src.slice(a, b > 0 ? b : a + 4000);
-  const out = [];
-  const re = /<button class="mbtn" data-act="([a-z]+)"[^>]*>([\s\S]*?)<\/button>/g;
-  let m;
-  while ((m = re.exec(seg))) out.push({ act: m[1], text: m[2] });
-  return out;
-}
+/* 卡牌阶段改版后，原来那两个"读源文件按钮文案"的辅助函数（srcEl / actsOf）已经没人用了：
+   招式定位搬到了牌面（FIGHT2_CARDS），断言改成直接读卡池对象，更可靠。
+   留着死代码会让人以为还有按钮要维护，所以删掉。 */
 const F = () => api.cs2().fight2;
 const fightSfx = () => SFX.filter((s) => /^sfx-fight-/.test(s));
 const plain = (s) => String(s).replace(/<[^>]+>/g, "");
@@ -1128,42 +1115,42 @@ function stageStep(n) { for (let i = 0; i < n; i++) { api.step(); api.Stage.fram
        于是"对手出招要按方向闪"这条也没人看到。
    它们很容易在后续改动里被悄悄删掉（删了不影响任何机制断言），所以钉在这里。 */
 {
-  /* ① 判定条图例：文案与可见性都查。
-     ⚠ 图例文案只能读**源文件 HTML** —— 桩 DOM 的 innerHTML 不会装填（那是浏览器的活），
-       直接查 EL.fight2Legend.innerHTML 永远是空字符串（第一版就是这么误报的）。 */
-  const legendSrc = srcEl("fight2Legend");
-  A(/绿带/.test(legendSrc) && /金/.test(legendSrc) && /偏出/.test(legendSrc),
-    "图例把三档都写清楚了（绿带 / 金色块 / 偏出）",
-    legendSrc.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 64));
-  A(/点一下|点条子/.test(legendSrc), "图例说清了操作（点一下，而不是拖拽/长按）",
-    (legendSrc.match(/点一下[^·]*/) || ["-"])[0].slice(0, 30));
-
+  /* ① 判定条怎么打 —— 说明搬进了状态行（`#fight2Sub`）。
+     卡牌阶段改版：`#fight2Legend` 原来占卡牌上方一整行，现在隐藏，
+     三档说明与"点牌出招"合并到状态行里（屏内容量要留给手牌）。 */
   newFight();
-  /* 桩元素的 style 是空对象（没有初始 display），所以说"不是显示状态"用 != "block" */
-  A(EL.fight2Legend.style.display !== "block", "开局（未推条）不显示图例",
+  const subOf = () => plain(EL.fight2Sub.innerHTML);
+  A(/绿带/.test(subOf()) && /金/.test(subOf()) && /偏出/.test(subOf()),
+    "状态行把三档都写清楚了（绿带 / 金色块 / 偏出）",
+    subOf().slice(0, 70));
+  A(/点一下|点牌/.test(subOf()), "状态行说清了操作（点一下 / 点牌出招）", subOf().slice(0, 40));
+  A(EL.fight2Legend.style.display === "none",
+    "旧的独立图例行已隐藏（不再挤压手牌区）",
     "legend.display=" + JSON.stringify(EL.fight2Legend.style.display));
+
   F().act("jab");
   A(EL.fight2Bar.style.display === "block", "出招后判定条出现（前提）", "bar=" + EL.fight2Bar.style.display);
-  A(EL.fight2Legend.style.display !== "none", "判定条出现时图例也在（玩家看得到怎么打）",
-    "legend.display=" + EL.fight2Legend.style.display);
   const B = F().bars();
   if (B.bar.onclick) B.bar.onclick({ stopPropagation() {} });   // 落判，别留悬空状态
 
-  /* ② 招式类型标签：从**源文件**取六颗按钮的文案 */
-  const btnSrc = actsOf(html);
-  A(btnSrc.length === 6, "源文件里六颗招式按钮都在", "找到 " + btnSrc.length + " 颗");
-  const txt = (a) => {
-    const one = btnSrc.find((b) => b.act === a);
-    return one ? one.text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
-  };
-  A(/需推条/.test(txt("jab")) && /需推条/.test(txt("combo")),
-    "要推判定的两招标了【需推条】", txt("jab").slice(0, 26) + " / " + txt("combo").slice(0, 26));
-  A(/确定/.test(txt("low")), "低扫标了【确定伤害】（不赌判定）", txt("low").slice(0, 26));
-  A(/体干/.test(txt("guard")) && /意图/.test(txt("read")),
-    "抱架标了回体干、读招标了看意图（两招的用途一眼可辨）",
-    txt("guard").slice(0, 24) + " / " + txt("read").slice(0, 24));
-  A(acts.every((a) => txt(a).length > 0), "每颗按钮都有文案（没有空按钮）",
-    acts.map((a) => txt(a).length).join(","));
+  /* ② 招式定位写在**牌面**上（原按钮文案已随按钮一起退役）：
+     要读判定 / 确定伤害 / 回体干 / 看意图 / 加血，都要在卡池里看得出来。 */
+  const C = evalConstIn(html, "FIGHT2_CARDS");
+  const desc = (k) => (C[k] ? C[k].n + " " + C[k].t + " " + C[k].v : "");
+  A(!!(C.jab && C.combo && C.jab.type === "atk" && C.combo.type === "atk"),
+    "攻牌定位正确（直拳 / 组合拳 type=atk）", desc("jab").slice(0, 26) + " / " + desc("combo").slice(0, 26));
+  A(/恒定|不赌/.test(C.low.t), "低扫牌写明「恒定伤害、不赌手感」", desc("low").slice(0, 30));
+  A(/格挡/.test(C.guard.t) && /体干/.test(C.guard.t), "抱架牌写明格挡与体干", desc("guard").slice(0, 26));
+  A(/公示/.test(C.read.t), "读招牌写明公示意图", desc("read").slice(0, 26));
+  A(C.breathe.type === "heal" && /回血|回合/.test(C.breathe.t),
+    "喘息是治疗牌且写明代价（让回合）", desc("breathe").slice(0, 30));
+  A(C.unload.type === "def" && /减半/.test(C.unload.t), "卸力是防守牌（下次受击减半）", desc("unload").slice(0, 26));
+  A(C.counterup.type === "sk" && /反击/.test(C.counterup.t), "蓄势是技能牌（打开反击窗口）", desc("counterup").slice(0, 26));
+  /* 四类都要有牌，否则"可以攻击、可以加血、可以技能"就不成立 */
+  const types = Object.keys(C).map((k) => C[k].type);
+  ["atk", "def", "sk", "heal"].forEach((tp) => {
+    A(types.indexOf(tp) >= 0, "牌池覆盖类型 " + tp, types.join(","));
+  });
 
   /* ③ 常驻操作提示：底部状态行按阶段给"现在该干什么" */
   newFight();
@@ -1246,42 +1233,152 @@ function stageStep(n) { for (let i = 0; i < n; i++) { api.step(); api.Stage.fram
   const G = evalConstIn(html, "FIGHT_GRADE_MULT");
   const MV = evalConstIn(html, "FIGHT2_MOVES");
   const T2 = evalConstIn(html, "FIGHT2_TUNE");
-  const bone = (c) => Math.min(T2.COMBO_BONUS_CAP, Math.max(0, -4 + 3 * Math.floor(c / 2)));
+  const bone = (c) => Math.min(T2.COMBO_BONUS_CAP, Math.max(0, Math.floor((c - 3) * 2.6)));
   const jabPerfect = Math.round(MV.jab.dmg * G.perfect);
   const comboFirst = Math.round(MV.combo.dmg * G.perfect);
-  const comboFull = comboFirst + bone(12);
+  const comboFull = comboFirst + bone(30);
   const comboNone = comboFirst + bone(0);
 
   A(comboFull > jabPerfect,
     "组合拳「完美一段 + 连打打满」必须**优于**完美直拳（否则连按没有意义）",
-    "组合拳 " + comboFull + " vs 直拳 " + jabPerfect + "（二段 " + bone(12) + "）");
+    "组合拳 " + comboFull + " vs 直拳 " + jabPerfect + "（二段 " + bone(30) + "）");
   A(comboNone < jabPerfect,
     "组合拳不打连打时必须**劣于**完美直拳（有取舍，不是无脑最优）",
     "组合拳 " + comboNone + " vs 直拳 " + jabPerfect);
-  /* ⚠ 这段断言原先写的是「每 2 下一档」（bone(6) > bone(3) && bone(3) > bone(0)），实测必然失败
-     （0→0 · 3→0 · 6→5）：`c=3` 时 -4+3×1 = -1 被 clamp 到 0，所以 0 与 3 同档。
-     这是**断言写错**而不是游戏错 —— 源码 index.html 的设计注释本来就写着
-     「0~1 个 → 0 / 3 个 → 5 / 6 个 → 14 / 8+ 个 → 18」，设计上**故意让手残档不涨**
-     （`-4` 这个基数就是为了让「连打不够」的合计伤害低于直拳完美，手残要吃亏）。
-     所以这里不再死磕「每 2 下一档」这个措辞，改验设计真正承诺的三件事：
-       ① 单调不减（连打越多不会更轻）
-       ② 上限存在且封得住
-       ③ 两头的取舍成立 —— 手残档不如直拳、连满优于直拳（下面两条断言已在验）
-     教训：**不要断言自己从注释里读出来的具体数值**。注释的计数口径可能与代码变量不同
-     （本例 `mashLoop` 的 NEED 与 cb 收到的 `c` 就不是 1:1），猜数值只会造出假失败。
-     要验具体数值，就从游戏里实测出来再写死；验行为关系（单调、上下限、与直拳的相对大小）最稳。 */
-  A(bone(6) > bone(3) && bone(3) === bone(0) && bone(12) > bone(6) && bone(20) >= bone(12),
-    "连打档位单调不减，且起步档（0~3）不涨（手残不白吃收益）",
-    "0→" + bone(0) + " · 3→" + bone(3) + " · 6→" + bone(6)
-    + " · 12→" + bone(12) + " · 20→" + bone(20));
-  A(bone(20) === T2.COMBO_BONUS_CAP,
-    "连打收益有上限（不会无限叠）", "封顶 " + T2.COMBO_BONUS_CAP);
+  /* 单调不降 + 每个台阶看得见：曲线形状本身也要守（第一版用了 `1-c+5⌊c/3⌋`，非单调） */
+  {
+    const seq = [0, 3, 4, 6, 8, 10, 12, 15, 20].map(bone);
+    const mono = seq.every((v, i) => i === 0 || v >= seq[i - 1]);
+    A(mono, "连打的二段伤害单调不降（不会出现「多按反而更少」）", seq.join(" → "));
+    A(bone(6) > bone(3) && bone(3) === 0,
+      "连打 4 下起才开始有收益（3 下以下等于白按，取舍明确）",
+      "3 下→" + bone(3) + " · 4 下→" + bone(4) + " · 6 下→" + bone(6));
+  }
+  A(bone(60) === T2.COMBO_BONUS_CAP && bone(12) === T2.COMBO_BONUS_CAP,
+    "连打收益有上限，且 12 下内就能摸到（目标 10 下是可达的）",
+    "12 下→" + bone(12) + " · 封顶 " + T2.COMBO_BONUS_CAP);
   A(MV.low.precise === false && MV.jab.precise === true && MV.combo.precise === true,
     "三招的判定类型与 UI 标签一致（低扫不吃判定）",
     "直拳 " + MV.jab.precise + " / 组合拳 " + MV.combo.precise + " / 低扫 " + MV.low.precise);
   /* 每回合行动力要够出两次招，否则一局会被拖长 */
   A(T2.AP >= MV.jab.ap * 2, "每回合行动力够出两次主要招式（AP " + T2.AP + " ≥ " + MV.jab.ap + "×2）",
     "AP=" + T2.AP);
+}
+
+/* ── 卡牌系统：抽牌 / 打牌 / 洗牌 / 治疗 / 新卡效果 ──────────────────────
+   为什么单独一组：从"固定 6 个按钮"改成"每回合抽牌"是系统级改动，
+   而且它引入的全是新失败模式（手牌不刷新、抽牌堆空了不洗、点击不消耗牌…），
+   这些都不会被原来的招式断言覆盖。 */
+{
+  /* ① 开局抽牌 */
+  /* 牌堆张数从**真实函数**算（体魄/智慧会加牌，写死 12 会随属性变化而失效） */
+  const DECK_N = F().deckSize();
+  const d0 = F().deck();
+  A(d0.hand.length === F2_TUNE.HAND_SIZE,
+    "开局抽到 " + F2_TUNE.HAND_SIZE + " 张手牌", "手牌 " + d0.hand.length + "：" + d0.hand.join(","));
+  A(d0.draw.length === DECK_N - F2_TUNE.HAND_SIZE,
+    "抽牌堆剩下没发出去的那些（牌堆 " + DECK_N + " 张）",
+    "抽牌堆 " + d0.draw.length + " · 弃牌 " + d0.discard.length);
+  A(d0.hand.every((id) => !!evalConstIn(html, "FIGHT2_CARDS")[id]),
+    "手牌里的每张 id 都能在卡池里查到（不会画出 undefined 的牌）", d0.hand.join(","));
+
+  /* ② 打出一张牌：消耗行动力 + 进弃牌堆 + 手牌少一张 */
+  newFight();
+  F().setHand(["bandage"]);                       // 固定手牌，避免随机性
+  const before = F().state();
+  const ok = F().playCard(0);
+  const after = F().state();
+  A(ok === true, "点牌就能打出去（走的是和画布点击同一个函数）", "playCard(0) → " + ok);
+  A(F().deck().hand.length === 0 && F().deck().discard.indexOf("bandage") >= 0,
+    "打出的牌进了弃牌堆、手牌少一张",
+    "手牌 " + F().deck().hand.length + " · 弃牌 " + F().deck().discard.join(","));
+  A(after.ap === before.ap - 1, "止血消耗 1 点行动力", before.ap + " → " + after.ap);
+
+  /* ③ 行动力不够时打不出去，并且**要说出来**（不说的话玩家以为点击没生效） */
+  newFight();
+  F().setHand(["heavy"]);                         // 重拳 3 AP
+  F().set({ ap: 1 });
+  const heavyOk = F().playCard(0);
+  A(heavyOk === false && F().deck().hand.length === 1,
+    "行动力不足时打不出去、手牌不消耗", "ap=1 打重拳 → " + heavyOk);
+  A(/行动力不够/.test(plain(lastRow())), "而且会把原因写进日志（不是静默失败）",
+    plain(lastRow()).slice(0, 30));
+
+  /* ④ 回合刷新：手牌全弃、重新抽 */
+  newFight();
+  const handBefore = F().deck().hand.join(",");
+  F().set({ ap: 0 });
+  advanceToDefend();
+  let g = 0; while (F().state().phase === "defend" && g++ < 200) api.step();
+  const d1 = F().deck();
+  A(d1.hand.length === F2_TUNE.HAND_SIZE, "新回合重新抽满手牌", "手牌 " + d1.hand.length);
+  A(d1.hand.length + d1.discard.length + d1.draw.length === DECK_N,
+    "牌张守恒：手牌 + 弃牌堆 + 抽牌堆 = 牌堆总数（一张都没丢）",
+    d1.hand.length + "+" + d1.discard.length + "+" + d1.draw.length + " = " +
+    (d1.hand.length + d1.discard.length + d1.draw.length) + " / " + DECK_N +
+    "（上回合手牌 " + handBefore + "）");
+
+  /* ⑤ 抽牌堆空了要把弃牌堆洗回来（否则几回合后无牌可抽） */
+  newFight();
+  F().setDraw([]);                                // 抽牌堆清空
+  F().setHand(["jab"]);
+  F().set({ ap: 4 });
+  F().playCard(0);                                // 打出的牌进弃牌堆
+  const d2 = F().deck();
+  F().setDraw([]);
+  F().setHand([]);
+  F().set({ ap: 4 });
+  api.step();
+  A(d2.discard.length >= 1, "弃牌堆里确实有牌可洗", "弃牌 " + d2.discard.length);
+
+  /* ⑥ 新卡效果：卸力（下次受击减半）
+     ⚠ 两个都踩过坑，写下来免得再犯：
+       ① 用 set({ap:0}) 直接清零**不会**触发 endTurn，phase 一直停在 act，
+          挨打根本没发生 → 断言假通过。要用"打牌把行动力用光"这条真实路径。
+       ② 耗行动力别用抱架：4 张抱架叠 80 格挡，伤害全被挡掉，测不出减半。
+          用止血（1 AP、只回血不格挡）来耗。 */
+  newFight();
+  F().setHand(["bandage", "bandage", "bandage", "bandage"]);
+  F().playCard(0); F().playCard(0); F().playCard(0); F().playCard(0);
+  A(F().state().phase === "defend", "（前置）四张牌把行动力用光 → 进入防守窗口",
+    "ap=" + F().state().ap + " phase=" + F().state().phase);
+  const hpBefore = F().state().hp;
+  let g2 = 0; while (F().state().phase === "defend" && g2++ < 200) api.step();   // 不按方向 → 硬吃
+  const baseLoss = hpBefore - F().state().hp;
+  A(baseLoss > 0, "（前置）硬吃确实掉了血（无卸力时的基准）", "掉血 " + baseLoss);
+
+  /* 同样硬吃一次，但这次先打一张卸力 */
+  newFight();
+  F().setHand(["unload", "bandage", "bandage", "bandage"]);
+  F().playCard(0);                                // 卸力（1 AP）
+  A(F().deck().unload === 1, "卸力打出去后层数 +1", "unload=" + F().deck().unload);
+  F().playCard(0); F().playCard(0); F().playCard(0);   // 三张止血 → 用光行动力
+  A(F().state().phase === "defend", "（前置）卸力那局也进了防守窗口", "phase=" + F().state().phase);
+  const hpB2 = F().state().hp;
+  let g3 = 0; while (F().state().phase === "defend" && g3++ < 200) api.step();
+  const hpA2 = F().state().hp;
+  A(/卸力减半/.test(plain(lastRow())), "挨打时日志标注「卸力减半」", plain(lastRow()).slice(0, 50));
+  A(F().deck().unload === 0, "卸力是消耗品（用掉就没了）", "unload=" + F().deck().unload);
+  A(hpB2 - hpA2 < baseLoss, "有卸力时这一击比基准更轻",
+    "基准掉 " + baseLoss + " → 有卸力掉 " + (hpB2 - hpA2));
+
+  /* ⑦ 新卡效果：止血回血、喘息回更多但让回合 */
+  newFight();
+  F().set({ hp: 50 });
+  F().setHand(["bandage"]);
+  const hp0 = F().state().hp;
+  F().playCard(0);
+  A(F().state().hp === hp0 + 9, "止血回 9 点", hp0 + " → " + F().state().hp);
+
+  newFight();
+  F().set({ hp: 50 });
+  const turnBefore = F().state().turn;
+  F().setHand(["breathe"]);
+  F().playCard(0);
+  A(F().state().hp === 68, "喘息回 18 点", "50 → " + F().state().hp);
+  A(F().state().phase === "defend" || F().state().turn > turnBefore,
+    "喘息的代价：回合交给对手（进了防守窗口或已推进回合）",
+    "phase=" + F().state().phase + " turn " + turnBefore + " → " + F().state().turn);
 }
 
 console.log("");

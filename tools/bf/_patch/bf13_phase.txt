@@ -1,0 +1,8 @@
+  /** 盘状态机（纯函数）：plated → 恒为落盘那一刻的档（bf-13 永久保鲜）。
+      不再走 warm / cold，也不会因为「放久了」走到 burnt ——
+      唯一还能返回 "burnt" 的情况是 p.state 本身就是 burnt（锅里糊了再端上盘）。 */
+  function platePhaseOf(p, elapsed) {
+    if (!p) return "none";
+    if (p.state === "burnt") return "burnt";
+    return heatTierOf(p.state, 0);          // 档位冻结在落盘那一刻（elapsed / age 不再参与）
+  }

@@ -218,36 +218,40 @@ function save(cv, name, texts, note) {
 }
 
 /* ══════════ ① 进行中（放大后的整屏 · 1770×1185） ══════════
-   局面按用户要求摆：底部 9 个食材桶 → 中列 9 口锅（2 口在烧）→ 上列 9 个专属盘
-   （1 盘热乎、1 盘温、1 盘凉、1 盘糊了） */
+   局面按用户要求摆：底部 9 个食材桶 → 中列 9 口锅（2 口在烧）→ 上列 9 个专属盘。
+   bf-13 盘上永久保鲜：5 个盘上的份盘龄从 0.4s 到 90s，画面上**全部**是「热乎」+
+   「∞ 可一直放着」—— 旧图在这里摆的是「热乎 / 温 / 凉 / 糊了」四态 + N.Ns 倒计时，
+   那套口径（4.5s 不取就糊）已经不存在了，见 ②b 那张对比图。 */
 {
   const SC = 1.5;
   const b = boot(SC);
   b.B.start(b.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 75, goal: 8, onFinish: () => {} });
   const d = b.B.debug;
   adv(d, 4.2);                                        // 逻辑推进（不渲染）：顾客进门、订单卡出来
-  /* 四列先各做一份（熟了各自落到本列专属盘） */
-  d.drop("milk", null); d.drop("sandwich", null); d.drop("salad", null); d.drop("bun", null);
-  { let g = 0; while (g++ < 400 && d.plates().length < 4) d.tick(1 / 60); }
-  /* 再让两列正在烧：0 列白粥（5.0s）、3 列煎蛋（3.0s）—— 画面里能看到火候进度环 */
+  /* 五列先各做一份（熟了各自落到本列专属盘）*/
+  d.drop("milk", null); d.drop("sandwich", null); d.drop("salad", null);
+  d.drop("bun", null); d.drop("soup", null);
+  { let g = 0; while (g++ < 600 && d.plates().length < 5) d.tick(1 / 60); }
+  /* 再让两列正在烧：0 列白粥（3.4s）、3 列煎蛋（2.2s）—— 画面里能看到火候进度环 */
   d.drop("congee", null); d.drop("egg", null);
   adv(d, 0.7);
-  /* 摆盘上的档位：先让一列糊掉（忘取 → 过火计时走完），等飘字播完再定三档 */
-  d.setPlateAge(6, b.B.SERVE_WINDOW + 0.5);           // 包子 → 忘取，超时变糊
-  d.tick(1 / 60);
-  adv(d, 1.0);                                        // 让「忘取了 · 糊了！」飘字播完，出图干净
-  d.setPlateAge(1, 0.4);                              // 热牛奶 → 热乎（14 分档）
-  d.setPlateAge(5, 2.2);                              // 三明治 → 温（10 分档）
-  d.setPlateAge(7, 3.6);                              // 沙拉 → 凉（6 分档）
+  /* bf-13：盘龄从 0.4s 摆到 90s —— 档位**一个都不掉**（旧口径这里会摆出 温 / 凉，4.5s 后还变糊）*/
+  d.setPlateAge(1, 0.4);                              // 热牛奶 → 盘龄 0.4s
+  d.setPlateAge(5, 2.2);                              // 三明治 → 盘龄 2.2s
+  d.setPlateAge(7, 3.6);                              // 沙拉   → 盘龄 3.6s
+  d.setPlateAge(6, 30);                               // 包子   → 盘龄 30s
+  d.setPlateAge(2, 90);                               // 清汤   → 盘龄 90s
   b.texts.length = 0;                                  // 只保留最后一帧的文字（否则会把历史帧叠在一起）
   b.pump(1, 16);                                       // 只渲染最后这一帧
   save(b.canvas, "bf_game.png", b.texts,
-    "进行中：9 列列对齐（底部食材 → 中列锅 → 上列专属盘）+ 0/3 列在烧 + 盘上 热乎/温/凉 三档 + 6 列糊了（双击才能丢）+ 三条操作图例");
+    "进行中：9 列列对齐（底部食材 → 中列锅 → 上列专属盘）+ 2 列在烧 + 盘上 5 份（盘龄 0.4~90s）全部「热乎」+「∞ 可一直放着」（bf-13 永久保鲜：没有倒计时）");
   const st = d.state();
   console.log("    [进行中] 顾客 " + d.orders().length + " 位 · 锅里 " + d.stations().filter(s => s.food).length +
-              " 样 · 盘上 " + d.plates().length + "/9 份 " + JSON.stringify(d.plates().map(p => p.food + ":" + (p.state === "burnt" ? "糊" : p.tier))) +
-              " · 糊 " + st.burnt + " 份 · 分 " + st.score);
+              " 样 · 盘上 " + d.plates().length + "/9 份 " + JSON.stringify(d.plates().map(p => p.food + ":" + (p.state === "burnt" ? "糊" : p.tier) + "@" + p.age + "s")) +
+              " · 糊 " + st.burnt + " 份 · 分 " + st.score +
+              " · 盘上「内送出」文案 " + b.texts.filter(t => /内送出/.test(t.text)).length + " 处");
 }
+
 
 /* ══════════ ② 列对齐特写（3 列完整竖列 + 标注） ══════════
    取第 3/4/5 列（煎蛋盘 / 培根盘 / 三明治盘）：左边多留一块「注解栏」、上面留标题带、
@@ -319,14 +323,129 @@ function save(cv, name, texts, note) {
   line(0, bandY + 1, W, bandY + 1, "rgba(255,214,110,.45)", 4);
   put("操作：① 点食材 → 自动进它正上方那一列的锅　　② 点上方专属盘 → 送给正在等的顾客（优先最急的）",
     20, bandY + 48, 27, "#f6efe2");
-  put("③ 双击盘 → 丢垃圾桶（不扣分）　　盘上停留超过 4.5s 会糊，糊了只能双击丢掉",
-    20, bandY + 104, 27, "#ffb347");
+  put("③ 双击盘 → 丢垃圾桶（不扣分）　　盘上永久保鲜（bf-13）：没有倒计时 / 不会凉 / 不会糊，放多久都能上",
+    20, bandY + 104, 27, "#5dffa0");
   save(b.canvas, "bf_columns.png", b.texts,
     "特写：3 列完整竖列（食材桶 → 锅 → 专属盘 同一 x 中心线）+ 左侧「专属盘/锅/食材」注解 + 顶部列对齐说明 + 底部三条操作提示");
   console.log("    [列特写] 三列状态 " +
     JSON.stringify(d.stations().slice(3, 6).map(s => s.colFood + ":" + s.state + "/" + (s.plate ? s.plate + "@" + s.tier : "空"))));
 }
 
+/* ══════════ ②b 盘上永久保鲜特写（bf-13 · bf_plates_nocountdown.png） ══════════
+   用户要求：「帮我修改一下早餐游戏的备用餐盘，就是做好的早餐放旁边的盘子不要有倒计时，
+             可以一直放着不会冷掉」。
+   这张图专门证明这件事：同一个画面里 9 个专属盘全都有食物，盘龄从 0.4s 摆到 300s，
+   画面上**全部**是「食材·热乎」+「∞ 可一直放着」——
+   旧口径下同一盘会依次降成「温 / 凉」并显示「4.1s / 2.3s / 0.9s 内送出」，4.5s 之后整个变成糊盘。
+   底部注解带把「删掉的旧文案」与「现在真实画出来的文案」并排放在一起，一眼能看出差别；
+   最下面一行是本帧的**实测计数**（盘上「内送出」文案 0 处）。 */
+{
+  const SC = 2.4;                                        // 放大倍数（设备像素 / 逻辑像素）
+  const CX0 = 8, CW = 1164;                              // 逻辑 x：9 列盘区（13 .. 1166）
+  const CY0 = 320, CH = 140;                             // 逻辑 y：盘带（328..438 的盘 + 两行小字）
+  const TOP = 224, BAND = 452;                           // 上标题带 / 下注解带（设备像素）
+  /* 上带分四行：标题 / 说明 / 九列「盘龄→档位」/ 每列头顶的盘龄标签（贴在盘带正上方，不与标题压字）*/
+  const W0 = Math.round(CW * SC), H0 = TOP + Math.round(CH * SC) + BAND;
+  const b = boot(SC, CW, H0 / SC);
+  b.B.start(b.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 999, goal: 99, onFinish: () => {} });
+  const d = b.B.debug;
+  adv(d, 1.2);
+  /* 9 列各做一份 → 9 份全部落到各自的专属盘上（一锅一盘，列对齐） */
+  b.B.FOOD_IDS.forEach(function (f) { d.drop(f, null); });
+  { let g = 0; while (g++ < 900 && d.plates().length < 9) d.tick(1 / 60); }
+  /* 盘龄梯度：0.4s → 300s。旧口径下这张表几乎每一行都会被判「糊掉 / 只能丢」。 */
+  adv(d, 1.2);                                           // 让「熟了 · 落到专属盘」飘字播完，出图干净
+  const AGES = [0.4, 2, 3.6, 6, 12, 25, 60, 150, 300];
+  AGES.forEach(function (a, i) { d.setPlateAge(i, a); });
+  d.tick(1 / 60);
+  const TIER_CN = { hot: "热乎", warm: "温", cold: "凉", burnt: "糊" };
+  /* 同样的盘龄在**旧口径**下会是什么下场（只用于图中注解，代码里这条曲线已经不再作用于盘上）*/
+  const OLD_TIER = { 0.4: "旧：热乎 14 分", 2: "旧：温 10 分", 3.6: "旧：凉 6 分" };
+  const byCol = {};
+  d.plates().forEach(function (p) { byCol[p.station] = p; });
+  const measured = d.plates().map(p => p.food + ":" + p.tier + "@" + p.age + "s").join(" · ");
+  /* 用 SC 倍的变换把「盘那一行」铺满整幅图宽 */
+  b.canvas.setTransform(SC, 0, 0, SC, -CX0 * SC, TOP - CY0 * SC);
+  b.texts.length = 0;
+  b.pump(1, 16);
+  /* 只保留落在盘带里的游戏文字（顶栏 / 顾客卡 / 食材桶那两行的字会盖住注解带） */
+  const keep = b.texts.filter(t => t.x >= -4 && t.x <= W0 + 4 &&
+                                   t.y >= TOP - 4 && t.y <= TOP + CH * SC + 4);
+  b.texts.length = 0; keep.forEach(t => b.texts.push(t));
+  const plateTexts = keep.map(t => t.text);
+  const cntTimer = plateTexts.filter(x => /内送出/.test(x)).length;      // 旧口径：每盘 1 处
+  const cntKeep = plateTexts.filter(x => /可一直放着/.test(x)).length;
+  const cntHot = plateTexts.filter(x => /·热乎/.test(x)).length;
+  b.canvas.setTransform(1, 0, 0, 1, 0, 0);
+  const W = W0, H = H0;
+  const put = (t, x, y, px, color, align, bold) => {
+    b.canvas.fillStyle = color;
+    b.canvas.font = ((bold === undefined ? px >= 26 : bold) ? "bold " : "") + px + "px 'Microsoft YaHei',sans-serif";
+    b.canvas.textAlign = align || "left"; b.canvas.textBaseline = "middle";
+    b.canvas.fillText(t, x, y);
+    b.canvas.textAlign = "left";
+  };
+  const box = (x, y, w, h, stroke, fill) => {
+    if (fill) { b.canvas.fillStyle = fill; b.canvas.fillRect(x, y, w, h); }
+    b.canvas.strokeStyle = stroke; b.canvas.lineWidth = 4;
+    b.canvas.strokeRect(x, y, w, h);
+  };
+  /* ── 每列正上方的盘龄标签（证明档位与盘龄无关）── */
+  AGES.forEach(function (a, i) {
+    const cx = (13 + i * 129 + 60.5 - CX0) * SC;
+    put("盘龄 " + a + "s", cx, TOP - 46, 25, a >= 60 ? "#5dffa0" : "#b0a08c", "center");
+    /* 旧口径（heatTierOf 的老曲线：≤1.5s 热乎 14 分 / ≤3.0s 温 10 分 / ≤4.5s 凉 6 分 / >4.5s 糊）*/
+    const oldTxt = OLD_TIER[a] || "旧：早就糊了";
+    put(oldTxt, cx, TOP - 18, 19, OLD_TIER[a] ? "#8a7a6a" : "#ff4d6d", "center");
+  });
+  /* ── 顶部标题带 ── */
+  b.canvas.fillStyle = "rgba(9,6,11,.97)"; b.canvas.fillRect(0, 0, W, TOP);
+  b.canvas.strokeStyle = "rgba(255,214,110,.45)"; b.canvas.lineWidth = 4;
+  b.canvas.beginPath(); b.canvas.moveTo(0, TOP - 1); b.canvas.lineTo(W, TOP - 1); b.canvas.stroke();
+  put("盘上永久保鲜（bf-13）：餐盘上「没有倒计时」，放多久都不会凉 / 不会糊 / 不会消失", 20, 32, 40, "#ffd76e");
+  put("下图是 breakfast.js 真发出的 Canvas2D 指令画出来的盘区：9 个专属盘全都有食物，盘龄 0.4s → 300s，" +
+      "档位一律「热乎」，盘下只写静态的「∞ 可一直放着」", 20, 80, 25, "#b0a08c");
+  put("九列「盘龄 → 实测档位」：" + AGES.map((a, i) =>
+      a + "s→" + (byCol[i] ? (TIER_CN[byCol[i].tier] || byCol[i].tier) : "?")).join("　｜　"),
+      20, 124, 24, "#cfe8ff");
+  /* ── 底部注解带：旧 / 新并排 ── */
+  const bandY = TOP + Math.round(CH * SC);
+  b.canvas.fillStyle = "rgba(9,6,11,.97)"; b.canvas.fillRect(0, bandY, W, BAND);
+  b.canvas.strokeStyle = "rgba(255,214,110,.45)"; b.canvas.lineWidth = 4;
+  b.canvas.beginPath(); b.canvas.moveTo(0, bandY + 1); b.canvas.lineTo(W, bandY + 1); b.canvas.stroke();
+  const bx = 24, bw = (W - 72) / 2, by = bandY + 22, bh = 238;
+  box(bx, by, bw, bh, "#ff4d6d", "rgba(255,77,109,.07)");
+  box(bx + bw + 24, by, bw, bh, "#5dffa0", "rgba(93,255,160,.07)");
+  put("旧口径（本次删除）", bx + 22, by + 34, 30, "#ff4d6d");
+  put("盘上「煎蛋·热乎」+「4.1s 内送出」", bx + 22, by + 84, 25, "#ffd0d8");
+  put("停 1.5s → 「煎蛋·温」+「2.3s 内送出」", bx + 22, by + 122, 25, "#ffd0d8");
+  put("停 3.0s → 「煎蛋·凉」+「0.9s 内送出」", bx + 22, by + 160, 25, "#ffd0d8");
+  put("停 4.5s → 「煎蛋·糊了」+「只能丢（双击）」（忘取就报废）", bx + 22, by + 198, 25, "#ffd0d8");
+  const rx = bx + bw + 46;
+  put("新口径（本图真实画面）", rx, by + 34, 30, "#5dffa0");
+  put("盘上「煎蛋·热乎」+「∞ 可一直放着」", rx, by + 84, 25, "#d8ffe8");
+  put("盘龄 2s / 12s / 60s / 300s → 画面上一个字都不变", rx, by + 122, 25, "#d8ffe8");
+  put("上餐恒为最高档 14 分（完美 + 热乎），放 300 秒也一样", rx, by + 160, 25, "#d8ffe8");
+  put("不会凉 / 不会糊 / 不会自己消失（盘上那份只有玩家双击才走）", rx, by + 198, 25, "#d8ffe8");
+  const codeY = by + bh + 30;
+  put("代码口径：plateLeftSec() ≡ Infinity（没有倒计时）· plateBurntAt() / plateExpired() ≡ false（盘上没有过期）· " +
+      "盘上不存在 burnt 分支；糊盘唯一的来源是「锅里已经糊了再端上盘」",
+      24, codeY, 24, "#cbd6e6");
+  put("锅内一个字没改：生 → 恰好 → 过火 → 糊（autoPlate 默认开时一到「恰好」就落盘，锅里那段时间窗口本来就极短）",
+      24, codeY + 34, 24, "#cbd6e6");
+  put("本帧实测：盘区文字共 " + plateTexts.length + " 段 —— 「内送出」倒计时 " + cntTimer + " 处（旧口径每盘 1 处）· " +
+      "「∞ 可一直放着」" + cntKeep + " 处 · 「·热乎」" + cntHot + " 处",
+      24, codeY + 70, 26, "#ffd76e");
+  put("实测盘上状态：" + measured, 24, codeY + 104, 22, "#a9a2bd");
+  put("运行：node tools/bf/shots/panel.js ｜ 画面 = breakfast.js 真发出的 Canvas2D 指令经 tools/lib/raster.js 软件光栅化（非浏览器截图）",
+      24, codeY + 134, 22, "#8a8296");
+  save(b.canvas, "bf_plates_nocountdown.png", b.texts,
+    "盘上无倒计时（bf-13）：9 个专属盘全部有食物、盘龄 0.4~300s，画面全部「食材·热乎」+「∞ 可一直放着」；" +
+    "底部并排对照「旧口径的 4.1s/2.3s/0.9s 内送出 → 温 → 凉 → 糊」与「新口径的静态提示」");
+  console.log("    [盘上无倒计时] 9 盘 " + measured);
+  console.log("    [盘上无倒计时] 盘区文字 " + plateTexts.length + " 段 · 「内送出」" + cntTimer +
+              " 处（应为 0）· 「可一直放着」" + cntKeep + " 处（应为 9）· 「·热乎」" + cntHot + " 处（应为 9）");
+}
 /* ══════════ ③ 通过结算 ══════════ */
 {
   const b = boot(1.5);

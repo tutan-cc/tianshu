@@ -1,0 +1,40 @@
+  /* ⑥.6 bf-13 盘上永久保鲜的边界：旧窗口前后都不糊、放 90 秒仍是热乎档、盘上那份不会消失；
+         锅内路径不受影响（锅里该糊还是糊），糊盘只来自「锅里糊了再端上盘」。 */
+  const d5b = boot();
+  d5b.B.start(d5b.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 999, goal: 99, onFinish: () => {} });
+  const d5 = d5b.B.debug;
+  A(d5.drop("egg", null) === true, "煎蛋下到第 3 列");
+  for (let i = 0; i < 300 && !d5.stations()[3].plate; i++) d5.tick(1 / 60);
+  A(d5.stations()[3].plate === "egg", "熟了自动落到第 3 列的专属盘");
+  d5.setPlateAge(3, B.SERVE_WINDOW - 0.1);
+  d5.tick(1 / 60);
+  A(d5.stations()[3].plateState === "perfect", "旧窗口前 0.1s：还是好的（未糊）", d5.stations()[3].plateState);
+  A(d5.stations()[3].tier === "hot", "此时仍是「热乎」档（旧断言：只剩「凉」档）", d5.stations()[3].tier);
+  A(d5.state().burnt === 0, "还没糊");
+  d5.setPlateAge(3, B.SERVE_WINDOW + 0.01);
+  d5.tick(1 / 60);
+  A(d5.stations()[3].plateState === "perfect", "旧窗口后 0.01s：**还是好的**（旧断言：已经糊）", d5.stations()[3].plateState);
+  A(d5.stations()[3].tier === "hot", "档位也没掉");
+  A(d5.state().burnt === 0 && d5.state().expire === 0, "糊 / 忘取一次都没记（旧断言：各记一次）");
+  A(d5.state().score === 0, "不扣分");
+  d5.setPlateAge(3, 90);
+  d5.tick(1 / 60);
+  A(d5.stations()[3].plateState === "perfect" && d5.stations()[3].tier === "hot", "放 90 秒仍是 perfect / hot");
+  A(d5.state().plateCount === 1, "那份一直留在盘上（没有消失、没有被自动清掉）");
+  A(d5.placeEx("egg", null).why === "plate-occupied", "盘占着这一列 → 下料被拒（但这是占位，不是报废）");
+  A(d5.trashCol(3) === true && d5.placeEx("egg", null).ok === true, "双击丢掉后才能再用");
+  /* 糊盘唯一来源：锅里烧糊 → 端上盘；糊菜端给顾客 → 顾客当场离开（现有规则不变） */
+  A(d5.place("congee", null) === true, "第 0 列按住看火下一份白粥（manual：不自动落盘）");
+  for (let i = 0; i < 600 && d5.stations()[0].state !== "burnt"; i++) d5.tick(1 / 60);
+  A(d5.stations()[0].state === "burnt", "锅内照样会糊（白粥糊点 5.6s）");
+  A(d5.burnPlate(0) === true, "锅里糊了再端上盘 → 糊盘（盘上唯一的糊盘来源）");
+  A(d5.plates().some(p => p.state === "burnt"), "盘上那份确实是 burnt");
+  const sB = d5.state().served, aB = d5.state().angry;
+  d5.pushCustomer(["congee"]);
+  const rb = d5.serveId(d5.orders()[d5.orders().length - 1].id, -1);
+  A(rb.kind === "burnt" && rb.delta === -5, "糊菜端上桌 → 顾客当场离开（−5，现有规则不变）",
+    JSON.stringify({ kind: rb.kind, delta: rb.delta }));
+  A(d5.state().served === sB && d5.state().angry === aB + 1, "糊菜不算服务成功，只记一次跑单");
+  A(d5.stations()[0].plate === null, "糊盘被端走后这一列清空");
+  A(d5.placeEx("egge", null).why === "no-food", "不存在的食材 → 原因码 no-food");
+  d5.close();

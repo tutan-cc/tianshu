@@ -1,0 +1,11 @@
+      /* 盘上**没有倒计时**（bf-13 永久保鲜）：两行都是静态文案 ——
+         不随盘龄变化、不红闪、不倒数。第一行 = 食材 + 档位（完美份恒为「热乎」），
+         第二行 = 「∞ 可一直放着」这个明确承诺。 */
+      g.fillStyle = "rgba(0,0,0,.55)"; roundRect(g, b.x + 2, b.y + b.h - 34, b.w - 4, 32, 8); g.fill();
+      g.font = fontOf(FONT.micro, true);
+      g.fillStyle = TIER_COLOR[tier] || PAL.ink;
+      g.fillText((FOOD[p.food] || {}).n + "·" + (TIER_NAME[tier] || ""), cx, b.y + b.h - 24);
+      g.font = fontOf(FONT.micro, false);
+      g.fillStyle = "rgba(93,255,160,.85)";
+      g.fillText(PLATE_KEEP_TEXT, cx, b.y + b.h - 10);
+      g.textAlign = "left";

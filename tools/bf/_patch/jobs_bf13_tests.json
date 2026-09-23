@@ -1,0 +1,43 @@
+{
+  "jobs": [
+    { "file": "tests/breakfast.test.cjs",
+      "from": "         过关判定（服务满 goal / 超时失败）/ 好感结算（+6~+10 / −3~−6、每日一次、区间置灰）",
+      "text": "         过关判定（服务满 goal / 超时失败）/ 好感结算（+6~+10 / −3~−6、每日一次、区间置灰）/\n         盘上永久保鲜（bf-13：不降档 / 无倒计时 / 不糊 / 不消失；锅内该糊还是糊）" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "/** 走完整新规则的小局：9 列各 1 专属盘、熟了自动落盘、盘上停留超过 SERVE_WINDOW 就糊。\n    nextIn 拉大 → 不自动进店，只有测试自己 spawn 的顾客在场。 */",
+      "text": "/** 走完整新规则的小局：9 列各 1 专属盘、熟了自动落盘、**盘上永久保鲜**（不降档 / 不糊 /\n    不消失、没有倒计时）。nextIn 拉大 → 不自动进店，只有测试自己 spawn 的顾客在场。 */" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "test(\"单击盘：此刻没人要这份 → 不消耗、留在盘上继续走热乎度衰减（凉了还能上）\", () => {",
+      "to": "  assert.equal(r2.ok, true); assert.equal(r2.heat, \"cold\"); assert.equal(r2.delta, 6, \"凉了照样能上（+6 · 不劝退）\");\n});",
+      "textFile": "tools/bf/_patch/bf13_t2.txt" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "test(\"9 盘 + 过火报废：盘上停留超过 SERVE_WINDOW → 变糊 → 只能丢（窗口前 0.01s 未糊 / 后 0.01s 已糊）\", () => {",
+      "to": "  assert.equal(R.plateOfStation(st2, col2).state, \"burnt\", \"4.6s：忘取 → 糊\");\n});",
+      "textFile": "tools/bf/_patch/bf13_t3.txt" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "test(\"热乎度三档：盘上 热乎 14 / 温 10 / 凉 6，单调递减，三档都还能上餐\", () => {",
+      "to": "  jsonEq(seq, [\"hot\", \"warm\", \"cold\"], \"档位只降不升\");\n});",
+      "textFile": "tools/bf/_patch/bf13_t4.txt" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "test(\"灶位 / 盘状态机是纯函数：idle → raw → cooking → ready → plated；盘 hot → warm → cold → burnt\", () => {",
+      "text": "test(\"灶位 / 盘状态机是纯函数：idle → raw → cooking → ready → plated；盘恒为落盘档（永久保鲜）\", () => {" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed), \"hot\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + R.HEAT.hotSec + 0.01), \"warm\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + R.HEAT.warmSec + 0.01), \"cold\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + R.SERVE_WINDOW + 0.01), \"burnt\", \"超时 → 糊\");",
+      "text": "  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed), \"hot\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + R.HEAT.hotSec + 0.01), \"hot\", \"过了热乎窗口仍是 hot（原口径：warm）\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + R.HEAT.warmSec + 0.01), \"hot\", \"过了温档窗口仍是 hot（原口径：cold）\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + R.SERVE_WINDOW + 0.01), \"hot\", \"过了旧窗口仍是 hot（原口径：burnt）\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + 3600), \"hot\", \"一小时后还是 hot\");\n  assert.equal(R.platePhaseOf(st.plates[0], st.elapsed + 1e9), \"hot\", \"1e9 秒后还是 hot（永久保鲜）\");" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "test(\"过火计时从「落盘那一刻」起算：煮得久的菜不会一落盘就糊\", () => {",
+      "to": "  assert.equal(R.plateOfStation(st, 0).state, \"burnt\", \"超时才糊\");\n});",
+      "textFile": "tools/bf/_patch/bf13_t6.txt" },
+
+    { "file": "tests/breakfast.test.cjs",
+      "from": "/* ═══════════════════════════════════════════════════════════════════════════\n   结算面板的**出口**（#bfGo）· 无头 DOM +「真实 CSS → 布局几何」断言",
+      "textFile": "tools/bf/_patch/bf13_tnew_plus_header.txt" }
+  ]
+}

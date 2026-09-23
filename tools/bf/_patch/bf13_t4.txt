@@ -1,0 +1,39 @@
+test("热乎度曲线仍是纯函数的三档（14/10/6），但**盘上不再走这条曲线**：落盘即定格", () => {
+  assert.equal(R.HEAT.hot, 14); assert.equal(R.HEAT.warm, 10); assert.equal(R.HEAT.cold, 6);
+  assert.ok(R.HEAT.hot > R.HEAT.warm && R.HEAT.warm > R.HEAT.cold, "单调递减 14 > 10 > 6");
+  assert.ok(R.HEAT.hotSec < R.HEAT.warmSec && R.HEAT.warmSec < R.SERVE_WINDOW, "三档均分在旧窗口内");
+  assert.equal(R.heatTierOf("perfect", 0), "hot");
+  assert.equal(R.heatTierOf("perfect", R.HEAT.hotSec), "hot", "边界还算热乎");
+  assert.equal(R.heatTierOf("perfect", R.HEAT.hotSec + 0.01), "warm");
+  assert.equal(R.heatTierOf("perfect", R.HEAT.warmSec), "warm", "边界还算温");
+  assert.equal(R.heatTierOf("perfect", R.HEAT.warmSec + 0.01), "cold");
+  assert.equal(R.heatTierOf("over", 0), "warm", "过火拿不到热乎档（旧档 over=7 的手感不变）");
+  assert.equal(R.serveScore("perfect", "hot"), 14);
+  assert.equal(R.serveScore("perfect", "warm"), 10);
+  assert.equal(R.serveScore("perfect", "cold"), 6);
+  assert.equal(R.serveScore("over", "warm"), 7);
+  assert.equal(R.serveScore("over", "cold"), 3);
+  /* 盘上：不管放多久（0.5 / 2.2 / 4.0 / 30 秒）都吃最高档 14 分 ——
+     原口径这四行分别是 hot 14 / warm 10 / cold 6 / 已经糊了；现在统一是 hot 14。 */
+  [0.5, 2.2, 4.0, 30].forEach(function (age) {
+    const st = plateState();
+    const c = longPatience(R.spawnCustomer(st, ["milk"]));
+    const col = plated(st, "milk", R.FOOD.milk.dur + 0.05);
+    R.plateOfStation(st, col).at = st.elapsed - age;
+    R.step(st, 0);
+    assert.equal(R.plateOfStation(st, col).tier, "hot", age + "s → 仍是 hot（盘上不降档）");
+    const r = R.serveFromColumn(st, col);
+    assert.equal(r.ok, true); assert.equal(r.delta, 14, age + "s → 14 分（最高档）");
+    assert.equal(c.done.indexOf("milk") >= 0, true, "照样算服务成功");
+  });
+  /* 档位不是「只降不升」，而是**从头到尾一个值都不变** */
+  const st = plateState();
+  const col = plated(st, "congee", R.FOOD.congee.dur + 0.05);
+  const seq = [R.plateOfStation(st, col).tier];
+  for (let k = 0; k < 8; k++) {
+    advance(st, 1);
+    const t2 = R.plateOfStation(st, col).tier;
+    if (t2 !== seq[seq.length - 1]) seq.push(t2);
+  }
+  jsonEq(seq, ["hot"], "8 秒里档位一次都没变过（原口径：[hot, warm, cold]）");
+});
