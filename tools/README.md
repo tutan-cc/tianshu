@@ -119,13 +119,43 @@ tools/mj/shots.js            ────→ tools/mjsys/probe-lib.js ──→ 
 | `tests/` | **只放测试源码**（`*.test.cjs`），不放结果 |
 | `dist/media-*.zip` | 素材分发包（走 GitHub Release，不入库） |
 | `dist/test-results/` | **测试与出图产物的 JSON**（带时间戳，每次跑都会改写，故不入库） |
-| `测试截图/` | 出图流水线的 PNG 产物 |
+| `测试截图/` | **出图流水线的 PNG 产物**（含 `cardfight/` 等子目录，不入库） |
 
 测试结果此前写在 `tests/` 下且被 git 跟踪，导致**每跑一次测试就污染 `git status`**；
 现已全部改到 `dist/test-results/`。你新写脚本时请沿用这个约定。
 
+#### 2.1 出图脚本一律写 `测试截图/`，别另起目录
+
+```js
+const OUT = path.join(__dirname, "..", "..", "测试截图");          // ✅
+const OUT = path.join(__dirname, "..", "..", "测试截图", "xxx");   // ✅ 需要分组就加子目录
+const OUT = path.join(__dirname, "..", "..", "_shots");            // ❌ 别这样
+```
+
+**为什么单列一条**：曾经有个出图脚本写 `_shots/`，而它在全仓库**零引用**、
+语义又和 `测试截图/` 完全重复 —— 结果就是「**同类的图，一套被忽略、一套被跟踪**」，
+每跑一次出图工具 `git status` 就多出 10 个改动，很容易混进无关提交。
+现在已归位到 `测试截图/cardfight/`。
+
+> 判断标准：**这张图是"跑测试/出图顺带产生的"还是"要给团队成员看的定稿/参考"？**
+> 前者写 `测试截图/`（忽略）；后者才考虑入库 —— 见下面的 2.2。
+
+#### 2.2 哪些 PNG 入库、哪些不入库（**别再问第二遍**）
+
+| 类别 | 例子 | 入库？ | 理由 |
+|---|---|---|---|
+| **游戏运行时资产** | `art/bg/mahjong.png`、`art/icons/**`、`art/fight2/*.png` | ✅ **必须** | 代码按 `art/icons/` + 名字拼路径加载，删了游戏就缺图 |
+| **设计参考图** | `_ref/out/lovart_*.png`、`_ref/ref_leijie.png`、`tools/mj/_refcrop/ref_tiles.png` | ✅ 是 | 切片/对照脚本的**输入**，也是评审依据（`cut-fight2-sprites.ps1` 从 `_ref/out` 切立绘） |
+| **定稿帧 / 评审图** | `_cabinet-frame.png`、`sprite-sheet.png`、`card-preview.png`、`palette-check.png` | ✅ 是 | 「改完长这样」的可视证据，clone 下来直接能看，不必先跑工具（出图工具依赖 Chrome / System.Drawing，别人未必跑得起来） |
+| **出图流水线产物** | `测试截图/**`、`dist/**/*.png`、`_sfx-preview.png` | ❌ 否 | 跑一次就有，每次内容都可能不同 —— 入库只会制造噪音 diff |
+
+> ⚠ `_sfx-preview.png` 目前仍被跟踪（由 `tools/dev/sfx-check.js` 写到仓库根）。
+> 它属于最后一类，但因为跟其它 5 个出图脚本**同为"写仓库根"的既有约定**，
+> 本轮没单独改它 —— 口径以上表为准，**新写脚本请按 2.1 写 `测试截图/`**。
+
 例外：`tools/mjsys/probe-lib.js` 的探针临时文件（`_mj_panels.json` / `.hta` / `_out.txt`）
 也落在仓库根，用完不清理 —— 这是历史行为。
+
 
 ### 3. `patch-literal.js` 的 job 路径相对**仓库根**，且备份后缀是设计
 

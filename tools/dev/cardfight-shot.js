@@ -6,7 +6,15 @@
   代价太大。CDP 是内置的（Node 22+ 有全局 WebSocket），零依赖、不碰用户浏览器配置。
 
   用法：node tools/dev/cardfight-shot.js
-  产物：_shots/01-opening.png … 05-resolved.png
+  产物：测试截图/cardfight/01-opening.png … 07-again.png
+
+  ⚠ 产物目录为什么从 `_shots/` 挪到 `测试截图/`：
+    `测试截图/` 是本项目**既定的出图产物目录**（已被 .gitignore 忽略，与
+    `dist/test-results/` 同理），其它出图脚本都写这里。`_shots/` 是唯一另起炉灶的，
+    且全仓库零引用 —— 结果就是「同类的图，一套被忽略、一套被跟踪」，
+    每跑一次出图工具 `git status` 就多出改动。
+    归到既定目录后：产物一律不入库，`git status` 保持干净。
+    （路径里带 cardfight/ 子目录是为了不让 10 张卡牌截图和麻将/早餐店的图混在一起。）
 */
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -14,7 +22,7 @@ const path = require("path");
 const http = require("http");
 
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const OUT = path.join(__dirname, "..", "..", "_shots");
+const OUT = path.join(__dirname, "..", "..", "测试截图", "cardfight");
 const PORT = 9333;
 const GAME = "file:///" + path.join(__dirname, "..", "..", "cardfight.html").replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
 
