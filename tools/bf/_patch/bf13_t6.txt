@@ -1,0 +1,23 @@
+test("盘上永久保鲜：煮得久的菜一落盘就是热乎档，之后**一直**保持（盘上不再起算任何计时）", () => {
+  const st = plateState();
+  longPatience(R.spawnCustomer(st, ["congee"]));
+  assert.equal(R.placeFood(st, "congee", null), true);
+  advance(st, R.FOOD.congee.dur + 0.1);           // 煮了 3.5s（比旧的 4.5s 窗口还长）
+  const p = R.plateOfStation(st, 0);
+  assert.ok(p, "白粥落盘了");
+  assert.equal(p.state, "perfect", "刚落盘还是好的（计时口径从落盘起算这件事已经不适用）");
+  assert.ok(p.age <= 0.25, "落盘年龄 ≈ 0（" + p.age + "s）");
+  assert.equal(p.left, Infinity, "落盘就没有倒计时（原口径：剩余窗口 ≈ 4.5s）");
+  assert.equal(p.tier, "hot", "落盘即最高档");
+  advance(st, R.SERVE_WINDOW - 0.3);
+  assert.equal(R.plateOfStation(st, 0).state, "perfect", "4.2s 后照样能送出去");
+  assert.equal(R.plateOfStation(st, 0).tier, "hot", "档位没掉");
+  advance(st, 0.4);
+  assert.equal(R.plateOfStation(st, 0).state, "perfect", "4.6s 后**仍然**能送（原口径：超时 → 糊）");
+  assert.equal(R.plateOfStation(st, 0).tier, "hot", "档位还是热乎");
+  assert.equal(st.burnt, 0, "一次都没糊");
+  assert.equal(st.expire, 0, "也没有「忘取」记账");
+  advance(st, 55);
+  assert.equal(R.plateOfStation(st, 0).state, "perfect", "放到 60s 仍然是 perfect");
+  assert.equal(R.plateOfStation(st, 0).tier, "hot", "放到 60s 仍然是热乎档");
+});

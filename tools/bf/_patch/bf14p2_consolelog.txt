@@ -1,0 +1,3 @@
+  console.log("    [锅内起锅] 等着起锅 " + nPick + " 口 · 已糊 " + nBurntPan + " 口 · 盘占着 " + nBlocked + " 口 · burnt=" + d.state().burnt +
+              "（文字证据：起锅提示 " + cntPick + " 处 · 倒计时 " + cntRing + " 处 · 糊了 " + cntBurnt +
+              " 处 · 没地方放 " + cntBlocked + " 处 · 可一直放着 " + cntKeep + " 处）");

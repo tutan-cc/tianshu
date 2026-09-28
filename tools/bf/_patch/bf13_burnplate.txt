@@ -1,0 +1,18 @@
+      /** 出图 / 测试用：造一份「糊盘」（盘上那份是糊的）。
+          注意：盘上**永远不会自然变糊**（bf-13 永久保鲜）—— 糊盘唯一的真实来源是
+          「锅里已经烧糊了再端到盘上」（takePlate 允许，正常点击路径到不了），
+          所以这个钩子走的就是那条真实路径：锅里先糊 → 再落盘。 */
+      burnPlate: function (stationIdx) {
+        var st = curState(); if (!st) return false;
+        var s = stationByIdx(st, stationIdx); if (!s) return false;
+        var k = plateIdxOfStation(st, stationIdx);
+        if (k >= 0) return st.plates[k].state === "burnt";   // 盘上已经有东西 → 原样返回
+        if (!s.food) {                                       // 锅空 → 用本列食材按住火候下一份
+          var f0 = foodOfColumn(stationIdx);
+          if (!f0 || !placeFoodEx(st, f0, stationIdx, { manual:true }).ok) return false;
+        }
+        var f = FOOD[s.food]; if (!f) return false;
+        s.t = (f.dur + f.pw + f.burn + 0.01) * 1000;
+        s.state = "burnt"; s.manual = true;                  // 锅内火候推到糊（锅内该糊还是糊）
+        return takePlate(st, stationIdx);                    // 再从锅里端到盘上
+      },

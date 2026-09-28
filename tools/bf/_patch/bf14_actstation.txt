@@ -1,0 +1,28 @@
+    /** 点锅（这一列的灶位）—— bf-14 起**单击 = 起锅**：
+        锅内「恰好」且还在窗口里 → 落进本列专属盘（盘空才行）；
+        盘里已经有一份 → 起锅没地方放（暖色提示「盘里还有一份，先送出去」），
+        窗口**继续走** → 走完这份糊在锅里（再点锅只会提示「双击丢掉」）；
+        锅里还生 → 提示还要几秒；锅空 → 提示点食材 / 盘里那份先送出去。 */
+    function actStation(i) {
+      var s = st.stations[i];
+      if (!s) return;
+      var p = plateOfStation(st, i);
+      var label = colNameOf(i);
+      if (!s.food) {
+        if (p) flash(label + " 的盘里还有一份 —— 先点它送出去（双击丢垃圾桶）", PAL.steelHot);
+        else flash(label + " 空着 —— 点下面它那一列的食材下锅", PAL.dim);
+        return;
+      }
+      var ro = takeOut(st, i);
+      if (ro.ok) {
+        st.selected = { kind:"plate", idx:i };
+        flash("起锅 · 落到" + plateNameOf(i) + "（" + (TIER_NAME[ro.tier] || "") + "）—— 点盘送出去", PAL.green);
+        return;
+      }
+      if (ro.why === "burnt") { flash("糊了，只能丢掉（双击这一列）", PAL.red); return; }
+      if (ro.why === "raw") { flash("锅里还在做 —— " + (FOOD[s.food] || {}).n + " 要 " + FOOD[s.food].dur.toFixed(1) + "s"); return; }
+      if (ro.why === "plate-occupied") {
+        flash("盘里还有一份，先送出去 —— " + round1(ro.left) + "s 内不起锅这份就糊了", PAL.steelHot); return;
+      }
+      flash(ro.hint || "起不了锅", whyColor(ro.why));
+    }

@@ -1,0 +1,34 @@
+/* ══════════ ① 进行中（放大后的整屏 · 1770×1185） ══════════
+   局面按用户要求摆：底部 9 个食材桶 → 中列 9 口锅（2 口在烧）→ 上列 9 个专属盘。
+   bf-13 盘上永久保鲜：5 个盘上的份盘龄从 0.4s 到 90s，画面上**全部**是「热乎」+
+   「∞ 可一直放着」—— 旧图在这里摆的是「热乎 / 温 / 凉 / 糊了」四态 + N.Ns 倒计时，
+   那套口径（4.5s 不取就糊）已经不存在了，见 ②b 那张对比图。 */
+{
+  const SC = 1.5;
+  const b = boot(SC);
+  b.B.start(b.host, { target: { id: "su", name: "苏晚晴", bond: 40 }, duration: 75, goal: 8, onFinish: () => {} });
+  const d = b.B.debug;
+  adv(d, 4.2);                                        // 逻辑推进（不渲染）：顾客进门、订单卡出来
+  /* 五列先各做一份（熟了各自落到本列专属盘）*/
+  d.drop("milk", null); d.drop("sandwich", null); d.drop("salad", null);
+  d.drop("bun", null); d.drop("soup", null);
+  { let g = 0; while (g++ < 600 && d.plates().length < 5) d.tick(1 / 60); }
+  /* 再让两列正在烧：0 列白粥（3.4s）、3 列煎蛋（2.2s）—— 画面里能看到火候进度环 */
+  d.drop("congee", null); d.drop("egg", null);
+  adv(d, 0.7);
+  /* bf-13：盘龄从 0.4s 摆到 90s —— 档位**一个都不掉**（旧口径这里会摆出 温 / 凉，4.5s 后还变糊）*/
+  d.setPlateAge(1, 0.4);                              // 热牛奶 → 盘龄 0.4s
+  d.setPlateAge(5, 2.2);                              // 三明治 → 盘龄 2.2s
+  d.setPlateAge(7, 3.6);                              // 沙拉   → 盘龄 3.6s
+  d.setPlateAge(6, 30);                               // 包子   → 盘龄 30s
+  d.setPlateAge(2, 90);                               // 清汤   → 盘龄 90s
+  b.texts.length = 0;                                  // 只保留最后一帧的文字（否则会把历史帧叠在一起）
+  b.pump(1, 16);                                       // 只渲染最后这一帧
+  save(b.canvas, "bf_game.png", b.texts,
+    "进行中：9 列列对齐（底部食材 → 中列锅 → 上列专属盘）+ 2 列在烧 + 盘上 5 份（盘龄 0.4~90s）全部「热乎」+「∞ 可一直放着」（bf-13 永久保鲜：没有倒计时）");
+  const st = d.state();
+  console.log("    [进行中] 顾客 " + d.orders().length + " 位 · 锅里 " + d.stations().filter(s => s.food).length +
+              " 样 · 盘上 " + d.plates().length + "/9 份 " + JSON.stringify(d.plates().map(p => p.food + ":" + (p.state === "burnt" ? "糊" : p.tier) + "@" + p.age + "s")) +
+              " · 糊 " + st.burnt + " 份 · 分 " + st.score +
+              " · 盘上「内送出」文案 " + b.texts.filter(t => /内送出/.test(t.text)).length + " 处");
+}

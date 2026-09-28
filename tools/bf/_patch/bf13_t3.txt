@@ -1,0 +1,51 @@
+test("9 盘 + 永久保鲜：盘上停留再久也不降档 / 不糊 / 不消失（放多久都能上，放多久都不凉）", () => {
+  assert.equal(R.SERVE_WINDOW, 4.5, "旧常量仍在（兼容层：只属于锅内出餐窗口）");
+  assert.equal(R.PLATES_TOTAL, 9, "9 个专属盘（不再是 3 个备菜盘）");
+  assert.equal(R.MAX_PLATES, 9);
+  /* ① 盘上永久保鲜：新口径的开关与「没有倒计时」哨兵 */
+  assert.equal(R.PLATE_KEEP, true, "PLATE_KEEP = true：盘上永久保鲜（bf-13 唯一口径）");
+  assert.equal(R.PLATE_NO_TIMER, Infinity, "PLATE_NO_TIMER = Infinity：盘上不存在有限倒计时");
+  assert.equal(R.plateBurntAt(R.SERVE_WINDOW - 0.01), false, "窗口前 0.01s：不糊");
+  assert.equal(R.plateBurntAt(R.SERVE_WINDOW + 0.01), false, "窗口后 0.01s：**也不糊**（原口径：已经糊）");
+  assert.equal(R.plateBurntAt(R.SERVE_WINDOW), false, "正好到点也不糊（原口径：到点即糊）");
+  assert.equal(R.plateBurntAt(0), false, "刚落盘不算糊");
+  assert.equal(R.plateBurntAt(60), false, "放 60s 照样不糊");
+  assert.equal(R.plateBurntAt(1e6), false, "放到任意久都不糊");
+  assert.equal(R.plateLeftSec(0), Infinity, "刚落盘就没有倒计时（原口径：还剩满窗口 4.5s）");
+  assert.equal(R.plateLeftSec(R.SERVE_WINDOW + 1), Infinity, "过了旧窗口仍是「没有倒计时」（原口径：剩余 0）");
+  assert.equal(R.plateLeftSec(600), Infinity, "600s 后仍是 Infinity（永不倒数）");
+  /* ② 真实推进：旧窗口两侧都不糊，而且照样能上餐、照样吃最高档 */
+  const st = plateState();
+  const c = longPatience(R.spawnCustomer(st, ["salad"]));
+  const col = plated(st, "salad", R.FOOD.salad.dur + 0.05);
+  const p = R.plateOfStation(st, col);
+  p.at = st.elapsed - (R.SERVE_WINDOW - 0.01);
+  R.step(st, 0);
+  assert.equal(R.plateOfStation(st, col).state, "perfect", "窗口前 0.01s：还是好的");
+  assert.equal(R.plateOfStation(st, col).tier, "hot", "此时仍是「热乎」档（原口径：只剩「凉」）");
+  assert.equal(st.burnt, 0, "还没糊");
+  R.plateOfStation(st, col).at = st.elapsed - (R.SERVE_WINDOW + 0.01);
+  R.step(st, 0);
+  assert.equal(R.plateOfStation(st, col).state, "perfect", "窗口后 0.01s：**还是好的**（原口径：糊了）");
+  assert.equal(R.plateOfStation(st, col).tier, "hot", "窗口后仍是「热乎」档");
+  assert.equal(R.plateOfStation(st, col).burning, false, "burning 恒为 false：盘上不存在「正在烧糊」");
+  assert.equal(st.burnt, 0, "糊的次数一次都没涨（原口径：+1）");
+  assert.equal(st.expire, 0, "「忘取」账也是 0（盘上不存在忘取报废）");
+  const rNow = R.serveFromColumn(st, col);
+  assert.equal(rNow.ok, true); assert.equal(rNow.heat, "hot");
+  assert.equal(rNow.delta, 14, "过了旧窗口照样吃最高档 14 分");
+  assert.equal(c.done.indexOf("salad") >= 0, true, "照样算服务成功");
+  /* ③ 自然推进（不手动拨表）也不会超时报废 */
+  const st2 = plateState();
+  longPatience(R.spawnCustomer(st2, ["juice"]));
+  const col2 = plated(st2, "juice", R.FOOD.juice.dur + 0.05);
+  advance(st2, R.SERVE_WINDOW - 0.2);
+  assert.equal(R.plateOfStation(st2, col2).state, "perfect", "4.3s：还在盘上等着");
+  advance(st2, 0.3);
+  assert.equal(R.plateOfStation(st2, col2).state, "perfect", "4.6s：**还在**（原口径：忘取 → 糊）");
+  assert.equal(R.plateOfStation(st2, col2).tier, "hot", "4.6s 仍是热乎档");
+  assert.equal(st2.burnt, 0, "没有糊掉记账");
+  assert.equal(st2.expire, 0, "也没有忘取记账");
+  const r2 = R.serveFromColumn(st2, col2);
+  assert.equal(r2.ok, true); assert.equal(r2.delta, 14, "4.6s 后仍能吃 14 分");
+});

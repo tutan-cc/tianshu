@@ -1,0 +1,2 @@
+    return { station:stationIdx, food:foodId, state:state, tier:tier, hot:(tier === "hot"),
+             at:st.elapsed, age:0, left:PLATE_NO_TIMER, burning:false, burntAt:0,

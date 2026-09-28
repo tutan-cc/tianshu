@@ -1,0 +1,31 @@
+  d6.drop("egg", null);
+  for (let i = 0; i < 300 && !d6.stations()[3].windowOpen; i++) d6.tick(1 / 60);
+  /* bf-14 新 UI：锅内「恰好」→ 画「起锅」提示 + 窗口倒计时（t6p）*/
+  d6b.canvas()._m.texts.length = 0;
+  d6b.pump(1);
+  const t6p = d6b.canvas()._m.texts;
+  A(t6p.some(x => /起锅/.test(x)), "锅里熟了 → 画出「起锅」提示", (t6p.filter(x => /起锅/.test(x))[0] || ""));
+  A(t6p.some(x => /恰好 · 起锅 d+.d+s/.test(x)), "同时画出窗口倒计时环的秒数（恰好 · 起锅 N.Ns）",
+    (t6p.filter(x => /恰好 · 起锅/.test(x))[0] || ""));
+  A(t6p.some(x => /点锅起锅/.test(x)), "图例②写明「熟了 4.5s 内点锅起锅」",
+    (t6p.filter(x => /点锅起锅/.test(x))[0] || ""));
+  A(t6p.some(x => /盘被占了就只能糊掉/.test(x)), "底排说明写明「盘被占了就只能糊掉（双击丢弃再用锅）」",
+    (t6p.filter(x => /盘被占/.test(x))[0] || ""));
+  A(!t6p.some(x => /自动落盘/.test(x)) && !t6p.some(x => /内送出/.test(x)),
+    "画面上没有任何「自动落盘 / N.Ns 内送出」这类旧文案");
+  /* 盘被占 → 锅上明说「没地方放」（红字）*/
+  d6.takeOut(3);
+  d6.drop("egg", null);
+  for (let i = 0; i < 300 && !d6.stations()[3].windowOpen; i++) d6.tick(1 / 60);
+  d6b.canvas()._m.texts.length = 0;
+  d6b.pump(1);
+  const t6q = d6b.canvas()._m.texts;
+  A(t6q.some(x => /盘占着 · 没地方放/.test(x)), "盘被占 → 锅上画「盘占着 · 没地方放」",
+    (t6q.filter(x => /没地方放/.test(x))[0] || ""));
+  /* 回到「盘上永久保鲜」那条渲染线：把第 3 列清干净，重新起锅一份 */
+  d6.trash(3);
+  d6.drop("egg", null);
+  for (let i = 0; i < 300 && !d6.stations()[3].windowOpen; i++) d6.tick(1 / 60);
+  d6.takeOut(3);
+  d6b.canvas()._m.texts.length = 0;
+  d6b.pump(1);

@@ -1,0 +1,22 @@
+/** 给当前第一位顾客做他要的下一道菜：下锅 → **窗口内点锅起锅**（bf-14）→ 单击盘端上去。
+    做不了 / 没人要 → 清掉这一列并返回 null。返回 serve 结果。 */
+function autoServe(st) {
+  const list = R.activeCustomers(st);
+  if (!list.length) return null;
+  const c0 = list[0];
+  let want = null;
+  for (let i = 0; i < c0.order.length; i++) if (c0.done.indexOf(c0.order[i]) < 0) { want = c0.order[i]; break; }
+  if (!want) return null;
+  const col = R.columnOf(want);
+  if (R.plateOfStation(st, col)) {                 // 盘里还有一份 → 先送出去腾地方（bf-14）
+    const rr = R.serveFromColumn(st, col);
+    if (!rr.ok) R.trashStation(st, col);
+  }
+  if (!R.stationFree(st, col)) return null;
+  if (!R.placeFood(st, want, col)) return null;
+  const po = pickOut(st, col);                     // 熟了要在起锅窗口内点锅
+  if (!po.ok) { R.trashStation(st, col); return null; }
+  const r = R.serveFromColumn(st, col);            // 单击盘 → 自动送给正在等的顾客
+  if (!r.ok) R.trashStation(st, col);
+  return r;
+}

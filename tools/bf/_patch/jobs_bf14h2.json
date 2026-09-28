@@ -1,0 +1,19 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  d4.trash(0);\n  /* bf-13 盘上永久保鲜：旧断言是「停 1.7s → 温 / 停 3.2s → 凉」，现在改成",
+   "textFile": "tools/bf/_patch/bf14h2_replate0.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "    if (nowant) {\n      A(d4.stations()[nowant.col].plate === nowant.f, \"这份留在盘上永久保鲜（不消耗）\");\n      d4.setPlateAge(nowant.col, B.SERVE_WINDOW - 0.1);",
+   "textFile": "tools/bf/_patch/bf14h2_expire_rel.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "      A(d4.state().expire === 0, \"「忘取」账仍是 0（旧断言：记了一次忘取）\");",
+   "textFile": "tools/bf/_patch/bf14h2_expire_assert.txt"
+  }
+ ]
+}

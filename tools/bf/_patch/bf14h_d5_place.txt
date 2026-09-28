@@ -1,0 +1,3 @@
+  A(d5.placeEx("egg", null).ok === true, "盘占着**也能下料**（bf-14 新口径；原断言：plate-occupied）");
+  A(d5.takeOut(3).why === "raw", "刚下锅那份起锅被拒（raw —— 不是盘的问题）");
+  A(d5.trashCol(3) === true && d5.placeEx("egg", null).ok === true, "双击丢掉后才能再用");

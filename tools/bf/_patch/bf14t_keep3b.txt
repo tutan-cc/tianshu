@@ -1,0 +1,11 @@
+  /* ③b 页面默认（autoPlate **关闭** · bf-14）：一到「恰好」就停在锅里等起锅；
+         这里点锅起锅，之后盘上那份 60s 后仍是热乎档（锅内那条压力不回流到盘上） */
+  const st2 = plateState();
+  assert.equal(st2.cfg.autoPlate, false, "bf-14：autoPlate 默认关闭");
+  assert.equal(R.placeFood(st2, "egg", null), true);
+  assert.equal(pickOut(st2, col, 12).ok, true, "窗口内单击锅 → 起锅落盘");
+  assert.equal(st2.stations[col].food, null, "起锅后锅位空出来");
+  assert.equal(R.plateOfStation(st2, col).state, "perfect");
+  advance(st2, 60);
+  assert.equal(st2.burnt, 0, "盘上那份 60s 里一次都没糊（压力只在锅里，不在盘上）");
+  assert.equal(R.plateOfStation(st2, col).tier, "hot", "盘上那份 60s 后仍是热乎档");

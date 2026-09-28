@@ -1,0 +1,1 @@
+        g.fillText("顾客马上进门 —— 先把 " + COL_N + " 列的食材点上；锅里一熟就点锅起锅（" + SERVE_WINDOW + "s 内），落到本列盘上等着 —— 盘上放多久都能上", b0.x + wAll / 2, b0.y + LAY.cards.h / 2);

@@ -1,0 +1,3 @@
+          serveWindow:SERVE_WINDOW, panWindow:SERVE_WINDOW, panBurntSticky:PAN_BURNT_STICKY,
+          plateLife:PLATE_NO_TIMER, plateKeep:PLATE_KEEP,
+          expire:st.expire || 0, tossed:st.tossed || 0,

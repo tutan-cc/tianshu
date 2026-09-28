@@ -114,6 +114,11 @@ python -m http.server 8000
 > 素材（`video/` `audio/`）不入 git 仓库。clone 后需下载素材包并跑一次 `link-media.ps1`，
 > 详见 **[协作者上手指南.md](协作者上手指南.md)**。
 > ⚠ `http.server` 会把整个目录暴露出去（含 `tools/`），仅限本机自用，勿对外开端口。
+>
+> 🧠 侧栏「自然语言 · 影子模式」（**只记录、绝不自动跳转**）要额外起一个**本地反代**才用得了：TypeSafe 接口不放行浏览器直连，
+> 且这样 **key 只在 Node 侧、不用进浏览器**。一条命令起齐反代(8010)+静态服务(8000)：
+> `powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/nlroute-up.ps1`（收摊加 `-Stop`；key 由环境变量 `TYPESAFE_API_KEY` 提供）。
+> 没起反代时该功能静默关闭并给一行"先执行 …"的提示，**游戏本身不受任何影响**。详见 **[docs/自然语言影子模式报告.md](docs/自然语言影子模式报告.md)**。
 
 ## 操作
 

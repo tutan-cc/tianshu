@@ -1,0 +1,3 @@
+  A(win.win === true, "拿到 win:true", "served " + win.served + "/" + win.goal);
+  A(win.served >= 8, "服务满 8 位顾客", win.served + " 位");
+  A(win.burnt === 0, "全程按新规则点锅起锅 → 一份都没糊（bf-14：限时起锅是能做到的）", "burnt=" + win.burnt);

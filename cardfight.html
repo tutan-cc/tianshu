@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>卡牌对决 · 12 卡 5 轮</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   卡牌对决 —— 单文件、零依赖、双击即玩
+   设计说明：
+   · 整页用 #stage 设计成固定 1280×860 的"设计画布"，再用 transform: scale()
+     等比缩放到窗口 —— 这是"屏幕大小变化时整体缩放适配"的实现方式（见 fitStage）。
+     比满屏 flex 稳：所有动画的像素位移在任何窗口尺寸下都一致，不会这边挤出重叠。
+   · 卡牌是 CSS 3D 翻转（.card > .inner，rotateY 180°），不是换图片。
+   · 抽牌用 FLIP：克隆卡背 → 记下起点/终点矩形 → 用 transform 飞过去 → 落位时换成真卡。
+   ═══════════════════════════════════════════════════════════════════ */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#08060f}
+body{
+  font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  display:flex;align-items:center;justify-content:center;
+  /* 背景：三团径向光 + 深底，营造"地下拳台"的氛围 */
+  background:
+    radial-gradient(ellipse 70% 55% at 22% 18%, rgba(90,60,180,.42), transparent 62%),
+    radial-gradient(ellipse 65% 55% at 80% 80%, rgba(200,50,110,.30), transparent 62%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(40,120,200,.16), transparent 70%),
+    #08060f;
+  -webkit-font-smoothing:antialiased;
+}
+#stage{width:1280px;height:860px;position:relative;flex:0 0 auto;transform-origin:center center}
+
+/* ── 通用卡片外观 ───────────────────────────────────────────────── */
+.card{
+  position:absolute;width:var(--cw);height:var(--ch);
+  perspective:900px;           /* 3D 翻转的视距：太小会畸变，太大就没有立体感 */
+  transition:transform .18s ease, filter .18s ease, opacity .18s ease;
+}
+.card .inner{
+  position:relative;width:100%;height:100%;
+  transform-style:preserve-3d;
+  transition:transform .5s cubic-bezier(.4,.1,.2,1);
+}
+.card.flipped .inner{transform:rotateY(180deg)}
+.face{
+  position:absolute;inset:0;border-radius:10px;
+  backface-visibility:hidden;-webkit-backface-visibility:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  overflow:hidden;
+}
+/* 卡背：深紫底 + 斜纹 + 金菱徽记 */
+.back{
+  background:linear-gradient(145deg,#2b2050,#171029 55%,#2b2050);
+  border:2px solid #0a0714;
+  box-shadow:inset 0 0 0 1px rgba(255,215,110,.28), 0 6px 16px rgba(0,0,0,.55);
+}
+.back::before{
+  content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(45deg,rgba(140,110,255,.16) 0 6px,transparent 6px 14px);
+}
+.back::after{
+  content:"◆";position:absolute;font-size:calc(var(--cw) * .34);
+  color:#ffd76e;text-shadow:0 0 14px rgba(255,215,110,.7);
+}
+/* 卡面：浅色 + 类型色描边（--c 由 JS 按卡牌类型写入） */
+.front{
+  transform:rotateY(180deg);
+  background:linear-gradient(170deg,#f6ecf3,#e2cee0 60%,#cfb6cc);
+  border:2px solid #0a0714;
+  box-shadow:inset 0 0 0 2px var(--c), 0 6px 16px rgba(0,0,0,.55);
+  padding:6px 4px;
+  gap:2px;
+}
+.front .ico{font-size:calc(var(--cw) * .30);line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
+.front .nm{font-size:calc(var(--cw) * .115);font-weight:800;color:#1c1424;letter-spacing:.5px}
+.front .vl{
+  font-size:calc(var(--cw) * .125);font-weight:900;color:#1c1424;
+  background:#ffd76e;border-radius:99px;padding:1px 8px;
+  box-shadow:0 2px 5px rgba(0,0,0,.22);
+}
+.front .ds{
+  font-size:calc(var(--cw) * .082);color:#4a3c52;line-height:1.28;text-align:center;
+  padding:0 3px;max-height:2.6em;overflow:hidden;
+}
+.front .tag{
+  position:absolute;top:4px;left:4px;
+  font-size:calc(var(--cw) * .078);font-weight:800;color:#fff;
+  background:var(--c);border-radius:99px;padding:1px 6px;
+  box-shadow:0 1px 4px rgba(0,0,0,.3);
+}
+
+/* ── 开场：双方对峙 + VS ────────────────────────────────────────── */
+#opening{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}
+#opening.hide{opacity:0;pointer-events:none;transition:opacity .5s ease}
+.duel{display:flex;align-items:center;gap:70px}
+.fighter-big{display:flex;flex-direction:column;align-items:center;gap:10px}
+.avatar{
+  width:190px;height:190px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:104px;
+  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.16),rgba(0,0,0,.4));
+  border:3px solid var(--c);
+  box-shadow:0 0 34px var(--glow), inset 0 0 30px rgba(0,0,0,.5);
+  animation:float 3.2s ease-in-out infinite;
+}
+.fighter-big.right .avatar{animation-delay:-1.6s}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+.fighter-big .nm-big{font-size:22px;font-weight:800;color:#fff;letter-spacing:2px}
+.fighter-big .hp-big{font-size:13px;color:#a99fc4;letter-spacing:1px}
+/* 从两侧滑入 */
+.from-left{animation:slideL .7s cubic-bezier(.2,.9,.25,1) both}
+.from-right{animation:slideR .7s cubic-bezier(.2,.9,.25,1) both}
+@keyframes slideL{from{transform:translateX(-360px);opacity:0}to{transform:none;opacity:1}}
+@keyframes slideR{from{transform:translateX(360px);opacity:0}to{transform:none;opacity:1}}
+#vs{
+  font-size:96px;font-weight:900;font-style:italic;letter-spacing:-4px;
+  background:linear-gradient(180deg,#fff6c9,#ffb03a 55%,#ff4d6d);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 0 40px rgba(255,120,60,.6);
+  animation:vsIn .55s cubic-bezier(.2,1.6,.4,1) .45s both;
+}
+@keyframes vsIn{from{transform:scale(3.4) rotate(-14deg);opacity:0}to{transform:none;opacity:1}}
+/* 开场那圈冲击波 */
+#vsRing{
+  position:absolute;width:340px;height:340px;border-radius:50%;
+  border:3px solid rgba(255,180,80,.75);opacity:0;
+  animation:ring 1s ease-out .5s 2;
+}
+@keyframes ring{from{transform:scale(.3);opacity:.9}to{transform:scale(2.1);opacity:0}}
+
+/* ── 战斗 HUD ───────────────────────────────────────────────────── */
+#battle{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .45s ease}
+#battle.on{opacity:1;pointer-events:auto}
+.hud{position:absolute;top:16px;display:flex;flex-direction:column;gap:6px;width:470px}
+.hud.left{left:26px}
+.hud.right{right:26px;align-items:flex-end}
+.hud .row{display:flex;align-items:center;gap:10px}
+.hud.right .row{flex-direction:row-reverse}
+.hud .av{
+  width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:30px;background:rgba(255,255,255,.07);border:2px solid var(--c);flex:0 0 auto;
+}
+.hud .meta{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}
+.hud.right .meta{align-items:flex-end}
+.hud .who{font-size:15px;font-weight:800;color:#fff;letter-spacing:1px}
+/* 血条：用内层宽度过渡实现平滑变化 */
+.bar{position:relative;width:100%;height:16px;border-radius:99px;background:rgba(255,255,255,.10);overflow:hidden;
+     box-shadow:inset 0 1px 4px rgba(0,0,0,.6)}
+.bar > i{position:absolute;inset:0;transform-origin:left center;border-radius:99px;
+     transition:transform .55s cubic-bezier(.3,.9,.3,1), background .3s}
+.hud.right .bar > i{transform-origin:right center}
+.bar > i.hp{background:linear-gradient(90deg,#5dffa0,#28c46a)}
+.bar > i.hp.low{background:linear-gradient(90deg,#ff6b6b,#c42b2b)}
+/* 护盾条：叠在血条上方的一条细带 */
+.shbar{position:relative;width:100%;height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+.shbar > i{position:absolute;inset:0;transform-origin:left center;border-radius:99px;
+     background:linear-gradient(90deg,#8fd8ff,#3aa9ff);transition:transform .45s cubic-bezier(.3,.9,.3,1)}
+.hud.right .shbar > i{transform-origin:right center}
+.hud .num{font-size:13px;color:#cdc4e2;font-variant-numeric:tabular-nums}
+.hud .num b{color:#fff;font-size:16px}
+#roundTag{
+  position:absolute;top:18px;left:50%;transform:translateX(-50%);
+  text-align:center;color:#fff;
+}
+#roundTag .r{font-size:26px;font-weight:900;letter-spacing:2px;text-shadow:0 2px 10px rgba(0,0,0,.7)}
+#roundTag .s{font-size:12px;color:#a99fc4;letter-spacing:3px;margin-top:2px}
+/* 蓄力/减疗之类的状态标记 */
+.badges{position:absolute;top:96px;display:flex;gap:6px}
+.badges.left{left:26px}
+.badges.right{right:26px}
+.badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;
+  background:rgba(255,215,110,.16);border:1px solid rgba(255,215,110,.5);color:#ffd76e;
+  animation:pop .3s cubic-bezier(.2,1.5,.4,1) both}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+
+/* ── 中央牌堆：12 张卡背（2 列 × 6 行，贴右侧中部）────────────────
+   ⚠ 必须用 grid 而不是 flex-wrap：flex 下"一行放得下几张"取决于像素计算，
+     宽度一顶到上限就断出残行（实测 6+3，第二行压在卡槽上）。grid 锁死列数则无关。
+   ⚠ 卡背尺寸必须等于 3D 翻转用的 .card 尺寸（--cw/--ch）：背面是 inset:0 撑满、
+     正面按 --cw 算字号，两者不一致时翻面会看到尺寸跳变。
+   ⚠ 纵向位置要避开右上角的对手 HUD（血条+名字占到 y≈95）——
+     贴 top:14 时会压在"赤鬼 / 生命 60"上面（实测截图确认过）。 */
+#deck{position:absolute;right:12px;top:104px;z-index:14;
+      display:grid;grid-template-columns:repeat(2,66px);grid-auto-rows:92px;
+      gap:6px 8px;place-content:center;transition:opacity .35s}
+#deck.gone{opacity:0}
+#deck .card{position:relative;width:66px;height:92px;--cw:66px;--ch:92px}
+/* 牌堆里的卡背**是可点的**（玩家自己抽），所以必须有可点的反馈：
+   悬停上浮 + 金色描边 + 手型光标；已抽走的那张淡出并立刻停止接收点击。 */
+#deck .card.pickable{cursor:pointer}
+#deck .card.pickable:hover{transform:translateY(-7px) scale(1.07);filter:brightness(1.25)}
+#deck .card.pickable:hover .back{box-shadow:inset 0 0 0 2px rgba(255,215,110,.95), 0 8px 20px rgba(0,0,0,.6)}
+#deck .card.picked{opacity:0;transform:scale(.7);transition:opacity .25s, transform .25s;pointer-events:none}
+/* 已经用掉的手牌：灰掉 + 略微下沉，但仍留在原位（因为一轮要打三次，需要对照看）*/
+.slot .card.spent{filter:grayscale(.85) brightness(.45);opacity:.5;transform:scale(.92);cursor:default}
+/* 抽满三张、可以开打时，卡槽描边变亮 */
+.slot.waiting{border-color:rgba(255,215,110,.4);background:rgba(255,215,110,.05)}
+#slots.ready .slot{border-color:rgba(93,255,160,.4);background:rgba(93,255,160,.05)}
+#deckPile{position:absolute;right:6px;top:694px;width:152px;text-align:center;
+      font-size:11px;color:#a99fc4;letter-spacing:.5px;line-height:1.45}
+
+/* ── 人物战场（canvas）─────────────────────────────────────────────
+   延用打斗 2.0 的立绘与侧视舞台（art/fight2/*.png），所以这里是一块画布，
+   不是 DOM 头像 —— 出招/挨打/格挡都是真的姿势切换 + 位移，不是换个字。
+   pointer-events:none：它占着左半边，绝不能挡住卡组的点击。 */
+#arena{position:absolute;left:26px;top:132px;width:1080px;height:430px;
+       border-radius:18px;pointer-events:none;
+       background:linear-gradient(180deg,rgba(32,22,58,.8),rgba(12,8,24,.92));
+       border:1px solid rgba(255,255,255,.08);
+       box-shadow:inset 0 0 70px rgba(80,50,160,.28), 0 12px 34px rgba(0,0,0,.5)}
+#arenaTag{position:absolute;left:44px;top:142px;font-size:12px;color:#8a80a8;letter-spacing:2px;
+       pointer-events:none}
+/* 对手出的牌：摆在战场正中的空位（双方站位刻意让开中间，见 Stage.PX）*/
+#foeCard{position:absolute;left:50%;top:296px;transform:translateX(-50%);z-index:12}
+#foeCard .card{position:relative;--cw:118px;--ch:172px}
+#foeLabel{position:absolute;left:50%;top:270px;transform:translateX(-50%);z-index:12;
+  font-size:13px;color:#ffb0c0;letter-spacing:2px;opacity:0;transition:opacity .3s}
+#foeLabel.on{opacity:1}
+
+/* ── 玩家手牌卡槽 ───────────────────────────────────────────────── */
+#slots{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);
+       display:flex;gap:26px;align-items:flex-end;height:230px}
+.slot{
+  width:140px;height:206px;border-radius:12px;flex:0 0 auto;
+  border:2px dashed rgba(255,255,255,.16);
+  display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px;
+  font-size:12px;color:#7d739c;position:relative;
+  transition:border-color .3s, background .3s, box-shadow .3s;
+}
+.slot.hot{border-color:rgba(255,215,110,.55);background:rgba(255,215,110,.06)}
+.slot .card{--cw:132px;--ch:194px;bottom:8px}
+/* 手牌可选时抬起 + 悬停上浮；已选中一张后其余变暗 */
+.slot .card.pickable{cursor:pointer}
+.slot .card.pickable:hover{transform:translateY(-18px) scale(1.05);filter:brightness(1.12)}
+.slot .card.chosen{transform:translateY(-26px) scale(1.08);filter:brightness(1.18)}
+.slot .card.chosen .front{box-shadow:inset 0 0 0 3px #ffd76e, 0 0 34px rgba(255,215,110,.75), 0 10px 24px rgba(0,0,0,.6)}
+.slot .card.dimmed{filter:grayscale(.7) brightness(.5);opacity:.55;transform:scale(.94)}
+
+/* ── 对手出的牌 ─────────────────────────────────────────────────── */
+
+/* ── 过程文字（"双方同时出手…"）───────────────────────────────── */
+/* 过程大字（"第 N 次交锋"）。
+   ⚠ 位置必须避开下方手牌：原来在 top:52% 会正好压住三张手牌，
+     玩家看不到"哪张牌打出去了"，还会以为这一轮只打了两次。
+     现在放到 top:26%（战场中偏上，人物腰部以上），并稍微收小字号。 */
+#callout{
+  position:absolute;left:50%;top:26%;transform:translate(-50%,-50%) scale(.8);
+  font-size:34px;font-weight:900;letter-spacing:6px;color:#fff;opacity:0;
+  text-shadow:0 0 26px rgba(255,180,80,.85),0 4px 16px rgba(0,0,0,.85);
+  pointer-events:none;white-space:nowrap;
+}
+#callout.show{animation:callout .95s cubic-bezier(.2,1.3,.3,1) both}
+@keyframes callout{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.55)}
+  22%{opacity:1;transform:translate(-50%,-50%) scale(1.06)}
+  70%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(1.12)}
+}
+
+/* ── 飘字：伤害/治疗/护盾 ───────────────────────────────────────── */
+.float{
+  position:absolute;font-size:34px;font-weight:900;pointer-events:none;
+  font-variant-numeric:tabular-nums;letter-spacing:1px;
+  text-shadow:0 3px 12px rgba(0,0,0,.85), 0 0 18px currentColor;
+  animation:floatUp 1.15s cubic-bezier(.2,.8,.3,1) both;
+}
+@keyframes floatUp{
+  0%{opacity:0;transform:translate(-50%,0) scale(.5)}
+  18%{opacity:1;transform:translate(-50%,-16px) scale(1.22)}
+  36%{transform:translate(-50%,-26px) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-108px) scale(.95)}
+}
+/* 命中闪光：整屏一层暖光 */
+#flash{position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(circle at 50% 45%,rgba(255,220,150,.5),transparent 62%)}
+#flash.hit{animation:flashHit .34s ease-out both}
+@keyframes flashHit{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
+/* 受击抖动 */
+.shake{animation:shake .38s cubic-bezier(.36,.07,.19,.97) both}
+@keyframes shake{
+  10%,90%{transform:translateX(-3px)}30%,70%{transform:translateX(6px)}
+  50%{transform:translateX(-8px)}100%{transform:none}
+}
+
+/* ── 结果面板 ───────────────────────────────────────────────────── */
+#result{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(6,4,12,.78);backdrop-filter:blur(6px);opacity:0;pointer-events:none;
+  transition:opacity .45s ease;z-index:40;
+}
+#result.on{opacity:1;pointer-events:auto}
+#result .panel{
+  width:520px;padding:34px 30px;border-radius:20px;text-align:center;
+  background:linear-gradient(165deg,rgba(46,32,74,.97),rgba(20,14,34,.97));
+  border:2px solid rgba(255,215,110,.45);
+  box-shadow:0 30px 80px rgba(0,0,0,.7), inset 0 0 40px rgba(120,80,220,.18);
+  transform:scale(.86) translateY(20px);transition:transform .45s cubic-bezier(.2,1.3,.4,1);
+}
+#result.on .panel{transform:none}
+#result .ttl{font-size:44px;font-weight:900;letter-spacing:4px;margin-bottom:6px;
+  background:linear-gradient(180deg,#fff6c9,#ffb03a);-webkit-background-clip:text;background-clip:text;color:transparent}
+#result.lose .ttl{background:linear-gradient(180deg,#ffd7dd,#ff5c7a);-webkit-background-clip:text;background-clip:text}
+#result.draw .ttl{background:linear-gradient(180deg,#e6e2f2,#a99fc4);-webkit-background-clip:text;background-clip:text}
+#result .sub{font-size:14px;color:#b8afd0;margin-bottom:18px;letter-spacing:1px}
+#result .stats{display:flex;justify-content:center;gap:26px;margin-bottom:22px}
+#result .stat{min-width:120px}
+#result .stat .k{font-size:12px;color:#8a80a8;letter-spacing:1px;margin-bottom:4px}
+#result .stat .v{font-size:30px;font-weight:900;color:#fff}
+#result .stat .v.em{color:#5dffa0}
+#result .log{max-height:120px;overflow:auto;text-align:left;font-size:12.5px;color:#a99fc4;
+  background:rgba(0,0,0,.3);border-radius:10px;padding:10px 12px;margin-bottom:20px;line-height:1.7}
+.btn{
+  font:inherit;font-size:17px;font-weight:800;letter-spacing:2px;color:#1a1024;
+  background:linear-gradient(180deg,#ffe9a8,#ffc23a);border:none;border-radius:99px;
+  padding:13px 46px;cursor:pointer;
+  box-shadow:0 8px 22px rgba(255,180,60,.35), inset 0 -3px 0 rgba(0,0,0,.16);
+  transition:transform .16s ease, box-shadow .16s ease, filter .16s ease;
+}
+.btn:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(255,180,60,.5);filter:brightness(1.06)}
+.btn:active{transform:translateY(0) scale(.98)}
+.btn.ghost{background:transparent;color:#cfc6e6;border:2px solid rgba(255,255,255,.22);box-shadow:none}
+.btn.ghost:hover{border-color:rgba(255,215,110,.6);color:#ffd76e}
+#startBtn{margin-top:8px}
+.hint{font-size:12.5px;color:#8a80a8;letter-spacing:1px}
+#err{
+  position:absolute;left:50%;bottom:8px;transform:translateX(-50%);
+  font-size:12px;color:#ff8fa3;background:rgba(0,0,0,.7);padding:4px 12px;border-radius:8px;display:none;z-index:60;
+}
+/* 静音开关：右下角小圆钮，平时半透明，悬停才亮 */
+#muteBtn{
+  position:absolute;right:10px;bottom:8px;width:38px;height:38px;z-index:70;
+  border-radius:50%;cursor:pointer;font-size:17px;line-height:1;
+  background:rgba(28,20,46,.72);border:1px solid rgba(255,255,255,.16);
+  color:#cfc6e6;opacity:.5;transition:opacity .2s, transform .15s, border-color .2s;
+}
+#muteBtn:hover{opacity:1;transform:scale(1.08);border-color:rgba(255,215,110,.6)}
+#muteBtn.off{color:#ff8fa3;border-color:rgba(255,143,163,.5)}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="flash"></div>
+
+  <!-- 开场 -->
+  <div id="opening">
+    <div class="duel">
+      <div class="fighter-big from-left" style="--c:#4dd8ff;--glow:rgba(77,216,255,.55)">
+        <div class="avatar">🧙</div>
+        <div class="nm-big">你</div>
+        <div class="hp-big">生命 60 · 护盾 0</div>
+      </div>
+      <div id="vsRing"></div>
+      <div id="vs">VS</div>
+      <div class="fighter-big right from-right" style="--c:#ff4d6d;--glow:rgba(255,77,109,.55)">
+        <div class="avatar">👹</div>
+        <div class="nm-big">赤鬼</div>
+        <div class="hp-big">生命 60 · 护盾 0</div>
+      </div>
+    </div>
+    <div id="startBtn" style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <button class="btn" id="goBtn">开 始 对 决</button>
+      <div class="hint">12 张卡 · 每轮抽 3 张选 1 张 · 共 5 轮 · 双方同时结算</div>
+    </div>
+  </div>
+
+  <!-- 战斗界面 -->
+  <div id="battle">
+    <div class="hud left" style="--c:#4dd8ff">
+      <div class="row">
+        <div class="av">🧙</div>
+        <div class="meta">
+          <div class="who">你</div>
+          <div class="bar"><i class="hp" id="pBar"></i></div>
+          <div class="shbar"><i id="pShield"></i></div>
+        </div>
+      </div>
+      <div class="num">生命 <b id="pHpTxt">60</b> / 60 · 护盾 <b id="pShTxt">0</b></div>
+    </div>
+    <div class="hud right" style="--c:#ff4d6d">
+      <div class="row">
+        <div class="av">👹</div>
+        <div class="meta">
+          <div class="who">赤鬼</div>
+          <div class="bar"><i class="hp" id="eBar"></i></div>
+          <div class="shbar"><i id="eShield"></i></div>
+        </div>
+      </div>
+      <div class="num">生命 <b id="eHpTxt">60</b> / 60 · 护盾 <b id="eShTxt">0</b></div>
+    </div>
+    <div class="badges left" id="pBadges"></div>
+    <div class="badges right" id="eBadges"></div>
+
+    <div id="roundTag" style="position:absolute;top:18px;left:50%">
+      <div class="r" id="roundTxt">第 1 轮</div>
+      <div class="s" id="roundSub">共 5 轮 · 第 1/3 次交锋</div>
+    </div>
+
+    <canvas id="arena" width="1080" height="430"></canvas>
+    <div id="arenaTag">战 场</div>
+    <div id="deck"></div>
+    <div id="deckPile">牌堆 12 张</div>
+
+    <div id="foeLabel">赤鬼出牌</div>
+    <div id="foeCard"></div>
+
+    <div id="slots">
+      <div class="slot" data-i="0">卡槽 1</div>
+      <div class="slot" data-i="1">卡槽 2</div>
+      <div class="slot" data-i="2">卡槽 3</div>
+    </div>
+
+    <div id="callout"></div>
+  </div>
+
+  <!-- 结果 -->
+  <div id="result">
+    <div class="panel">
+      <div class="ttl" id="rTtl">胜 利</div>
+      <div class="sub" id="rSub"></div>
+      <div class="stats">
+        <div class="stat"><div class="k">你的生命</div><div class="v em" id="rHp">—</div></div>
+        <div class="stat"><div class="k">对手生命</div><div class="v" id="rEhp">—</div></div>
+        <div class="stat"><div class="k">打了</div><div class="v" id="rRounds">—</div></div>
+      </div>
+      <div class="log" id="rLog"></div>
+      <button class="btn" id="againBtn">再 来 一 局</button>
+    </div>
+  </div>
+
+  <div id="err"></div>
+  <!-- 静音开关：一局要响 15 次交锋，必须有一个一键闭麦的入口 -->
+  <button id="muteBtn" title="开关音效" aria-label="开关音效">🔊</button>
+</div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════
+   1. 卡池：12 张
+   每张卡的字段：
+     key 唯一键 · ico emoji 图标 · nm 名称 · ds 描述 · vl 数值标签
+     type 决定卡面颜色与左上标签 · fx 结算函数（见 resolve 的顺序说明）
+   数值是按"60 血 / 5 轮"配的：一轮大约掉 10–16 血，所以纯攻 5 轮打不死，
+   必须有人把牌花在护盾和治疗上 —— 这就是每轮"选 1 张"的取舍来源。
+   ══════════════════════════════════════════════════════════════════ */
+const TYPE = {
+  atk:  { n:"出击", c:"#ff4d6d" },
+  def:  { n:"格挡", c:"#4dd8ff" },
+  heal: { n:"回血", c:"#5dffa0" },
+  sp:   { n:"特殊", c:"#b07dff" },
+};
+const CARDS = [
+  { key:"strike",  type:"atk",  ico:"🗡️", nm:"突刺",   vl:"10 伤害",
+    ds:"造成 10 点伤害", dmg:10 },
+  { key:"heavy",   type:"atk",  ico:"🔨", nm:"重击",   vl:"16 伤害",
+    ds:"造成 16 点伤害", dmg:16 },
+  { key:"pierce",  type:"atk",  ico:"🏹", nm:"破防",   vl:"8 穿盾",
+    ds:"无视护盾造成 8 点伤害", dmg:8, pierce:true },
+  { key:"drain",   type:"atk",  ico:"🩸", nm:"吸血",   vl:"11 吸半",
+    ds:"造成 11 点伤害，并回复其中一半", dmg:11, lifesteal:true },
+  { key:"charge",  type:"atk",  ico:"⚡", nm:"蓄力",   vl:"下轮 ×2",
+    ds:"本轮不出手：下一轮你的伤害翻倍", dmg:0, charge:true },
+  { key:"block",   type:"def",  ico:"🛡️", nm:"格挡",   vl:"+10 盾",
+    ds:"获得 10 点护盾", shield:10 },
+  { key:"wall",    type:"def",  ico:"🧱", nm:"铁壁",   vl:"+18 盾",
+    ds:"获得 18 点护盾", shield:18 },
+  { key:"counter", type:"def",  ico:"🪞", nm:"反击",   vl:"+8 反弹",
+    ds:"获得 8 点护盾，并反弹本轮所受伤害的一半", shield:8, counter:true },
+  { key:"heal",    type:"heal", ico:"💚", nm:"治疗",   vl:"+12 血",
+    ds:"回复 12 点生命", heal:12 },
+  { key:"regen",   type:"heal", ico:"🌿", nm:"再生",   vl:"+6 血 +6 盾",
+    ds:"回复 6 点生命，并获得 6 点护盾", heal:6, shield:6 },
+  { key:"curse",   type:"sp",   ico:"🕸️", nm:"诅咒",   vl:"7 伤 减疗",
+    ds:"造成 7 点伤害，对手本轮治疗减半", dmg:7, curse:true },
+  /* ⚠ 反击波必须自带一点护盾，否则它是**死牌**：
+     结算顺序是"① 加护盾 → ② 伤害 → … → ④ 特殊"，如果它自己不加盾，
+     ④ 读到的"当前护盾"只可能是上一轮剩下的 —— 开局无盾时永远算出 0 伤害
+     （这正是无头检查抓出来的：`反击波按当前护盾 12 造成伤害 [实际 2]`，2 是上轮残盾）。
+     自带 6 盾之后它是"小额打脸 + 攒盾"，与「铁壁」连用才是真正的爆发（24 伤害）。 */
+  { key:"reprisal",type:"sp",   ico:"💥", nm:"反击波", vl:"+6盾 · 盾=伤害",
+    ds:"获得 6 点护盾，并造成等同于你护盾的伤害", shield:6, reprisal:true },
+];
+const CARD_BY_KEY = {};
+CARDS.forEach((c) => { CARD_BY_KEY[c.key] = c; });
+
+/* ══════════════════════════════════════════════════════════════════
+   1.5 人物舞台（Stage）
+   延用打斗 2.0 的立绘与资源（art/fight2/*.png，每个角色四姿势）：
+     idle 待机 / strike 出招 / hit 受击 / ko 倒地
+   为什么不做"骨骼动画"：那套资源里就四张图，硬拼骨骼反而更假。
+   真实做法是**姿势切换 + 位移 + 缩放**：
+     出招 = 前冲（位移）+ strike 图；挨打 = 后退 + hit 图 + 火花 + 震屏；
+     格挡 = 轻退 + 一圈护盾光环；治疗 = 绿光上浮；蓄力 = 金色粒子。
+   时间轴用**排程队列**而不是纯状态机：一帧要同时跑位移、姿势回正、特效，
+   排程（arrivals）比"到点改状态"更好读也更好调。
+
+   ⚠ 立绘是外部 PNG（不是 data URI）—— 用 file:// 双击打开时浏览器允许读同目录文件，
+     所以这条路可行；但**如果立绘加载失败，页面不会崩**：drawFighter 会退回画剪影，
+     并在控制台留一条警告（见 loadSprites 的 onerror）。
+   ══════════════════════════════════════════════════════════════════ */
+const SPRITE_DIR = "art/fight2/";
+/* standH = 站姿高度（原图像素）；lowY = 该图底部留白（切图时对齐地面留下的）。
+   这两个数来自 tools/dev/cut-fight2-sprites.ps1 生成的 <slug>.json —— 换图必须同步，
+   不同步的后果是人物在场上忽大忽小或陷进地里。 */
+const SPRITE_META = {
+  player:  { slug:"puncher", standH:1036, lowY:{ idle:8,  strike:24, hit:17, ko:11 } },
+  enemy:   { slug:"brawler", standH:423,  lowY:{ idle:26, strike:29, hit:22, ko:8  } },
+};
+const POSES = ["idle", "strike", "hit", "ko"];
+
+const Stage = {
+  cv: null, g: null, img: {}, ready: false, missing: [],
+  /* 双方的绘制状态：pose 当前姿势、fwd 前冲(正=向对手)、vx 瞬时位移、
+     lift 纵向抬升、glow 光环、alpha 不透明度、scale 缩放 */
+  F: {
+    player: { pose:"idle", fwd:0, vx:0, lift:0, glow:null, alpha:1, scale:1 },
+    enemy:  { pose:"idle", fwd:0, vx:0, lift:0, glow:null, alpha:1, scale:1 },
+  },
+  arrivals: [],        // 排程：[{t:秒, fn}]，t<=0 当帧执行
+  fx: [],              // 粒子：[{x,y,vx,vy,life,max,color,r}]
+  shake: 0,
+  t: 0, last: 0, raf: 0,
+  /* 战场几何：设计尺寸 1080×430，地面线在 y=340。
+     双方站位**刻意让开中间** —— 中间那块空位留给"对手出的牌"（#foeCard），
+     否则牌会叠在人物脸上（实测第一版就是这样）。 */
+  W: 1080, H: 430, GROUND: 340,
+  PX: { player: 300, enemy: 780 },
+  UNIT: 292,           // 站姿高度对应的绘制像素（决定人物大小）
+
+  init() {
+    /* ⚠ 守卫：begin() 可以被多次调用（再来一局），不挡的话每次都会再挂一个 rAF 循环，
+       几个循环同时 tick 会让动画速度翻倍、特效数量爆炸。 */
+    if (this._started) return;
+    this._started = true;
+    this.cv = $("arena");
+    if (!this.cv || !this.cv.getContext) return;
+    this.g = this.cv.getContext("2d");
+    this.loadSprites();
+    this.last = performance.now();
+    const loop = (now) => {
+      const dt = Math.min(0.05, (now - this.last) / 1000);   // 夹住 dt：切标签页回来时别一次跳一大步
+      this.last = now;
+      this.tick(dt);
+      this.draw();
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  },
+  loadSprites() {
+    Object.keys(SPRITE_META).forEach((who) => {
+      const meta = SPRITE_META[who];
+      POSES.forEach((p) => {
+        const im = new Image();
+        im.onerror = () => {
+          this.missing.push(meta.slug + "_" + p + ".png");
+          if (!this._warned) {
+            this._warned = true;
+            console.warn("[Stage] 立绘加载失败，改用剪影绘制。缺失：" + this.missing.join(", ") +
+              "（立绘在 art/fight2/ 下；用 file:// 打开时需保证同目录可读）");
+          }
+        };
+        im.src = SPRITE_DIR + meta.slug + "_" + p + ".png";
+        this.img[meta.slug + "_" + p] = im;
+      });
+    });
+    this.ready = true;
+  },
+  sprite(who, pose) {
+    const meta = SPRITE_META[who];
+    const im = this.img[meta.slug + "_" + pose];
+    return im && im.complete && im.naturalWidth ? im : null;
+  },
+
+  /* ── 排程与特效 ───────────────────────────────────────────────── */
+  after(sec, fn) { this.arrivals.push({ t: sec, fn: fn }); },
+  burst(x, y, n, color, spread) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * (spread || 150);
+      this.fx.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        life: 0, max: 0.42 + Math.random() * 0.34, color: color, r: 1.6 + Math.random() * 2.6 });
+    }
+  },
+  spark(x, y, color) {                       // 命中：向一侧喷的短线
+    for (let i = 0; i < 14; i++) {
+      const a = (-0.6 + Math.random() * 1.2) + (x < this.W / 2 ? 0 : Math.PI);
+      const sp = 130 + Math.random() * 220;
+      this.fx.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: 0, max: 0.26 + Math.random() * 0.2, color: color, r: 2 + Math.random() * 3 });
+    }
+  },
+
+  /* ── 动作接口（结算流程调用）────────────────────────────────────── */
+  /** 出招：前冲 + strike 姿势，随后自动回正。
+      持续时间要和结算流程的等待对齐：伤害飘字出现在 attack 之后约 0.8 秒
+      （见 resolveRound 里的 sleep），姿势若在 0.5 秒就收回，飘字出来时人已经站好了 ——
+      "拳头收回来了才掉血"，看着很假。所以保持到 0.78 秒。 */
+  attack(who) {
+    const f = this.F[who];
+    f.pose = "strike";
+    const dir = who === "player" ? 1 : -1;
+    this.after(0.02, () => { f.vx = 24 * dir; });
+    this.after(0.40, () => { f.vx = 0; });
+    this.after(0.78, () => { if (f.pose === "strike") f.pose = "idle"; });
+    return 0.5;
+  },
+  /** 挨打：后仰 + hit 姿势 + 火花 + 震屏。同样保持到飘字之后。 */
+  hurt(who, big) {
+    const f = this.F[who];
+    f.pose = "hit";
+    const dir = who === "player" ? -1 : 1;
+    this.after(0.02, () => { f.vx = (big ? 20 : 12) * dir; });
+    this.after(0.30, () => { f.vx = 0; });
+    this.after(0.74, () => { if (f.pose === "hit") f.pose = "idle"; });
+    this.shake = big ? 9 : 5;
+    this.spark(this.PX[who] + (who === "player" ? 40 : -40), this.GROUND - 118, "#ffd0a0");
+    return 0.5;
+  },
+  /** 格挡成功：一圈护盾光环扩散 */
+  guard(who) {
+    this.F[who].glow = { t: 0, dur: 0.6, color: "143,216,255" };
+    this.burst(this.PX[who], this.GROUND - 100, 16, "#8fd8ff", 90);
+    return 0.45;
+  },
+  /** 治疗：绿色光点上浮 */
+  heal(who) {
+    const x = this.PX[who], y = this.GROUND - 60;
+    for (let i = 0; i < 18; i++) {
+      this.fx.push({ x: x + (Math.random() - 0.5) * 70, y: y, vx: (Math.random() - 0.5) * 26,
+        vy: -60 - Math.random() * 70, life: 0, max: 0.7 + Math.random() * 0.4,
+        color: "#7dffb0", r: 2 + Math.random() * 2.4 });
+    }
+    return 0.5;
+  },
+  /** 加护盾：蓝色光点 + 光环 */
+  shield(who) {
+    this.F[who].glow = { t: 0, dur: 0.55, color: "143,216,255" };
+    this.burst(this.PX[who], this.GROUND - 96, 14, "#8fd8ff", 80);
+    return 0.45;
+  },
+  /** 蓄力：金色粒子向身上汇聚（反向速度） */
+  charge(who) {
+    const x = this.PX[who], y = this.GROUND - 80;
+    for (let i = 0; i < 22; i++) {
+      const a = Math.random() * Math.PI * 2, d = 60 + Math.random() * 70;
+      this.fx.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d,
+        vx: -Math.cos(a) * d * 1.6, vy: -Math.sin(a) * d * 1.6,
+        life: 0, max: 0.5, color: "#ffd76e", r: 2 + Math.random() * 2 });
+    }
+    return 0.5;
+  },
+  /** 倒地：ko 姿势躺下（整局结束时） */
+  ko(who) {
+    this.F[who].pose = "ko";
+    this.shake = 12;
+    this.burst(this.PX[who], this.GROUND - 40, 22, "#ffb0b0", 170);
+  },
+  /** 回合结束：双方回正 */
+  reset() {
+    POSES.length && Object.keys(this.F).forEach((k) => {
+      const f = this.F[k];
+      if (f.pose === "ko") return;
+      f.pose = "idle"; f.vx = 0; f.fwd = 0;
+    });
+  },
+
+  /* ── 每帧 ─────────────────────────────────────────────────────── */
+  tick(dt) {
+    this.t += dt;
+    /* 排程：只执行到点的，剩下的留到下一帧 */
+    if (this.arrivals.length) {
+      const keep = [];
+      for (const a of this.arrivals) { a.t -= dt; if (a.t <= 0) a.fn(); else keep.push(a); }
+      this.arrivals = keep;
+    }
+    /* 特效：重力 + 生命衰减 */
+    if (this.fx.length) {
+      const keep = [];
+      for (const p of this.fx) {
+        p.life += dt;
+        if (p.life >= p.max) continue;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; p.vx *= 0.98;
+        keep.push(p);
+      }
+      this.fx = keep;
+    }
+    /* 位移回弹 + 姿态平滑 */
+    Object.keys(this.F).forEach((k) => {
+      const f = this.F[k];
+      f.fwd += (f.vx - f.fwd) * Math.min(1, dt * 12);
+      if (f.glow) { f.glow.t += dt; if (f.glow.t >= f.glow.dur) f.glow = null; }
+      /* 待机呼吸：只有 idle 才上下浮动，出招/挨打时稳住，不然看着发飘 */
+      f.lift = (f.pose === "idle") ? Math.sin(this.t * 2.1 + (k === "player" ? 0 : 1.4)) * 3 : 0;
+    });
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 46);
+  },
+
+  /* ── 绘制 ─────────────────────────────────────────────────────── */
+  draw() {
+    const g = this.g;
+    if (!g) return;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, this.W, this.H);
+    /* 震屏：整体偏移（不是移动画布元素，避免和布局打架） */
+    if (this.shake > 0) {
+      g.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
+    }
+    this.drawFloor(g);
+    /* 后画的一方在上层：谁出招谁画在前面，看着更"打过去" */
+    const order = this.F.player.pose === "strike" ? ["enemy", "player"] : ["player", "enemy"];
+    order.forEach((who) => this.drawFighter(g, who));
+    this.drawFx(g);
+  },
+  drawFloor(g) {
+    const W = this.W, gy = this.GROUND;
+    /* 地面：一条亮线 + 两侧渐隐，营造"擂台"感 */
+    const grd = g.createLinearGradient(0, gy - 30, 0, this.H);
+    grd.addColorStop(0, "rgba(120,90,220,.22)");
+    grd.addColorStop(1, "rgba(10,6,20,0)");
+    g.fillStyle = grd;
+    g.fillRect(0, gy, W, this.H - gy);
+    g.strokeStyle = "rgba(180,150,255,.35)";
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, gy); g.lineTo(W, gy); g.stroke();
+    /* 场地中线（对峙的暗示） */
+    g.strokeStyle = "rgba(255,255,255,.06)";
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(W / 2, gy - 170); g.lineTo(W / 2, gy); g.stroke();
+    /* 人物脚下投影 */
+    ["player", "enemy"].forEach((who) => {
+      const x = this.PX[who] + this.F[who].fwd;
+      g.save();
+      g.globalAlpha = 0.34;
+      g.fillStyle = "#000";
+      g.beginPath();
+      if (g.ellipse) g.ellipse(x, gy + 4, 62, 13, 0, 0, Math.PI * 2);
+      else g.arc(x, gy + 4, 40, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    });
+  },
+  drawFighter(g, who) {
+    const f = this.F[who];
+    const meta = SPRITE_META[who];
+    const x = this.PX[who] + f.fwd;
+    const gy = this.GROUND;
+    const im = this.sprite(who, f.pose);
+    const unit = this.UNIT;
+    const flip = who === "enemy";              // 对手面向左：水平镜像
+
+    g.save();
+    /* 光环（格挡/加盾）：在人物下层画一圈扩散的环 */
+    if (f.glow) {
+      const k = f.glow.t / f.glow.dur;
+      g.save();
+      g.globalAlpha = (1 - k) * 0.85;
+      g.strokeStyle = "rgba(" + f.glow.color + ",1)";
+      g.lineWidth = 4 * (1 - k) + 1;
+      g.beginPath();
+      if (g.ellipse) g.ellipse(x, gy - unit * 0.42, unit * (0.22 + k * 0.26), unit * (0.34 + k * 0.4), 0, 0, Math.PI * 2);
+      else g.arc(x, gy - unit * 0.42, unit * (0.3 + k * 0.3), 0, Math.PI * 2);
+      g.stroke();
+      g.restore();
+    }
+    if (im) {
+      const scale = unit / meta.standH;                 // 每单位像素：先定站姿高度，再按各姿势自身尺寸画
+      const w = im.naturalWidth * scale, h = im.naturalHeight * scale;
+      const lowY = (meta.lowY[f.pose] || 0) * scale;    // 该图的底部留白（否则会陷进地里）
+      g.save();
+      g.globalAlpha = f.alpha;
+      g.translate(x, gy - f.lift);
+      if (flip) g.scale(-1, 1);
+      g.drawImage(im, -w / 2, -(h - lowY), w, h);
+      g.restore();
+    } else {
+      /* 剪影回落：立绘没加载出来也要看得出"有两个人在打" */
+      g.save();
+      g.globalAlpha = f.alpha * 0.75;
+      g.fillStyle = who === "player" ? "rgba(77,216,255,.55)" : "rgba(255,77,109,.55)";
+      g.beginPath();
+      if (g.ellipse) g.ellipse(x, gy - unit * 0.45, unit * 0.16, unit * 0.45, 0, 0, Math.PI * 2);
+      else g.arc(x, gy - unit * 0.45, unit * 0.3, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
+    g.restore();
+  },
+  drawFx(g) {
+    g.save();
+    this.fx.forEach((p) => {
+      const k = 1 - p.life / p.max;
+      g.globalAlpha = Math.max(0, k);
+      g.fillStyle = p.color;
+      const r = p.r * (0.5 + k * 0.9);
+      g.beginPath(); g.arc(p.x, p.y, r, 0, Math.PI * 2); g.fill();
+    });
+    g.restore();
+  },
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   2. 规则常量
+   ══════════════════════════════════════════════════════════════════ */
+const MAXHP = 60, ROUNDS = 5, HAND = 3, DECK = 12;
+/* 一局的总交锋次数 = 轮数 × 每轮张数 = 15。
+   需求原话："总共五轮抽牌，一轮抽三张，进行三次pk"。 */
+const BOUTS = ROUNDS * HAND;
+
+/* ══════════════════════════════════════════════════════════════════
+   3. 状态
+   ══════════════════════════════════════════════════════════════════ */
+let S = null;                        // 每局重置
+function newState() {
+  return {
+    round: 1, over: false, bout: 0,
+    p: { hp: MAXHP, shield: 0, charge: false, curse: false, dealt: 0 },
+    e: { hp: MAXHP, shield: 0, charge: false, curse: false, dealt: 0 },
+    /* ⚠ 没有"抽牌堆"这个概念了：抽牌是**放回式**的，每轮都从完整的 12 张卡池里抽。
+       玩家原话："不是没抽一张牌牌池就没了这张牌，是每一轮都是从 12 张牌里抽"。
+       所以只需要记"本轮抽到了哪三张"（hand）以及"哪几张已经打过了"（usedBy）。 */
+    hand: [],                        // 本轮抽到的三张
+    usedBy: [],                      // 与 hand 同长：本轮这张是否已用于某次交锋
+    /* phase 是这一轮的阶段机：draw（你点牌堆抽）→ pick（点一张开打）→ resolve → 下一次交锋。
+       ⚠ 必须显式存它，不能用"手牌数量"推断：手牌张数在飞行动画期间是不确定的，
+         靠数量判断会在动画中途把玩家放进"开打"阶段（点下去没反应）。 */
+    phase: "draw",
+    drawn: 0,                        // 本轮已抽几张（上限 HAND）
+    bouts: [],                       // 每次交锋的机器可读记录（调试/测试用）
+    picked: -1,                      // 玩家选中的槽位
+    eCard: null,                     // 对手这一次交锋出的牌
+    log: [],
+  };
+}
+
+/* ── DOM 小工具 ─────────────────────────────────────────────────── */
+const $ = (id) => document.getElementById(id);
+const rnd = (n) => Math.floor(Math.random() * n);
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ══════════════════════════════════════════════════════════════════
+   2.5 音效（Web Audio 实时合成）
+   为什么不用现成的 mp3（原型项目 audio/ 下有一批）：本作是"单文件、零依赖、双击即玩"。
+   引外部音频会让它一旦被单独拷走就静音，浏览器对 file:// 下的音频限制也更多。
+   合成音效没有这些约束，改一个参数就能调音色。
+
+   音色设计（每类事件用不同的特征，闭着眼也能分辨）：
+     抽牌  短促上滑"咻"（带通噪声 + 上扫）              —— 空气摩擦
+     翻面  木质"嗒"（两个三角波高音 + 极短包络）        —— 纸牌敲击【试听后选定】
+     出击  低频下扫 + 白噪爆音                          —— 打击感
+     挨打  同上但更闷（低通截止 900Hz）                 —— 隔着护具挨打
+     格挡  闷响 + 一记"啪"（木盾版）                    —— 被硬物挡下【试听后选定】
+     加盾  高频金属泛音三连（正弦非谐比例 1:2.76:5.4）  —— 金属/水晶
+     回血  上行大三和弦琶音                             —— 温暖【试听后选定】
+     吸血  下行滑音                                     —— "吸回来"的方向感
+     蓄力  噪声上升 + 音高上扫                          —— 能量聚集
+     反弹  差 7Hz 的双音拍频                            —— 反噬的刺痛
+     诅咒  低频锯齿拍频                                 —— 阴森
+     KO    长下滑 + 延迟落地噪声                        —— 收局
+   音量刻意做得轻（0.05~0.20）：一局要响 15 次交锋，提示音不能吵。
+   ══════════════════════════════════════════════════════════════════ */
+const SFX = (() => {
+  let ctx = null, master = null, muted = false;
+  /** 懒创建 AudioContext。浏览器要求**用户手势**之后才能出声 ——
+      所以由「开始对决」那次点击解锁（见文件末尾 goBtn 的绑定）。 */
+  function ac() {
+    if (!ctx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      ctx = new C();
+      master = ctx.createGain();
+      master.gain.value = muted ? 0 : 0.5;
+      master.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+  /** 一段振荡音：f0 滑到 f1，指数收尾 */
+  function tone(f0, f1, dur, type, vol, delay) {
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime + (delay || 0);
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.012, dur * 0.25));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  /** 一段噪声：带通/低通/高通塑形，用来做"咻 / 闷响 / 爆音" */
+  function noise(dur, vol, filt, f0, f1, delay, q) {
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime + (delay || 0);
+    const len = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource(); src.buffer = buf;
+    const bq = c.createBiquadFilter();
+    bq.type = filt || "bandpass";
+    bq.Q.value = q == null ? 1.1 : q;
+    bq.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) bq.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bq); bq.connect(g); g.connect(master);
+    src.start(t0); src.stop(t0 + dur + 0.02);
+  }
+  return {
+    unlock() { ac(); },
+    setMuted(v) { muted = !!v; if (master) master.gain.value = muted ? 0 : 0.5; return muted; },
+    isMuted() { return muted; },
+    /* ── 各事件 ── */
+    draw() { noise(0.16, 0.16, "bandpass", 700, 2600, 0, 1.4); tone(520, 900, 0.12, "sine", 0.05); },
+    /** 翻面：木质"嗒"（试听后选定，不用更亮的清脆版） */
+    flip() { tone(1250, 780, 0.055, "triangle", 0.10); tone(640, 420, 0.05, "triangle", 0.05, 0.01); noise(0.04, 0.06, "highpass", 2400, 1800, 0, 0.8); },
+    hit(big) {
+      tone(big ? 190 : 140, big ? 46 : 62, big ? 0.26 : 0.2, "sine", big ? 0.20 : 0.15);
+      noise(big ? 0.16 : 0.11, big ? 0.20 : 0.13, "lowpass", big ? 2200 : 1500, 260, 0, 0.7);
+      if (big) tone(90, 40, 0.3, "sawtooth", 0.08, 0.02);
+    },
+    /** 挨打：比出击更闷 —— "自己挨打"与"打中别人"听感要分开 */
+    take() { tone(120, 52, 0.24, "sine", 0.16); noise(0.14, 0.14, "lowpass", 900, 200, 0, 0.6); },
+    /** 格挡：闷响 + 一记"啪"（木盾版，试听后选定） */
+    block() { noise(0.14, 0.13, "lowpass", 700, 200, 0, 0.8); tone(300, 180, 0.08, "triangle", 0.11); tone(150, 92, 0.18, "sine", 0.08, 0.01); },
+    /** 加护盾：非谐比例三连 —— 谐波比例会像乐器，非谐才有金属味 */
+    shield() { [1, 2.76, 5.4].forEach((k, i) => tone(880 * k, 860 * k, 0.5 - i * 0.09, "sine", 0.055 / (i + 1), i * 0.035)); noise(0.14, 0.05, "highpass", 3600, 5200, 0, 0.8); },
+    /** 回血：上行大三和弦琶音（试听后选定） */
+    heal() { [523, 659, 784, 1046].forEach((f, i) => tone(f, f, 0.3, "sine", 0.07, i * 0.07)); },
+    charge() { noise(0.62, 0.09, "bandpass", 300, 3000, 0, 3.2); tone(180, 900, 0.6, "triangle", 0.05); },
+    drain() { tone(880, 240, 0.4, "sine", 0.10); tone(440, 130, 0.42, "triangle", 0.05, 0.02); },
+    reflect() { tone(1180, 900, 0.16, "square", 0.055); tone(1187, 905, 0.16, "square", 0.055, 0.012); },
+    curse() { tone(150, 118, 0.5, "sawtooth", 0.075); tone(159, 125, 0.5, "sawtooth", 0.05, 0.01); },
+    ko() { tone(320, 60, 0.85, "sawtooth", 0.14); noise(0.3, 0.16, "lowpass", 900, 120, 0.3, 0.8); },
+    cue() { tone(420, 300, 0.14, "sine", 0.075); },
+    round() { tone(660, 660, 0.12, "triangle", 0.06); tone(990, 990, 0.16, "triangle", 0.055, 0.1); },
+    win() { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, f, 0.34, "triangle", 0.085, i * 0.11)); },
+    lose() { [523, 466, 392, 311].forEach((f, i) => tone(f, f * 0.98, 0.38, "sine", 0.085, i * 0.14)); },
+    drawGame() { [494, 494].forEach((f, i) => tone(f, f, 0.4, "sine", 0.075, i * 0.22)); },
+  };
+})();
+
+/* 音效调用计数：无头验证"每种音效真的被触发过"。
+   音效最容易"看着接上了、其实没响"（AudioContext 没解锁 / 方法名写错 / 被静音），
+   而无声环境里人耳听不到，所以留一份可断言的计数。 */
+Object.keys(SFX).forEach((k) => {
+  if (typeof SFX[k] !== "function" || k === "setMuted" || k === "isMuted") return;
+  const fn = SFX[k];
+  SFX[k] = function () {
+    if (window.__dbg) { window.__dbg.sfx = window.__dbg.sfx || {}; window.__dbg.sfx[k] = (window.__dbg.sfx[k] || 0) + 1; }
+    return fn.apply(SFX, arguments);
+  };
+});
+
+/* ── 卡牌 DOM ───────────────────────────────────────────────────── */
+/** 造一张卡（正反面都在 DOM 里，靠 .flipped 翻转）。
+ *  @param faceDown 初始是否背面朝上（默认 true） */
+function makeCard(card, faceDown) {
+  const el = document.createElement("div");
+  el.className = "card" + (faceDown === false ? " flipped" : "");
+  el.style.setProperty("--c", TYPE[card.type].c);
+  const t = TYPE[card.type];
+  el.innerHTML =
+    '<div class="inner">' +
+      '<div class="face back"></div>' +
+      '<div class="face front">' +
+        '<span class="tag">' + t.n + "</span>" +
+        '<span class="ico">' + card.ico + "</span>" +
+        '<span class="nm">' + card.nm + "</span>" +
+        '<span class="vl">' + card.vl + "</span>" +
+        '<span class="ds">' + card.ds + "</span>" +
+      "</div>" +
+    "</div>";
+  return el;
+}
+function flip(el, faceUp) { el.classList.toggle("flipped", faceUp); }
+
+/* ══════════════════════════════════════════════════════════════════
+   4. 窗口适配：设计画布 1280×860 等比缩放到窗口
+   用 scale 而不是媒体查询，是为了让所有用 px 写的动画位移在任何窗口下都一致。
+   ══════════════════════════════════════════════════════════════════ */
+const DW = 1280, DH = 860;
+function fitStage() {
+  const k = Math.min(window.innerWidth / DW, window.innerHeight / DH);
+  $("stage").style.transform = "scale(" + k + ")";
+}
+window.addEventListener("resize", fitStage);
+fitStage();
+
+/** 把设计坐标换算成屏幕坐标（FLIP 动画要用真实屏幕位置来算位移） */
+function rectIn(el) {
+  const r = el.getBoundingClientRect();
+  const s = $("stage").getBoundingClientRect();
+  const k = s.width / DW;                       // 当前缩放比
+  return { x: (r.left - s.left) / k, y: (r.top - s.top) / k, w: r.width / k, h: r.height / k };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   5. 视觉反馈：飘字 / 闪光 / 抖动
+   ══════════════════════════════════════════════════════════════════ */
+function floatText(x, y, text, color, size) {
+  const d = document.createElement("div");
+  d.className = "float";
+  d.textContent = text;
+  d.style.cssText = "left:" + x + "px;top:" + y + "px;color:" + color +
+    (size ? ";font-size:" + size + "px" : "");
+  $("stage").appendChild(d);
+  setTimeout(() => d.remove(), 1200);
+}
+function flash() {
+  const f = $("flash");
+  f.classList.remove("hit");
+  void f.offsetWidth;                            // 强制重排，让动画能重放
+  f.classList.add("hit");
+}
+function shake(el) {
+  el.classList.remove("shake");
+  void el.offsetWidth;
+  el.classList.add("shake");
+}
+/** 对手/玩家的飘字锚点（设计坐标） */
+const ANCHOR = { p: { x: 250, y: 250 }, e: { x: 1030, y: 250 } };
+function pop(who, text, color, dx, size) {
+  const a = ANCHOR[who];
+  floatText(a.x + (dx || 0), a.y, text, color, size);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   6. HUD 刷新（血条用 transform:scaleX 过渡 → 平滑）
+   ══════════════════════════════════════════════════════════════════ */
+function paintHud() {
+  const set = (barId, txtId, shId, shTxtId, o) => {
+    const pct = Math.max(0, Math.min(1, o.hp / MAXHP));
+    const b = $(barId);
+    b.style.transform = "scaleX(" + pct + ")";
+    b.classList.toggle("low", pct <= 0.34);
+    $(txtId).textContent = Math.max(0, o.hp);
+    const sp = Math.max(0, Math.min(1, o.shield / 30));   // 护盾条以 30 为满格参照
+    $(shId).style.transform = "scaleX(" + sp + ")";
+    $(shTxtId).textContent = o.shield;
+  };
+  set("pBar", "pHpTxt", "pShield", "pShTxt", S.p);
+  set("eBar", "eHpTxt", "eShield", "eShTxt", S.e);
+  /* 状态标记：蓄力 / 被诅咒 */
+  const badge = (o) => (o.charge ? '<span class="badge">⚡ 蓄力中 · 下轮伤害 ×2</span>' : "") +
+                       (o.curse ? '<span class="badge">🕸️ 被诅咒 · 本轮治疗减半</span>' : "");
+  $("pBadges").innerHTML = badge(S.p);
+  $("eBadges").innerHTML = badge(S.e);
+  $("roundTxt").textContent = "第 " + S.round + " 轮";
+  $("roundSub").textContent = "共 " + ROUNDS + " 轮 · 第 " + (S.bout + 1) + "/" + HAND + " 次交锋";
+  /* 右侧状态文字跟着阶段说人话 —— 这是玩家唯一会盯着看的地方 */
+  const left = HAND - (S.drawn || 0);
+  $("deckPile").textContent = (S.phase === "draw")
+    ? "点牌堆抽 " + left + " 张\n每轮都从这 12 张里抽"
+    : "本轮已抽：" + (S.hand || []).map((k) => (CARD_BY_KEY[k] ? CARD_BY_KEY[k].nm.replace(/\s/g, "") : "?")).join(" / ") +
+      "\n点下方卡牌开打";
+  $("deckPile").style.whiteSpace = "pre-line";
+  /* 抽牌阶段给空卡槽加提示描边，抽满就撤掉 */
+  document.querySelectorAll("#slots .slot").forEach((el, i) => {
+    el.classList.toggle("waiting", S.phase === "draw" && i >= (S.drawn || 0));
+  });
+  /* 手牌用完一次就标灰（一轮三张各用一次），玩家一眼看得出还剩几次交锋 */
+  document.querySelectorAll("#slots .card").forEach((el) => {
+    const idx = Number(el.dataset.slot);
+    el.classList.toggle("spent", !!(S.usedBy && S.usedBy[idx]));
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   7. 中央卡池：12 张卡背（玩家自己点着抽）
+   **放回式**：每轮都是完整 12 张，点一张取一张（那张从中央消失、其余不动），
+   抽满 3 张后本轮结束、下一轮又恢复成 12 张。
+   玩家原话："不是没抽一张牌牌池就没了这张牌，是每一轮都是从 12 张牌里抽"。
+   （早期版本是消耗式抽牌，得靠 syncDeckVisual 反推"应该剩几张"，那层模拟已删除。）
+   ══════════════════════════════════════════════════════════════════ */
+function buildDeckVisual(n) {
+  const box = $("deck");
+  box.innerHTML = "";
+  for (let i = 0; i < n; i++) box.appendChild(makeCard(CARDS[i % CARDS.length], true));
+  armDeckBacks();
+}
+/** 给中央卡背挂上"可点 + 点击就抽"。
+    ⚠ 必须独立成一个函数并被**每次重建后**调用：buildDeckVisual 会在
+      "牌堆抽空重洗"时重建卡背，第一版只在 startRound 里挂过一次 handler，
+      于是重洗出来的那批卡背点不动 —— 表现为某些轮只抽到 2 张
+      （实测第三局只抽了 13 张而不是 15 张，且 step 返回 no-back）。
+      挂/摘集中在这里，别再散出去。 */
+function armDeckBacks() {
+  document.querySelectorAll("#deck .card").forEach((el) => {
+    el.classList.add("pickable");
+    if (el._armed) return;                       // 避免重复绑定（重建后是新元素，一般不会重）
+    el._armed = true;
+    el.addEventListener("click", () => pickDrawFromDeck(el));
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   8. 抽牌动画（FLIP）
+   为什么要 FLIP：卡要从"牌堆里的第 N 张"飞到"底部第 i 个卡槽"，
+   两端坐标都由布局决定；直接在布局里做 transition 会牵扯整页重排。
+   FLIP 只动 transform，既便宜又不会影响别的元素。
+   ══════════════════════════════════════════════════════════════════ */
+/** 造一个"卡背幽灵"，从 from 矩形飞到 to 元素的位置（FLIP）。
+ *  from 是飞入前记下的设计坐标（{x,y,w,h}），to 是目标元素（卡槽）。 */
+async function flyFrom(from, toEl, delayMs) {
+  if (delayMs) await sleep(delayMs);
+  const to = rectIn(toEl);
+  const ghost = document.createElement("div");
+  ghost.className = "card";                      // 不 flipped → 显示卡背那面
+  ghost.style.cssText = "--cw:" + from.w + "px;--ch:" + from.h + "px;--c:#8a80a8;" +
+    "position:absolute;left:0;top:0;z-index:30;pointer-events:none";
+  ghost.innerHTML = '<div class="inner"><div class="face back"></div><div class="face front"></div></div>';
+  $("stage").appendChild(ghost);
+  const dx = to.x + (to.w - from.w) / 2 - from.x;
+  const dy = to.y + (to.h - from.h) / 2 - from.y;
+  const sc = to.w / from.w;
+  const anim = ghost.animate(
+    [
+      { transform: "translate(" + from.x + "px," + from.y + "px) rotate(-7deg) scale(1)", opacity: 1 },
+      { transform: "translate(" + (from.x + dx * 0.55) + "px," + (from.y + dy * 0.3 - 52) + "px) rotate(7deg) scale(" + (sc * 1.12) + ")",
+        opacity: 1, offset: 0.6 },
+      { transform: "translate(" + (from.x + dx) + "px," + (from.y + dy) + "px) rotate(0deg) scale(" + sc + ")", opacity: 1 },
+    ],
+    { duration: 500, easing: "cubic-bezier(.25,.9,.3,1)", fill: "forwards" }
+  );
+  if (window.__dbg) window.__dbg.flies++;
+  await anim.finished.catch(() => {});
+  ghost.remove();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   9. 一轮的流程
+   ══════════════════════════════════════════════════════════════════ */
+/** 从卡池随机取一张（**放回式**：卡池本身不变）。
+    需求："每一轮都是从 12 张牌里抽" / "抽完后可以重新洗牌循环使用"。 */
+function drawOne() {
+  return CARDS[rnd(CARDS.length)].key;
+}
+
+/** 玩家从中央 12 张卡背里**自己点选**要抽的那张。
+    需求原话："需要我点击选择了那几张卡牌，卡牌才会翻转显示技能并使用" ——
+    所以这里必须由玩家点，不能自动飞（第一版是自动抽，玩家反馈"这不是我自己选择抽的"）。
+
+    ⚠ 抽牌是**放回式**的：每一轮都从完整的 12 张里抽，卡池不会被抽空。
+      玩家补充原话："不是没抽一张牌牌池就没了这张牌，是每一轮都是从 12 张牌里抽"。
+      所以这里**不改卡池**（CARDS 始终 12 张），
+      只在 S.hand/S.usedBy 里记下"本轮抽到了哪三张、哪几张已经打过"。 */
+async function pickDrawFromDeck(backEl) {
+  if (S.over || S.phase !== "draw") return;
+  if (S.drawn >= HAND) return;
+  const slot = S.drawn;
+  S.drawn++;
+  /* 立即标成"已抽"并停止接收点击，避免连点抽超 */
+  backEl.classList.add("picked");
+  const src = rectIn(backEl);
+  SFX.draw();                                       // 抽牌"咻"
+  const key = drawOne();                             // 从卡池随机取一张（放回式）
+  S.hand[slot] = key;
+  backEl.remove();                                   // 这一张从中央消失（视觉上"被取走"）
+  const slots = Array.from(document.querySelectorAll(".slot"));
+  await flyFrom(src, slots[slot], 0);
+  const cardEl = makeCard(CARD_BY_KEY[key], true);
+  cardEl.dataset.slot = slot;
+  slots[slot].appendChild(cardEl);
+  await sleep(160);
+  flip(cardEl, true);                                // 3D 翻面
+  SFX.flip();                                        // 翻面：木质"嗒"
+  await sleep(140);
+  paintHud();
+  if (S.drawn >= HAND) {
+    /* 三张抽齐 → 交给 runRound 连续打三次。
+       手牌的可点状态、已用标记、每次交锋的结算，全部由 runRound + waitForPick 管；
+       这里只把"三张都到位"这件事告诉它。 */
+    S.usedBy = [];
+    document.querySelectorAll("#deck .card").forEach((el) => el.classList.remove("pickable"));
+    document.querySelectorAll("#slots .card").forEach((el) => {
+      el.addEventListener("click", () => pickCard(Number(el.dataset.slot)));
+    });
+    $("slots").classList.add("ready");
+    runRound();
+  } else {
+    showCallout("再 抽 " + (HAND - S.drawn) + " 张");
+  }
+}
+
+async function startRound() {
+  if (S.over) return;
+  S.picked = -1;
+  S.eCard = null;
+  S.hand = [];
+  S.usedBy = [];                                     // 每轮重置"哪几张已经打过"
+  S.drawn = 0;
+  S.bout = 0;
+  S.phase = "draw";                                  // draw（你抽牌）| pick（交锋中）
+  $("foeCard").innerHTML = "";
+  $("foeLabel").classList.remove("on");
+  $("slots").classList.remove("ready");
+  const slots = Array.from(document.querySelectorAll(".slot"));
+  slots.forEach((s) => {
+    const old = s.querySelector(".card");
+    if (old) old.remove();
+    s.classList.remove("hot");
+  });
+  /* 中央恢复成**完整 12 张卡背**：每轮都是全新的一副牌在等你抽。
+     （放回式抽牌，所以不会再出现"牌堆被抽空"的情况 —— 上一版的 ensureDrawable
+       是为消耗式抽牌写的，现在整个不需要了。） */
+  buildDeckVisual(DECK);          // 内部已调 armDeckBacks()，卡背可点
+  paintHud();
+  showCallout("第 " + S.round + " 轮 · 点 牌 堆 抽 三 张");
+  SFX.round();
+  /* 抽牌阶段结束（pickDrawFromDeck 里抽满三张会调 runRound）——
+     这里只负责把牌铺好。 */
+}
+
+function showCallout(text) {
+  const c = $("callout");
+  c.textContent = text;
+  c.classList.remove("show");
+  void c.offsetWidth;
+  c.classList.add("show");
+}
+
+/* ── 对手选牌：按需求是**随机**出 1 张 ──────────────────────────── */
+function foePick() {
+  return CARDS[rnd(CARDS.length)];
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   10. 结算
+   结算顺序（按需求）：① 加护盾 ② 伤害（护盾先抵） ③ 治疗 ④ 特殊效果
+   "同时结算"的关键：先把双方的"意图"都算成数值，再一起落到双方身上 ——
+   这样先手不会因为顺序占便宜。反击/吸血这类依赖"本轮所受伤害"的效果
+   放在最后一步（④）用已经落地的伤害来算。
+   ══════════════════════════════════════════════════════════════════ */
+/** 一次交锋：玩家用第 S.picked 张手牌 vs 对手随机一张，双方同时结算。 */
+async function resolveRound() {
+  /* 防重入：连点/双击可能在前一次交锋还没结束时再进来一次，那样会多消耗一次交锋。
+     开打前就摘掉了 .pickable（第一道闸），这里是第二道。
+     ⚠ 这个标志位只用来**挡重复**，绝不用它表达"现在轮到谁" ——
+       曾经拿它判断阶段，结果它一旦没复位就永久停在"等动画"（实测空转 392 次）。
+       阶段只认 S.phase（draw / pick / resolve）。 */
+  if (S._resolving) return;
+  S._resolving = true;
+  try {
+    await resolveBody();
+  } catch (err) {
+    window.__dbg.errors.push("resolve: " + (err && err.message ? err.message : err));
+    const d = $("err");
+    if (d) { d.style.display = "block"; d.textContent = "结算出错：" + (err && err.message ? err.message : err); }
+  } finally {
+    S._resolving = false;
+  }
+}
+
+/** 一轮的驱动：反复"等玩家选一张 → 结算"，直到三次打完或有人归零。
+    ⚠ 为什么把三次交锋收进**一个循环**：
+      三次之间只需要"切换可点的牌 + 等玩家点击"，而最初那版把这套逻辑散在三处
+      （分支末尾手动恢复 + finally 收口 + 预输入兑现），三者互相耦合，
+      出现过"卡在 resolve、还有牌没用却点不动"的死状态，排查了很久。
+      现在"打完一次之后干什么"只有这一处决定，收敛路径唯一。 */
+async function runRound() {
+  if (!S || S.over || S._roundRunning) return;
+  S._roundRunning = true;
+  try {
+    for (let bout = 0; bout < HAND; bout++) {
+      S.bout = bout;
+      if (bout > 0) await sleep(340);
+      showCallout(bout === 0
+        ? ("第 " + S.round + " 轮 · 第 1 次交锋")
+        : ("还 剩 " + (HAND - bout) + " 次 交 锋"));
+      SFX.cue();
+      const idx = await waitForPick();
+      if (idx < 0) break;
+      await resolveRound();
+      if (S.over || S.p.hp <= 0 || S.e.hp <= 0) break;
+    }
+  } finally {
+    S._roundRunning = false;
+  }
+  if (S.p.hp <= 0 || S.e.hp <= 0) return endGame();
+  if (S.round >= ROUNDS) return endGame();
+  S.round++;
+  await sleep(420);
+  startRound();
+}
+
+/** 等玩家选一张牌（并立刻标成已用）。返回牌的下标；已收局返回 -1。
+    这里也是**唯一**给手牌挂/摘"可点"状态的地方。 */
+function waitForPick() {
+  return new Promise((resolve) => {
+    S.phase = "pick";
+    const paint = (chosen) => {
+      document.querySelectorAll("#slots .card").forEach((el) => {
+        const i = Number(el.dataset.slot);
+        const used = !!(S.usedBy && S.usedBy[i]);
+        el.classList.toggle("pickable", !used && chosen < 0);
+        el.classList.toggle("chosen", i === chosen);
+        el.classList.toggle("spent", used);
+        el.style.cursor = (!used && chosen < 0) ? "pointer" : "default";
+      });
+    };
+    paint(-1);
+    const done = (i) => {
+      if (S._pickDone !== done) return;
+      S._pickDone = null;
+      S.picked = i;
+      S.phase = "resolve";
+      if (!S.usedBy) S.usedBy = [];
+      S.usedBy[i] = true;
+      paint(i);
+      resolve(i);
+    };
+    S._pickDone = done;
+    /* 兜底轮询：正常对局永远走 done()；这条只为"页面被关/脚本异常"留出口，
+       避免 Promise 永久悬空。 */
+    const t0 = Date.now();
+    const tick = () => {
+      if (S._pickDone !== done) return;
+      if (S.over || S.p.hp <= 0 || S.e.hp <= 0) { S._pickDone = null; return resolve(-1); }
+      if (Date.now() - t0 > 600000) { S._pickDone = null; return resolve(-1); }
+      setTimeout(tick, 200);
+    };
+    setTimeout(tick, 200);
+  });
+}
+
+/** 玩家点一张手牌 ＝ 为本次交锋选它（交给 waitForPick 的等待者）。 */
+function pickCard(i) {
+  if (!S || S.over) return;
+  if (S.phase !== "pick" || !S._pickDone) return;
+  if (S.usedBy && S.usedBy[i]) return;
+  S._pickDone(i);
+}
+
+async function resolveBody() {
+  const pCard = CARD_BY_KEY[S.hand[S.picked]];
+  const eCard = foePick();
+  S.eCard = eCard;
+
+  /* 双方同时起身（出招姿势），这是"要动手了"的信号 */
+  Stage.reset();
+  if ((pCard.dmg || pCard.reprisal) && !pCard.charge) { Stage.attack("player"); SFX.hit((pCard.dmg || 0) >= 15); }
+  if ((eCard.dmg || eCard.reprisal) && !eCard.charge) { Stage.attack("enemy"); SFX.hit((eCard.dmg || 0) >= 15); }
+
+  /* 对手出牌：在对手区域展示并翻面 */
+  $("foeLabel").textContent = "赤鬼出牌（第 " + (S.picked + 1) + "/" + HAND + " 次交锋）";
+  $("foeLabel").classList.add("on");
+  const fc = makeCard(eCard, true);
+  fc.style.position = "relative";
+  $("foeCard").innerHTML = "";
+  $("foeCard").appendChild(fc);
+  await sleep(320);
+  SFX.flip();
+  flip(fc, true);
+  await sleep(420);
+  showCallout("第 " + (S.picked + 1) + " 次 交 锋");
+  await sleep(700);
+
+  /* 蓄力：本轮伤害翻倍（在结算前读，然后清掉标记） */
+  const pMul = S.p.charge ? 2 : 1;
+  const eMul = S.e.charge ? 2 : 1;
+  S.p.charge = false;
+  S.e.charge = false;
+
+  const dmgOf = (card, mul, curse) => {
+    let d = card.dmg || 0;
+    if (card.reprisal) d = 0;                       // 反击波的伤害在④按护盾算
+    if (curse) d = Math.round(d * 0.75);            // 被诅咒：出手也变弱一点，和治疗减半配套
+    return d * mul;
+  };
+  const pIntent = { dmg: dmgOf(pCard, pMul, S.p.curse), pierce: !!pCard.pierce };
+  const eIntent = { dmg: dmgOf(eCard, eMul, S.e.curse), pierce: !!eCard.pierce };
+
+  /* ① 护盾（含再生这类"回血+护盾"的盾）*/
+  const pShieldGain = pCard.shield || 0;
+  const eShieldGain = eCard.shield || 0;
+  if (pShieldGain) { S.p.shield += pShieldGain; pop("p", "+" + pShieldGain + " 盾", "#8fd8ff", -70); Stage.shield("player"); }
+  if (eShieldGain) { S.e.shield += eShieldGain; pop("e", "+" + eShieldGain + " 盾", "#8fd8ff", 70); Stage.shield("enemy"); }
+  if (pShieldGain || eShieldGain) SFX.shield();      // 加盾：金属泛音
+  if (pShieldGain || eShieldGain) { paintHud(); await sleep(600); }
+
+  /* ② 伤害：护盾先抵（破防牌无视护盾） */
+  const applyDamage = (target, intent, who) => {
+    let dmg = intent.dmg;
+    if (dmg <= 0) return 0;
+    let absorbed = 0;
+    if (!intent.pierce && target.shield > 0) {
+      absorbed = Math.min(target.shield, dmg);
+      target.shield -= absorbed;
+      dmg -= absorbed;
+    }
+    target.hp = Math.max(0, target.hp - dmg);
+    return { dealt: dmg, absorbed: absorbed };
+  };
+  const pRes = applyDamage(S.e, pIntent, "e");     // 玩家打到对手
+  const eRes = applyDamage(S.p, eIntent, "p");     // 对手打到玩家
+  const pDealt = pRes ? pRes.dealt : 0;
+  const eDealt = eRes ? eRes.dealt : 0;
+  /* 舞台反应：打进去 → 挨打后仰 + 火花 + 震屏；被护盾全挡 → 格挡光环。
+     这一层是"看得见的打斗"——数字飘字之外，人物必须真的动。 */
+  if (pIntent.dmg > 0) {
+    S.p.dealt += pDealt;
+    if (pDealt > 0) { pop("e", "-" + pDealt, "#ff6b8a", 0, 44); Stage.hurt("enemy", pDealt >= 15); SFX.hit(pDealt >= 15); }
+    else { pop("e", "护盾全挡", "#8fd8ff", 0, 26); Stage.guard("enemy"); SFX.block(); }   // 被挡下：木盾闷响
+  }
+  if (eIntent.dmg > 0) {
+    S.e.dealt += eDealt;
+    if (eDealt > 0) { pop("p", "-" + eDealt, "#ff6b8a", 0, 44); Stage.hurt("player", eDealt >= 15); SFX.take(); }
+    else { pop("p", "护盾全挡", "#8fd8ff", 0, 26); Stage.guard("player"); SFX.block(); }
+  }
+  if (pIntent.dmg > 0 || eIntent.dmg > 0) {
+    flash();
+    paintHud();
+    await sleep(820);
+  }
+
+  /* ③ 治疗（被诅咒则减半） */
+  const healOf = (card, who) => {
+    if (!card.heal) return 0;
+    let h = card.heal;
+    if (who.curse) h = Math.floor(h / 2);
+    return h;
+  };
+  const pH = healOf(pCard, S.p), eH = healOf(eCard, S.e);
+  if (pH) { S.p.hp = Math.min(MAXHP, S.p.hp + pH); pop("p", "+" + pH, "#5dffa0", -70); Stage.heal("player"); }
+  if (eH) { S.e.hp = Math.min(MAXHP, S.e.hp + eH); pop("e", "+" + eH, "#5dffa0", 70); Stage.heal("enemy"); }
+  if (pH || eH) SFX.heal();                          // 回血：上行琶音
+  if (pH || eH) { paintHud(); await sleep(620); }
+
+  /* ④ 特殊效果 */
+  /* 吸血：回复造成伤害的一半。
+     ⚠ 用 floor 不用 round：卡面写的是"回复其中一半"，11 的一半是 5.5 ——
+       四舍五入会变成 6（比写着的多），向下取整才是玩家能自己算出来的 5。 */
+  if (pCard.lifesteal && pDealt > 0) {
+    const h = Math.floor(pDealt / 2);
+    S.p.hp = Math.min(MAXHP, S.p.hp + h);
+    pop("p", "吸血 +" + h, "#5dffa0", -110); SFX.drain();
+    paintHud(); await sleep(420);
+  }
+  if (eCard.lifesteal && eDealt > 0) {
+    const h = Math.floor(eDealt / 2);
+    S.e.hp = Math.min(MAXHP, S.e.hp + h);
+    pop("e", "吸血 +" + h, "#5dffa0", 110); SFX.drain();
+    paintHud(); await sleep(420);
+  }
+  /* 反击：反弹本轮所受伤害的一半（打在对方身上，护盾可挡） */
+  const reflect = (self, foe, card, taken, who) => {
+    if (!card.counter || taken <= 0) return 0;
+    let r = Math.round(taken / 2);
+    let absorbed = 0;
+    if (foe.shield > 0) { absorbed = Math.min(foe.shield, r); foe.shield -= absorbed; r -= absorbed; }
+    foe.hp = Math.max(0, foe.hp - r);
+    self.reflected = (self.reflected || 0) + r;
+    return r;
+  };
+  const pRef = reflect(S.p, S.e, pCard, eDealt, "p");
+  const eRef = reflect(S.e, S.p, eCard, pDealt, "e");
+  if (pRef > 0) { pop("e", "反弹 -" + pRef, "#b07dff", 0, 32); SFX.reflect(); }
+  if (eRef > 0) { pop("p", "反弹 -" + eRef, "#b07dff", 0, 32); SFX.reflect(); }
+  if (pRef || eRef) { paintHud(); await sleep(520); }
+  /* 反击波：伤害 = 自己当前护盾 */
+  const reprisal = (self, foe, card, who) => {
+    if (!card.reprisal) return 0;
+    let d = self.shield;
+    if (d <= 0) return 0;
+    let absorbed = 0;
+    if (foe.shield > 0) { absorbed = Math.min(foe.shield, d); foe.shield -= absorbed; d -= absorbed; }
+    foe.hp = Math.max(0, foe.hp - d);
+    self.dealt += d;
+    return d;
+  };
+  const pRep = reprisal(S.p, S.e, pCard, "p");
+  const eRep = reprisal(S.e, S.p, eCard, "e");
+  if (pRep > 0) { pop("e", "-" + pRep, "#ff6b8a", 0, 40); flash(); SFX.reflect(); }
+  if (eRep > 0) { pop("p", "-" + eRep, "#ff6b8a", 0, 40); flash(); SFX.reflect(); }
+  if (pRep || eRep) { paintHud(); await sleep(560); }
+  /* 蓄力 / 诅咒标记 */
+  if (pCard.charge) { S.p.charge = true; Stage.charge("player"); SFX.charge(); }
+  if (eCard.charge) { S.e.charge = true; Stage.charge("enemy"); SFX.charge(); }
+  S.p.curse = !!eCard.curse;                      // 对手的诅咒作用在我身上
+  S.e.curse = !!pCard.curse;
+  if (pCard.curse || eCard.curse) SFX.curse();       // 诅咒：低频不谐和
+  paintHud();
+  await sleep(520);
+  Stage.reset();                                  // 双方回待机（下一轮再起手）
+
+  /* 日志：按"第几轮 第几次交锋"记，5 轮 × 3 次 = 最多 15 条 */
+  S.log.push("第 " + S.round + " 轮 · 第 " + (S.picked + 1) + " 次：你出「" + pCard.nm +
+    "」 vs 赤鬼出「" + eCard.nm + "」 → 你 " + S.p.hp + " 血 / 赤鬼 " + S.e.hp + " 血");
+  /* 精确交锋记录（调试/测试用）：每次结算真正落地时都记一条，
+     用来证明"一轮抽三张 = 三轮交锋"，不依赖界面上那几行文字的观感。
+     ⚠ 之前排查"是不是只打了两次"时，靠截图和日志文字的条数推断会被动画时序骗到，
+       所以在这里存一份机器可读的事实。 */
+  S.bouts.push({ r: S.round, n: S.picked + 1, you: pCard.key, foe: eCard.key, pHp: S.p.hp, eHp: S.e.hp });
+
+  /* ⚠ resolveBody **只负责这一次交锋**：不推进轮次、不改可点状态、不进下一轮。
+     这些全部由 runRound 的循环统一决定（唯一收敛路径）。
+     早期版本在这里手动收尾（恢复可点 + 预输入兑现 + 提前进下一轮），
+     与 finally 里的收口、pickCard 里的预输入三者互相耦合，
+     出现过"卡在 resolve、还有牌没用却点不动"的死状态 —— 玩家看到的就是
+     "一轮只打了一两次，之后怎么点都没反应"。收进一个循环后这类问题不复存在。 */
+  if (S.p.hp <= 0 || S.e.hp <= 0) return;           // 收局交给 runRound 判定
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   11. 结束
+   ══════════════════════════════════════════════════════════════════ */
+function endGame() {
+  S.over = true;
+  const win = S.p.hp > S.e.hp, draw = S.p.hp === S.e.hp;
+  /* 舞台收尾：**只有输的一方倒地**。
+     ⚠ 判据别写成 "if (e.hp<=0 || (!draw && !win)) ko(enemy)" 那种叠加式：
+       我血归零时 win=false，于是 "!draw && !win" 也成立 → 两条都命中 → 赢家也倒地
+       （实测 poses 打出过 ko/ko）。直接按胜负定谁倒，只倒一个。 */
+  Stage.shake = 10;
+  if (!draw) {
+    if (win) Stage.ko("enemy");
+    else Stage.ko("player");
+  }
+  SFX.ko();
+  const box = $("result");
+  box.classList.remove("on", "win", "lose", "draw");
+  box.classList.add(draw ? "draw" : win ? "win" : "lose");
+  $("rTtl").textContent = draw ? "平 局" : win ? "胜 利" : "败 北";
+  $("rSub").textContent = (draw ? "双方同归于尽"
+    : win ? (S.e.hp <= 0 ? "你把赤鬼打倒了" : "5 轮结束，你的生命更高")
+          : (S.p.hp <= 0 ? "你被赤鬼打倒了" : "5 轮结束，赤鬼的生命更高")) +
+    "（" + S.round + " 轮 · " + S.log.length + "/" + BOUTS + " 次交锋）";
+  $("rHp").textContent = S.p.hp;
+  $("rEhp").textContent = S.e.hp;
+  $("rRounds").textContent = S.round + " 轮";
+  $("rLog").innerHTML = S.log.map((l) => "<div>" + l + "</div>").join("");
+  /* 日志可能有 15 条（5 轮 × 3 次交锋），要**自动滚到底**，
+     否则玩家只看得到前几条、以为后面没打（实测截图就是这样）。 */
+  $("rLog").scrollTop = $("rLog").scrollHeight;
+  if (draw) SFX.drawGame(); else if (win) SFX.win(); else SFX.lose();
+  void box.offsetWidth;
+  box.classList.add("on");
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   12. 启动
+   ══════════════════════════════════════════════════════════════════ */
+async function begin() {
+  S = newState();
+  window.S = S;                    // 同上：让无头脚本能读到阶段（每局重建后要重新挂）
+  /* 抽牌是放回式的，所以这里没有"洗一副牌堆"这一步 —— 每轮直接从 CARDS 里随机取。 */
+  $("result").classList.remove("on");
+  $("foeCard").innerHTML = "";
+  $("foeLabel").classList.remove("on");
+  document.querySelectorAll("#slots .slot").forEach((s) => {
+    const c = s.querySelector(".card"); if (c) c.remove();
+    s.classList.remove("hot");
+  });
+  /* 开场：淡出 → 战斗界面淡入 + 中央 12 张卡背 */
+  $("opening").classList.add("hide");
+  await sleep(480);
+  Stage.init();                   // 启动战场（立绘 + rAF 循环）；重复调用会叠加循环，见下面的守卫
+  buildDeckVisual(DECK);          // ⚠ 这里原来写的是 buildDeck()（改名前的旧名），
+                                  //   结果点「开始对决」直接 ReferenceError、毫无反应 ——
+                                  //   只有真在浏览器里点一次才会暴露（见 tools/dev/cardfight-shot.js）
+  $("deck").classList.remove("gone");
+  $("battle").classList.add("on");
+  paintHud();
+  await sleep(560);
+  startRound();
+}
+$("goBtn").addEventListener("click", () => { SFX.unlock(); begin(); });   // 用这次点击解锁音频
+/* 静音开关：先 unlock 再切，否则第一次点击只解锁、不静音 */
+$("muteBtn").addEventListener("click", () => {
+  SFX.unlock();
+  const m = SFX.setMuted(!SFX.isMuted());
+  $("muteBtn").textContent = m ? "🔇" : "🔊";
+  $("muteBtn").classList.toggle("off", m);
+});
+$("againBtn").addEventListener("click", () => {
+  $("result").classList.remove("on");
+  $("battle").classList.remove("on");
+  $("opening").classList.remove("hide");
+  $("deck").classList.add("gone");
+  S = null;
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   13. 自测接口（仅供 tools/dev 的无头脚本使用，玩家侧不可见）
+   为什么内建而不是让脚本从外面点：这个游戏一局有 15 次交锋、每次都要等动画，
+   外部脚本只能靠"轮询 + 点击"，而点击时机一旦落在动画中间就会被吞 ——
+   实测为了这点反复误判成"游戏只打了两次"。
+   把"观察状态 → 采取唯一合法动作"放进游戏内部，逻辑与动画同源，
+   就不存在时序竞态了（脚本只负责"反复调 step 直到结束"）。
+   ══════════════════════════════════════════════════════════════════ */
+window.__auto = {
+  /** 结算是否还在进行中（只读，不再自愈 —— 状态收敛已收进 runRound/waitForPick）。 */
+  busy() { return !!(S && S._resolving); },
+  /** 走一步：处于抽牌阶段就抽一张，处于选牌阶段就打一张没用过的。返回做了什么。 */
+  step() {
+    if (!S || S.over) return "over";
+    /* 现在"三次交锋"由 runRound 里的一个循环连续驱动（唯一的收敛路径），
+       所以这里不再需要自愈代码 —— 状态机只有一处会写 S.phase。
+       保留这个 step 只是为了无头脚本能"推一步"，它自己不再改状态。 */
+    if (S.phase === "draw" && S.drawn < HAND) {
+      const backs = document.querySelectorAll("#deck .card.pickable");
+      if (backs.length) { pickDrawFromDeck(backs[0]); return "draw"; }
+      return "no-back";
+    }
+    if (S.phase === "pick") {
+      const pick = document.querySelectorAll("#slots .card.pickable");
+      if (pick.length) {
+        /* 一次只打一张：手上可能还有排队点击，交给正常流程处理 */
+        const idx = Number(pick[0].dataset.slot);
+        if (!S.usedBy[idx]) pickCard(idx);
+        return "pick";
+      }
+      return "no-pickable";
+    }
+    return "wait";                                  // resolve 中，等动画
+  },
+  /** 当前状态快照（脚本据此判断是否收局） */
+  snap() {
+    if (!S) return null;
+    return { round: S.round, bouts: S.bouts.length, phase: S.phase,
+             hp: S.p.hp, ehp: S.e.hp, over: !!S.over,
+             perRound: S.bouts.reduce((m, b) => { m[b.r] = (m[b.r] || 0) + 1; return m; }, {}) };
+  },
+  /** 一局的机器可读交锋记录 */
+  bouts() { return S ? S.bouts.slice() : []; },
+};
+
+/* 出错时把信息显示在页面上，别让玩家对着黑屏猜。
+   另外挂一个**不显眼但可探测**的计数器：动画/异步流程出错时很容易被"看起来没事"掩盖，
+   调试时（tools/dev/cardfight-shot.js）靠 window.__dbg 判断内部流程到底走到哪一步了。 */
+window.__dbg = { flies: 0, flips: 0, rounds: 0, errors: [] };
+/* 把当前状态挂到 window，供 tools/dev/cardfight-shot.js 判断"现在哪个阶段"。
+   纯只读观测口，不参与游戏逻辑（无头脚本靠它决定"该抽牌还是该出牌"）。 */
+window.S = S;
+window.addEventListener("error", (e) => {
+  const d = $("err");
+  d.style.display = "block";
+  d.textContent = "出错：" + (e.message || e.error);
+  window.__dbg.errors.push(String(e.message || e.error));
+});
+window.addEventListener("unhandledrejection", (e) => {
+  const d = $("err");
+  d.style.display = "block";
+  d.textContent = "异步出错：" + (e.reason && e.reason.message ? e.reason.message : e.reason);
+  window.__dbg.errors.push(String(e.reason && e.reason.message ? e.reason.message : e.reason));
+});
+</script>
+</body>
+</html>

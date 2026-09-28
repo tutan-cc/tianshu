@@ -1,0 +1,19 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    for (var k = 0; k < 400 && !d.stations()[col].windowOpen; k++) d.tick(1 / 60);\n    var pick = d.takeOut(col);\n    var plated = !!(pick && pick.ok) && !!d.stations()[col].plate;",
+   "textFile": "tools/bf/_patch/bf14g_real_click.txt"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "    return JSON.stringify({ plated: plated, pA: pA, pB: pB, pC: pC, pick: pick, want: c, got: got,",
+   "textFile": "tools/bf/_patch/bf14g_real_click_json.txt"
+  },
+  {
+   "file": "tools/bf/e2e-audio.js",
+   "from": "  A(jp2.pick === jp2.want, \"真浏览器：规则层挑中耐心 5 那位（不是第一位）\",",
+   "textFile": "tools/bf/_patch/bf14g_real_click_assert.txt"
+  }
+ ]
+}

@@ -1,0 +1,5 @@
+  A(d5.drop("egg", null) === true, "煎蛋下到第 3 列");
+  for (let i = 0; i < 300 && !d5.stations()[3].windowOpen; i++) d5.tick(1 / 60);
+  A(d5.stations()[3].plate === null && d5.stations()[3].windowOpen === true,
+    "熟了停在起锅窗口里（原断言：自动落到第 3 列的专属盘）");
+  A(d5.takeOut(3).ok === true && d5.stations()[3].plate === "egg", "单击锅 → 起锅落到第 3 列的专属盘");

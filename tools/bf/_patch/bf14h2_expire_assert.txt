@@ -1,0 +1,2 @@
+      A(d4.state().expire === exp0, "盘龄再大也不记「忘起锅」（expire 只由锅内窗口超时产生）",
+        exp0 + " → " + d4.state().expire);

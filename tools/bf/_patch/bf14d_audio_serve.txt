@@ -1,0 +1,7 @@
+    if (!s.food && !s.plate) d.drop(want, col);
+    d.tick(1 / 60);
+    const s2 = d.stations()[col];
+    /* bf-14：熟了要**点锅起锅**才进盘（不再自动落盘） */
+    if (s2.state === "perfect" && s2.windowOpen && !s2.plate) d.takeOut(col);
+    const s3 = d.stations()[col];
+    if (s3.plate && s3.plateState !== "burnt") { const r = d.serveCol(col); if (r.ok) served = true; }

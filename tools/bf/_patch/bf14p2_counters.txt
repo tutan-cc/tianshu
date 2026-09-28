@@ -1,0 +1,11 @@
+  /* 文字计数（交叉证据）：注意「盘占着 · 没地方放」在锅上会画**两处**（锅顶小字 + 锅底那行），
+     所以图里报「几口锅」必须从 state 读，文字计数只打印到控制台。 */
+  const cntPick = panTexts.filter(x => /起锅！点一下这口锅/.test(x)).length;
+  const cntRing = panTexts.filter(x => /恰好 · 起锅 \d+\.\d+s/.test(x)).length;
+  const cntBurnt = panTexts.filter(x => /糊了 · 双击丢掉/.test(x)).length;
+  const cntBlocked = panTexts.filter(x => /盘占着 · 没地方放/.test(x)).length;
+  const cntKeep = panTexts.filter(x => /可一直放着/.test(x)).length;
+  const stAll = d.stations();
+  const nPick = stAll.filter(s => s.picking && !s.blockedByPlate).length;   // 几口锅在起锅窗口里等人点
+  const nBlocked = stAll.filter(s => s.blockedByPlate).length;             // 几口锅被盘堵住
+  const nBurntPan = stAll.filter(s => s.state === "burnt").length;         // 几口锅糊着

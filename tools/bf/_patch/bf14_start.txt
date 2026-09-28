@@ -1,0 +1,1 @@
+      autoPlate: opts.autoPlate === true,            // bf-14：默认**关闭**（熟了要玩家在窗口内点锅起锅）

@@ -1,0 +1,116 @@
+
+/* ══════════════ 3b. 盘上永久保鲜（bf-13 用户要求）══════════════
+   用户原话：「帮我修改一下早餐游戏的备用餐盘，就是做好的早餐放旁边的盘子不要有倒计时，
+             可以一直放着不会冷掉」。
+   三条新断言（原有用例里那几条「会降档 / 会过期 / 会糊 / 有倒计时」的口径已在上面就地改过）：
+     ① 盘上放 ≥60 秒（游戏时间）仍是最高档、仍能吃最高分；
+     ② 盘上食物不会进入 burnt 分支，也不会消失；
+     ③ 锅内路径不受影响 —— 锅里该糊还是糊。 */
+
+test("永久保鲜①：盘上放满 60 秒（游戏时间）仍是「热乎」最高档，仍能吃 14 分", () => {
+  const st = plateState();
+  const c = longPatience(R.spawnCustomer(st, ["bacon"]));
+  const col = plated(st, "bacon", R.FOOD.bacon.dur + 0.05);
+  assert.equal(col, 4, "培根在第 4 列");
+  const p0 = R.plateOfStation(st, col);
+  assert.equal(p0.tier, "hot");
+  assert.equal(p0.left, Infinity, "刚落盘就没有倒计时");
+  advance(st, 60);                                   // 游戏时间整整 60 秒
+  const p60 = R.plateOfStation(st, col);
+  assert.ok(p60, "60 秒后那份还在盘上");
+  assert.equal(p60.state, "perfect", "还是完美档（没糊）");
+  assert.equal(p60.tier, "hot", "还是「热乎」最高档（原口径：4.5s 就糊了、凉档只值 6 分）");
+  assert.equal(p60.hot, true, "hot 标记仍为 true");
+  assert.equal(p60.left, Infinity, "60 秒后仍然没有倒计时");
+  assert.ok(p60.age >= 60, "盘龄确实 ≥60s（实测 " + p60.age + "s）");
+  assert.equal(st.burnt, 0, "60 秒里一次都没糊");
+  assert.equal(st.expire, 0, "「忘取」账 0");
+  const sc0 = st.score;
+  const r = R.serveFromColumn(st, col);
+  assert.equal(r.ok, true, "60 秒后照样能上餐");
+  assert.equal(r.kind, "perfect-hot");
+  assert.equal(r.delta, 14, "得分一分不减（仍是最高档 14）");
+  assert.equal(st.score, sc0 + 14, "分数只涨这一次");
+  assert.equal(c.done.indexOf("bacon") >= 0, true, "服务成功");
+  assert.equal(R.plateOfStation(st, col), null, "送出后盘清空、这一列恢复可用");
+  assert.equal(R.stationFree(st, col), true, "灶位立刻能用");
+});
+
+test("永久保鲜②：盘上食物不会进入 burnt 分支 —— 不糊 / 不冒烟 / 不消失 / 不堵死", () => {
+  const st = plateState();
+  longPatience(R.spawnCustomer(st, ["bun"]));
+  const col = plated(st, "bun", R.FOOD.bun.dur + 0.05);
+  const t0 = st.elapsed;
+  advance(st, 120);                                   // 两分钟游戏时间
+  const p = R.plateOfStation(st, col);
+  assert.ok(p, "120 秒后那份还在（原口径：变糊 → 残骸 14 秒后自动清，早没了）");
+  assert.equal(p.state, "perfect", "state 仍是 perfect，从未进入 burnt");
+  assert.equal(p.tier, "hot", "档位也没掉");
+  assert.equal(p.burning, false, "burning 标记恒为 false（盘上不存在「正在烧糊」）");
+  assert.equal(R.platePhaseOf(p, st.elapsed), "hot", "纯函数也不给 burnt");
+  assert.equal(R.plateExpired(st, p), false, "plateExpired 恒 false");
+  assert.equal(R.plateBurntAt(p.age), false, "plateBurntAt 恒 false");
+  assert.equal(st.plates.length, 1, "盘上就这一份，没被自动清掉");
+  assert.equal(st.burnt, 0, "糊掉计数 0");
+  assert.equal(st.expire, 0, "忘取计数 0");
+  assert.equal(st.tossed, 0, "也没被丢掉");
+  assert.equal(st.smoke.length, 0, "一盘烟都没冒（冒烟只发生在锅里糊的时候）");
+  assert.equal(st.floats.filter(f => /糊/.test(f.text)).length, 0, "没有「忘取了 · 糊了」这类飘字");
+  assert.ok(st.elapsed - t0 >= 119.9, "确实推进了 120 秒游戏时间（" + (st.elapsed - t0).toFixed(1) + "s）");
+  /* 盘占着这一列：锅不能再下料（旧规则不变），但这是「占位」不是「报废」 */
+  assert.equal(R.placeFoodEx(st, "bun", null).why, "plate-occupied", "盘占着 → 原因码 plate-occupied（不是 burnt）");
+  /* 双击仍然丢得掉 —— 「盘上东西丢不丢」仍由玩家决定（这一条是留给用户的折中②的现状） */
+  assert.equal(R.trashColumn(st, col), true, "双击盘照样能丢掉（丢弃仍需玩家操作）");
+  assert.equal(R.stationFree(st, col), true, "丢掉后这一列立刻可用");
+  assert.equal(st.burnt, 0, "丢掉这份也不记糊");
+});
+
+test("永久保鲜③：锅内路径不受影响 —— 锅里该糊还是糊（盘上不糊 ≠ 锅不糊）", () => {
+  /* ③a 按住看火（manual）→ 锅内照样一路走到 burnt */
+  const st = plateState();
+  const col = R.columnOf("egg");
+  assert.equal(R.placeFoodEx(st, "egg", col, { manual:true }).ok, true, "按住看火（不自动落盘）");
+  advance(st, R.FOOD.egg.dur + 0.05);
+  assert.equal(st.stations[col].state, "perfect", "2.2s 恰好");
+  advance(st, 1.0);
+  assert.equal(st.stations[col].state, "over", "过了完美窗口 → 过火");
+  advance(st, 1.0);
+  assert.equal(st.stations[col].state, "burnt", "3.8s 之后锅内照样糊（一个字没改）");
+  assert.equal(st.burnt, 1, "糊掉记账 +1");
+  assert.equal(R.phaseOf(st, col), "burnt", "灶位状态机照旧给 burnt");
+  assert.equal(R.plateOfStation(st, col), null, "锅里糊的那份没落盘");
+  assert.equal(R.stationFree(st, col), false, "糊在锅里 → 这一列不可用");
+  assert.equal(R.placeFoodEx(st, "egg", null).why, "station-occupied", "糊着的时候不能再下料");
+  assert.equal(R.serveFromColumn(st, col).why, "no-plate", "锅里那份没落盘 → 单击盘没东西可送");
+  assert.equal(R.trashColumn(st, col), true, "双击丢掉才能再用");
+  assert.equal(R.stationFree(st, col), true, "清空后立刻恢复可用");
+  /* ③b 自动落盘（默认开）：一到「恰好」就离开锅 → 锅里根本不给它糊的机会 */
+  const st2 = plateState();
+  assert.equal(st2.cfg.autoPlate, true, "autoPlate 默认开");
+  assert.equal(R.placeFood(st2, "egg", null), true);
+  advance(st2, R.FOOD.egg.dur + 0.05);
+  assert.equal(st2.stations[col].food, null, "熟了立刻落盘 → 锅位空出来");
+  assert.equal(R.plateOfStation(st2, col).state, "perfect");
+  advance(st2, 60);
+  assert.equal(st2.burnt, 0, "自动落盘这条路上锅内不会糊（压力点只剩「按住看火」那条）");
+  assert.equal(R.plateOfStation(st2, col).tier, "hot", "盘上那份 60s 后仍是热乎档");
+  /* ③c 糊的份被端上盘 → 盘上那份确实是 burnt（唯一来源），单击盘被拒、放多久都还在 */
+  const st3 = plateState();
+  const c3 = longPatience(R.spawnCustomer(st3, ["bacon"]));
+  const col3 = R.columnOf("bacon");
+  R.placeFoodEx(st3, "bacon", col3, { manual:true });
+  advance(st3, R.burnAt("bacon") + 0.2);
+  assert.equal(st3.stations[col3].state, "burnt", "锅里先糊");
+  assert.equal(R.takePlate(st3, col3), true, "锅里糊了再端上盘（盘上唯一的糊盘来源）");
+  assert.equal(R.plateOfStation(st3, col3).state, "burnt");
+  const bad = R.serveFromColumn(st3, col3);
+  assert.equal(bad.ok, false); assert.equal(bad.why, "burnt", "糊盘单击被拒（提示只能丢）");
+  assert.match(bad.hint, /只能丢/);
+  advance(st3, 30);
+  assert.equal(R.plateOfStation(st3, col3).state, "burnt", "糊盘放 30 秒还是糊（不会自己变好，也不会被自动清掉）");
+  assert.ok(R.plateOfStation(st3, col3), "糊盘不会自动消失（要玩家双击丢掉）");
+  assert.equal(R.trashColumn(st3, col3), true, "双击才丢得掉");
+  assert.equal(c3.done.indexOf("bacon") >= 0, false, "那份始终没送出去");
+});
+/* ═══════════════════════════════════════════════════════════════════════════
+   结算面板的**出口**（#bfGo）· 无头 DOM +「真实 CSS → 布局几何」断言

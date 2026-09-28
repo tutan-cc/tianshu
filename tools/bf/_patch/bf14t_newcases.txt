@@ -1,0 +1,146 @@
+  assert.equal(R.trashColumn(st3, col3), true, "双击才丢得掉");
+  assert.equal(c3.done.indexOf("bacon") >= 0, false, "那份始终没送出去");
+});
+
+/* ══════════════ 3c. 锅内限时起锅（bf-14 用户要求）══════════════
+   用户原话：「餐盘可以一直放着，锅里也可以同时煮着，但是锅里的熟了必须在规定时间内起锅啊，
+             如果备用餐盘里放着，锅里要起锅的没地方放就只能糊掉，然后想再使用锅，
+             就要双击扔掉里面的食物」。
+   四条新用例：① autoPlate 默认关（含页面 start 那条路）；
+              ② 恰好不进盘 / 窗口内点锅起锅 / 盘被占 → 提示 + 继续计时 → 超时糊；
+              ③ 糊锅不可用 → 双击丢弃 → 恢复（不扣分）+ 窗口边界 ±ε；
+              ④ 多锅并行（3 口同时在窗口里互不影响）。 */
+
+test("bf-14①：autoPlate 默认关闭 —— 不传该参数也关（newState 与页面 start 两条路都验）", () => {
+  /* newState：不传 / 传 false / 传 true 三种 */
+  assert.equal(R.newState({ duration: 75, goal: 8 }).cfg.autoPlate, false, "不传 autoPlate → 关闭（页面口径）");
+  assert.equal(R.newState({ autoPlate: false }).cfg.autoPlate, false, "显式 false → 关闭");
+  assert.equal(R.newState({ autoPlate: true }).cfg.autoPlate, true, "显式 true → 打开（只剩调试 / 老回归这条通道）");
+  /* 页面路径：真走 start()，玩家那一侧（index.html 从不传 autoPlate）必须是关闭 */
+  const b = bootDom();
+  assert.equal(b.B.start(b.host, { target:{ id:"su", name:"苏晚晴", bond:40 }, duration:999, goal:99, onFinish(){} }), true, "开局");
+  const d = b.B.debug;
+  assert.equal(d.state().autoPlate, false, "**页面开局默认关闭自动落盘**");
+  assert.equal(d.state().panWindow, R.SERVE_WINDOW, "页面读到的起锅窗口 = SERVE_WINDOW");
+  assert.equal(d.state().panBurntSticky, true, "页面读到的「糊锅粘住」= true");
+  assert.equal(b.B.SERVE_WINDOW, 4.5, "SERVE_WINDOW 现值仍是 4.5s（可调常量）");
+  assert.equal(b.B.SERVE_WARN_SEC, 1.0, "最后 1 秒红闪阈值");
+  assert.equal(b.B.PAN_PICK_TEXT, "恰好 · 起锅", "锅内起锅提示文案（UI 与规则同源）");
+  assert.equal(b.B.PAN_BLOCKED_TEXT, "盘占着 · 没地方放", "盘被占时的文案");
+  assert.equal(b.B.PAN_BURNT_TEXT, "糊了 · 双击丢掉", "糊锅文案");
+  /* 熟了不再落盘：页面里真下料、真推进到恰好 */
+  assert.equal(d.drop("egg", null), true, "点食材下锅");
+  for (let i = 0; i < 400 && d.stations()[3].state !== "perfect"; i++) d.tick(1 / 60);
+  assert.equal(d.stations()[3].state, "perfect", "煎蛋熟了");
+  assert.equal(d.plates().length, 0, "熟了**没有**自动落盘（本轮核心口径）");
+  assert.equal(d.stations()[3].food, "egg", "那份还在锅里等起锅");
+  assert.equal(d.stations()[3].windowOpen, true, "起锅窗口开着");
+  assert.ok(d.stations()[3].serveWin > 0, "窗口倒计时在走（剩余 " + d.stations()[3].serveWin.toFixed(2) + "s）");
+  assert.equal(d.state().windows, 1, "顶栏口径：此刻有 1 口锅等着起锅");
+  /* 单击锅 = 起锅（debug.takeOut 与 tap("station") 是同一条路；真鼠标点击见无头验收）*/
+  assert.equal(d.takeOut(3).ok, true, "单击锅 → 起锅");
+  assert.equal(d.stations()[3].plate, "egg", "起锅落到专属盘");
+  assert.equal(d.plates().length, 1, "盘上 1 份");
+  assert.equal(d.plates()[0].tier, "hot", "入盘即最高档（热乎）");
+  assert.equal(d.state().windows, 0, "起锅后这口锅的窗口关闭");
+  d.close();
+});
+
+test("bf-14②：恰好不进盘 → 窗口内单击锅起锅（最高档）；盘被占 → 提示 + 继续计时 → 超时糊", () => {
+  const st = plateState();                       // 页面口径：autoPlate 不传（默认关闭）
+  const col = R.columnOf("egg");
+  /* ① 恰好 → 不进盘、进窗口 */
+  assert.equal(R.placeFood(st, "egg", null), true, "煎蛋下锅");
+  advance(st, R.FOOD.egg.dur + 0.02);
+  assert.equal(st.stations[col].state, "perfect", "刚进「恰好」");
+  assert.equal(st.plates.length, 0, "**不进盘**（原口径：同一帧自动落盘）");
+  assert.ok(st.stations[col].serveWin > 0, "进入起锅窗口（剩余 " + st.stations[col].serveWin.toFixed(2) + "s）");
+  assert.equal(R.isServeWindowOpen(st.stations[col]), true, "isServeWindowOpen 真的为 true（原口径：恒 false）");
+  assert.equal(R.phaseOf(st, col), "window", "状态机：window（还没落盘）");
+  /* ② 窗口内单击锅 → 入盘，盘上是最高档（热乎 14 分） */
+  const r = R.takeOut(st, col);
+  assert.equal(r.ok, true); assert.equal(r.kind, "plated");
+  assert.equal(r.tier, "hot", "入盘即最高档");
+  const p = R.plateOfStation(st, col);
+  assert.equal(p.food, "egg"); assert.equal(p.state, "perfect"); assert.equal(p.tier, "hot");
+  assert.equal(p.left, Infinity, "盘上永久保鲜：没有倒计时");
+  assert.equal(st.stations[col].food, null, "起锅后锅位立刻空出来");
+  assert.equal(st.prepped, 1, "记账：备好 1 份");
+  /* ③ 盘被占：再下一份 → 熟了没地方放 → 起锅被拒 + 窗口继续走 */
+  assert.equal(R.placeFood(st, "egg", null), true, "盘里还放着一份时**照样能下料**（新口径）");
+  const po = pickOut(st, col);
+  assert.equal(po.ok, false); assert.equal(po.why, "plate-occupied", "起锅被拒：盘里还有一份，没地方放");
+  assert.match(po.hint, /盘里还有一份/);
+  assert.equal(st.plates.length, 1, "盘上那份没被动过");
+  assert.equal(st.stations[col].state, "perfect", "锅里那份还在（窗口继续走）");
+  assert.ok(st.stations[col].serveWin > 0, "被拒**不会**重置窗口（剩余 " + st.stations[col].serveWin.toFixed(2) + "s）");
+  const left = st.stations[col].serveWin;
+  advance(st, left - 0.01);
+  assert.equal(st.stations[col].state, "perfect", "窗口内还剩 0.01s：还没糊");
+  advance(st, 0.03);
+  assert.equal(st.stations[col].state, "burnt", "窗口走完 → 锅里那份**糊了**");
+  assert.equal(st.burnt, 1, "burnt 记账 +1"); assert.equal(st.expire, 1, "expire（忘起锅）+1");
+  assert.equal(st.plates.length, 1, "盘上那份完好（糊的只是锅里那份）");
+  assert.equal(R.plateOfStation(st, col).state, "perfect", "盘上那份仍是 perfect（永久保鲜不受影响）");
+});
+
+test("bf-14③：糊锅不能再下料（station-occupied）→ 双击丢弃 → 恢复可用且不扣分；窗口边界 ±ε", () => {
+  /* 窗口边界：SERVE_WINDOW-ε 不糊 / +ε 糊（确定性时钟推进，不读真实时钟） */
+  const st = plateState();
+  const col = R.columnOf("bacon");
+  assert.equal(R.placeFood(st, "bacon", null), true, "培根下锅");
+  assert.ok(advToWindow(st, col, 8) >= 0, "培根进入起锅窗口");
+  const eps = 0.02;
+  advance(st, R.SERVE_WINDOW - eps);
+  assert.equal(st.stations[col].state, "perfect", "SERVE_WINDOW-ε：**不糊**");
+  assert.equal(st.burnt, 0, "还没糊");
+  advance(st, eps * 2);
+  assert.equal(st.stations[col].state, "burnt", "SERVE_WINDOW+ε：**糊**");
+  assert.equal(st.burnt, 1, "糊掉记账 +1（只有这一次）");
+  /* 糊锅 → 不可用（理由码正确） */
+  const rPlace = R.placeFoodEx(st, "bacon", null);
+  assert.equal(rPlace.ok, false); assert.equal(rPlace.why, "station-occupied", "糊着的时候不能再下料（理由码正确）");
+  assert.equal(R.stationFree(st, col), false, "这一列不可用");
+  assert.equal(R.takeOut(st, col).why, "burnt", "单击锅只会被告知「只能丢掉」");
+  assert.equal(R.serveFromColumn(st, col).why, "no-plate", "锅里那份没落盘 → 单击盘没东西可送");
+  /* 糊残骸**不会自动清**（bf-14：以前 14 秒自己消失）*/
+  assert.equal(R.PAN_BURNT_STICKY, true, "PAN_BURNT_STICKY = true");
+  advance(st, 60);
+  assert.equal(st.stations[col].state, "burnt", "放手 60 秒：糊残骸**还在**（必须双击）");
+  assert.equal(st.stations[col].food, "bacon", "锅里那份还堵着");
+  /* 双击 → 丢掉 → 恢复（不扣分）*/
+  const sc = st.score;
+  assert.equal(R.trashColumn(st, col), true, "双击锅（或该列盘）→ 丢掉糊的");
+  assert.equal(st.score, sc, "丢垃圾桶不扣分");
+  assert.equal(st.stations[col].food, null, "锅清空");
+  assert.equal(R.stationFree(st, col), true, "锅恢复可用");
+  assert.equal(R.trashColumn(st, col), false, "再点一次无事发生");
+  assert.equal(st.score, sc, "仍然不扣分");
+  assert.equal(R.placeFood(st, "bacon", null), true, "马上能再下一份");
+});
+
+test("bf-14④：多锅并行 —— 3 口锅同时在起锅窗口里，各点各的互不影响", () => {
+  const st = plateState();
+  const foods = ["juice", "milk", "bun"];
+  const cols = foods.map(f => R.columnOf(f));
+  foods.forEach(f => assert.equal(R.placeFood(st, f, null), true, "并行下料 " + R.FOOD[f].n));
+  let g = 0;
+  while (g++ < 900 && !cols.every(c => st.stations[c].state === "perfect" && st.stations[c].serveWin > 0)) R.step(st, 1 / 60);
+  assert.equal(cols.every(c => st.stations[c].state === "perfect" && st.stations[c].serveWin > 0), true,
+    "3 口锅**同时在**窗口里：" + cols.map(c => R.FOOD[R.foodOfColumn(c)].n + " " + st.stations[c].serveWin.toFixed(2) + "s").join(" · "));
+  const before = cols.map(c => st.stations[c].serveWin);
+  assert.equal(R.takeOut(st, cols[0]).ok, true, "第 1 口起锅成功");
+  assert.equal(st.plates.length, 1, "只有第 1 口那份进了盘");
+  assert.equal(!!st.stations[cols[1]].food && !!st.stations[cols[2]].food, true, "另两口锅里的东西还在（没被牵连）");
+  advance(st, 1.0);
+  assert.ok(Math.abs(st.stations[cols[1]].serveWin - (before[1] - 1)) < 0.02,
+    "第 2 口的窗口照常倒数 1s（" + st.stations[cols[1]].serveWin.toFixed(2) + "s）");
+  assert.ok(Math.abs(st.stations[cols[2]].serveWin - (before[2] - 1)) < 0.02,
+    "第 3 口的窗口照常倒数 1s（" + st.stations[cols[2]].serveWin.toFixed(2) + "s）");
+  /* 谁都不管 → 剩下两口各自超时糊掉；已经起锅那口不受影响 */
+  advance(st, R.SERVE_WINDOW + 0.2);
+  assert.equal(st.burnt, 2, "剩下两口各自糊掉（burnt=2）");
+  assert.equal(st.stations[cols[0]].state, "idle", "已经起锅那口是干净的（没被牵连）");
+  assert.equal(st.plates.length, 1, "盘上还是第 1 口那份");
+  assert.equal(R.plateOfStation(st, cols[0]).food, "juice", "盘上那份就是第 1 口的果汁");
+});

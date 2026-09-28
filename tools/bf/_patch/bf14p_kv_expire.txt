@@ -1,0 +1,1 @@
+    ["烧糊份数", String(R.burnt) + (R.expire ? ("（忘起锅 " + R.expire + "）") : "")],

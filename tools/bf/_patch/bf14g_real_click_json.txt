@@ -1,0 +1,2 @@
+    return JSON.stringify({ plated: plated, platedTier: platedTier, winLeft: winLeft,
+                            pA: pA, pB: pB, pC: pC, pick: pick, want: c, got: got,

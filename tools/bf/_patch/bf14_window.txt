@@ -1,0 +1,76 @@
+  /* ── 锅内「起锅窗口」（bf-14）：熟了必须限时起锅，超时即糊，糊了必须双击 ────
+     openServeWindow：锅内刚到「恰好」→ 打开 SERVE_WINDOW 秒的窗口 + 暂停火候
+       （step 里对处于窗口中的那份不再累加火候）→ 这 4.5 秒是玩家真正能用的时间。
+     takeOut        ：窗口内**单击锅** = 起锅 → 落进该列专属盘；盘被占 → 没地方放（plate-occupied），
+                      窗口**继续走**（这里什么都不改），走完就糊。
+     burnStation    ：窗口超时 → 那份糊掉（锅体焦黑 + 冒烟 + 记账 + 飘字）；
+                      bf-14 起糊残骸**不再自动清**，必须双击锅 / 盘才清得掉。
+     取出并立刻送往顾客那条老路（takeReady）原样保留：它只服务「没有专属盘」的灶位（现在恒为空集）。 */
+  function openServeWindow(st, stationIdx) {
+    var s = stationByIdx(st, stationIdx);
+    if (!st || !s || !s.food) return null;
+    s.serveWin = SERVE_WINDOW;
+    s.readyAt = st.elapsed;                 // 窗口起点：倒计时按 st.elapsed 算（不累积浮点误差）
+    return { t:"window", idx:stationIdx, food:s.food, left:SERVE_WINDOW };
+  }
+  /** 窗口剩余秒数（纯函数：窗口起点 readyAt 起算，确定性、可断言、不依赖帧率）*/
+  function serveWinLeft(st, s) {
+    if (!st || !s || !s.food || s.state !== "perfect") return 0;
+    var a = Number(s.readyAt); if (!(a >= 0)) return 0;
+    return Math.max(0, SERVE_WINDOW - (st.elapsed - a));
+  }
+  /** **起锅**（单击锅内的成品）→ 落进该列专属盘。返回 { ok, why, hint, ... }：
+       · 没开局 / 锅空          → not-running / no-food
+       · 还没熟（生）           → raw（提示还要几秒）
+       · 已经糊了               → burnt（提示「糊了，只能丢掉（双击）」）
+       · 该列盘里已经有东西     → **plate-occupied**：起锅没地方放 → 提示先送出去，
+                                  窗口**继续走**，走完就糊（用户要求的那条规则）
+       · 盘空                   → 起锅成功（盘上从此永久保鲜，档位冻结在落盘那一刻）*/
+  function takeOut(st, stationIdx) {
+    if (!st || !st.running || st.over) return { ok:false, why:"not-running", hint:"还没开局", station:stationIdx };
+    var s = stationByIdx(st, stationIdx);
+    if (!s) return { ok:false, why:"no-station", hint:"没有这一列", station:stationIdx };
+    if (!s.food) return { ok:false, why:"no-food", hint:"锅里空着 —— 先点下面的食材下锅", station:stationIdx };
+    if (s.state === "burnt")
+      return { ok:false, why:"burnt", hint:"糊了，只能丢掉（双击这一列）", food:s.food, station:stationIdx };
+    if (s.state === "raw" || s.state === "idle")
+      return { ok:false, why:"raw", station:stationIdx, food:s.food, left:serveWinLeft(st, s),
+               hint:"还没熟 —— " + (FOOD[s.food] || {}).n + " 要 " + FOOD[s.food].dur.toFixed(1) + "s" };
+    if (plateIdxOfStation(st, stationIdx) >= 0)
+      return { ok:false, why:"plate-occupied", station:stationIdx, food:s.food, left:serveWinLeft(st, s),
+               hint:(PLACE_WHY["plate-occupied"] || "盘里还有一份，先送出去") + "（双击盘可以丢掉）" };
+    var foodId = s.food, state = s.state;
+    if (!takePlate(st, stationIdx)) return { ok:false, why:"no-plate", hint:"这一列没有专属盘", station:stationIdx };
+    var p = plateOfStation(st, stationIdx);
+    return { ok:true, kind:"plated", why:"", station:stationIdx, food:foodId, state:state,
+             tier:(p ? p.tier : null), hot:!!(p && p.hot), left:0, plate:p };
+  }
+  /** 窗口超时 → 这份糊掉（锅体焦黑 + 冒烟 + 记账 + 飘字）。返回事件对象（step / expireServeWindows 共用）。*/
+  function burnStation(st, stationIdx, why) {
+    var s = stationByIdx(st, stationIdx);
+    if (!st || !s || !s.food) return null;
+    s.state = "burnt"; s.serveWin = 0; s.burntAt = st.elapsed;
+    st.burnt++; st.expire++;
+    st.smoke.push({ x:stationIdx, t:0, life:1.6 });
+    var bb = stationBox(stationIdx);
+    addFloat(st, "没起锅 · 糊了！", "#ff4d6d", 28, bb.x + bb.w / 2, bb.y + bb.h / 2);
+    return { t:"burnt", idx:stationIdx, food:s.food, why:why || "window-expired" };
+  }
+  /** 独立跑一次「起锅窗口超时结算」（step 每帧已内联同样逻辑；这个入口供单测 / 外部调用）。
+      判定按 st.elapsed：窗口起点起算满 SERVE_WINDOW 秒还没被起锅 → 糊。 */
+  function expireServeWindows(st) {
+    var ev = [];
+    if (!st) return ev;
+    for (var i = 0; i < st.stations.length; i++) {
+      var s = st.stations[i];
+      if (!s.food || s.state === "burnt") continue;
+      if (!(s.serveWin > 0)) continue;
+      /* 窗口只属于「恰好」那一刻：一旦这份食物越过完美窗口（变过火），就没得端了 */
+      if (s.state !== "perfect") { s.serveWin = 0; continue; }
+      s.serveWin = serveWinLeft(st, s);
+      if (s.serveWin > 0) continue;                      // 窗口还没走完 → 继续等玩家起锅
+      var be = burnStation(st, i, "window-expired");     // 窗口走完还没起锅 → 糊
+      if (be) ev.push(be);
+    }
+    return ev;
+  }

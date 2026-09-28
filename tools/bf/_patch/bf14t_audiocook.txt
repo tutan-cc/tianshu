@@ -1,0 +1,4 @@
+  assert.equal(R.placeFood(st, "egg", null), true);
+  assert.equal(pickOut(st, 3, 6).ok, true, "熟了在窗口内点锅起锅（bf-14：不再自动落盘）");
+  assert.equal(R.plateOfStation(st, 3).food, "egg", "确实落盘了");
+  assert.equal(played("cook_egg").length, 1, "起锅 / 落盘不响（只在下锅那一刻响）");

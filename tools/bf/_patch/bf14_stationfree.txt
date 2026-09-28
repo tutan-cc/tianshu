@@ -1,0 +1,9 @@
+  /** 灶位是否空着可用 —— bf-14 起**只看锅**：锅里没东西（也没有起锅窗口）就能下料。
+      盘占着也允许下料（用户原话「餐盘可以一直放着，锅里也可以同时煮着」）——
+      代价是这份熟了**没地方起锅**：窗口内点锅会被拒（plate-occupied），窗口走完就糊。 */
+  function stationFree(st, stationIdx) {
+    var s = stationByIdx(st, stationIdx);
+    if (!s || s.food) return false;
+    if (isServeWindowOpen(s)) return false;
+    return true;
+  }

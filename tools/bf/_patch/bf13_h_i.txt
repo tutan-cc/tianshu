@@ -1,0 +1,8 @@
+    /* ④ 糊了 → 红叉贴图（bf-13：盘上不会自然变糊，糊盘只来自「锅里糊了再端上盘」）*/
+    d5.trash(6);                                     // 先清掉刚才那份包子盘
+    A(d5.burnPlate(6) === true, "锅里烧糊 → 端上盘，造一份糊盘（盘上唯一的糊盘来源）");
+    b5.record.drawImage.length = 0;
+    b5.pump(1);
+    A(b5.record.drawImage.some(x => /art\/icons\/ui\/cross\.png$/.test(x.src)),
+      "盘上那份糊了 → 画红叉贴图 ui/cross.png（矢量红叉只是缺图时的兜底）");
+    b5.B.dispose();

@@ -109,3 +109,7 @@ audio/**/_sfx_src/
 audio/**/_amb_src/
 audio/**/_bgm_src/
 audio/**/_mj0_src/
+
+# 出图产物的旧目录名：已归位到 测试截图/（见 tools/README.md 2.1）。
+# 留着这条是兜底，防止以后又有脚本写回这里。
+_shots/

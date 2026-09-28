@@ -1,0 +1,3 @@
+        /* plate = 单击盘 → 出餐（要求 A3）；station = **单击锅 = 起锅**（bf-14，走完整判定）*/
+        if (kind === "plate") return serveFromColumn(st, idx).ok;
+        if (kind === "station") return takeOut(st, idx).ok;

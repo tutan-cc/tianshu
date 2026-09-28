@@ -1,0 +1,6 @@
+    if (nowant) {
+      A(d4.stations()[nowant.col].plate === nowant.f, "这份留在盘上永久保鲜（不消耗）");
+      /* bf-14：「忘取」账现在**只由锅里的起锅窗口超时**产生（上面刚验过一次），
+         所以这里改成相对值 —— 盘龄再怎么拨，这个账都不许动。 */
+      const exp0 = d4.state().expire;
+      d4.setPlateAge(nowant.col, B.SERVE_WINDOW - 0.1);

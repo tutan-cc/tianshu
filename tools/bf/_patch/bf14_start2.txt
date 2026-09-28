@@ -1,0 +1,1 @@
+    st.cfg.autoPlate = cfg.autoPlate;                // bf-14 默认 false：9 列的熟份都停在锅里等起锅

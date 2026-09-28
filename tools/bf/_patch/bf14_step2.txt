@@ -1,0 +1,14 @@
+      /* 起锅窗口倒计时（bf-14 · 每一列都真的在走）：窗口走完还没起锅 → 当场糊，
+         这口锅被这份占死 —— 必须双击丢掉才能再用（下面不再有「自动清」这条路）。 */
+      if (s.food && s.state === "perfect" && s.serveWin > 0) {
+        s.serveWin = serveWinLeft(st, s);
+        if (s.serveWin <= 0) {
+          var be = burnStation(st, i, "window-expired");
+          if (be) ev.push(be);
+        }
+      } else if (s.food && s.state !== "perfect" && s.serveWin > 0) {
+        s.serveWin = 0;                                  // 越过完美窗口 → 窗口作废
+      }
+      /* 糊残骸（bf-14）：**不再自动清**。用户原话「想再使用锅，就要双击扔掉里面的食物」，
+         所以这里只记一次糊的时刻（渲染 / 记账用），清空只走 trashStation（双击 / 右键）。 */
+      if (s.state === "burnt" && !s.burntAt) s.burntAt = st.elapsed;

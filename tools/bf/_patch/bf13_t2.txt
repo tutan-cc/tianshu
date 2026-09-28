@@ -1,0 +1,22 @@
+test("单击盘：此刻没人要这份 → 不消耗、留在盘上永久保鲜（不会凉，随时能上）", () => {
+  const st = plateState();
+  longPatience(R.spawnCustomer(st, ["congee"]));
+  const col = plated(st, "sandwich", R.FOOD.sandwich.dur + 0.05);
+  const score0 = st.score;
+  const r = R.serveFromColumn(st, col);
+  assert.equal(r.ok, false); assert.equal(r.why, "no-want");
+  assert.match(r.hint, /现在没人要这份/);
+  assert.equal(st.score, score0, "不扣分");
+  assert.equal(st.wrong, 0, "也不算上错菜");
+  assert.equal(R.plateOfStation(st, col).food, "sandwich", "那份还在盘上");
+  assert.equal(R.platePhaseOf(R.plateOfStation(st, col), st.elapsed), "hot");
+  advance(st, 2.0);
+  assert.equal(R.plateOfStation(st, col).tier, "hot", "放 2s → 仍是「热乎」（原口径：掉到「温」）");
+  advance(st, 1.5);
+  assert.equal(R.plateOfStation(st, col).tier, "hot", "再放 1.5s → 仍是「热乎」（原口径：掉到「凉」）");
+  assert.equal(R.plateOfStation(st, col).state, "perfect", "没有变糊（原口径：3.5s 时还在凉档、4.5s 就糊）");
+  assert.equal(R.plateOfStation(st, col).left, Infinity, "盘龄 3.5s：仍然没有倒计时");
+  longPatience(R.spawnCustomer(st, ["sandwich"]));
+  const r2 = R.serveFromColumn(st, col);
+  assert.equal(r2.ok, true); assert.equal(r2.heat, "hot"); assert.equal(r2.delta, 14, "放了 3.5s 照样吃最高档 14 分（原口径：凉档 6 分）");
+});

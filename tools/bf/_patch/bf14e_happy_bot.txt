@@ -1,0 +1,12 @@
+      var col = d.columnOf(want), s = d.stations()[col];
+      if (s.plate && s.plateState === "burnt") d.trashCol(col);      // 糊了就丢掉重来
+      if (!s.food && !s.plate) d.drop(want, col);
+      d.tick(1 / 60);
+      /* bf-14：锅里熟了要**点锅起锅**（不再自动落盘）；盘被占就先点盘把旧的送出去 */
+      var s2 = d.stations()[col];
+      if (s2.state === "perfect" && s2.windowOpen) {
+        if (s2.plate) d.serveCol(col);
+        else d.takeOut(col);
+      }
+      var s3 = d.stations()[col];
+      if (s3.plate && s3.plateState !== "burnt") { var r = d.serveCol(col); if (r && r.ok) served = true; }

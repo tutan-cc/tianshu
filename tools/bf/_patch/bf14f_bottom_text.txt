@@ -1,0 +1,2 @@
+      g.fillText("9 列 × 每列 1 锅 1 专属盘 · 熟了 " + SERVE_WINDOW + "s 内点锅起锅 · 盘被占了就只能糊掉",
+                 W - LAY.buckets.x0, LAY.buckets.y + LAY.bucketLabelDy);

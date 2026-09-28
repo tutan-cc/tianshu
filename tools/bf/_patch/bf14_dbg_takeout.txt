@@ -1,0 +1,4 @@
+      /** 单击某一列的盘 → 送给「正在需要 + 耐心最少」的顾客（返回完整结果，测试读 why / delta）*/
+      serveCol: function (idx) { var st = curState(); if (!st) return { ok:false, why:"no-run" }; return serveFromColumn(st, idx); },
+      /** bf-14：单击锅 = 起锅（完整结果；why="plate-occupied" = 盘被占、没地方放，窗口继续走）*/
+      takeOut: function (idx) { var st = curState(); if (!st) return { ok:false, why:"no-run" }; return takeOut(st, idx); },

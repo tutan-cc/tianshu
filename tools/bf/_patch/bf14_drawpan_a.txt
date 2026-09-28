@@ -1,0 +1,5 @@
+      var left = Math.max(0, s.serveWin || 0);           // bf-14：锅内「起锅窗口」剩余秒数（真的在走）
+      var frac = SERVE_WINDOW > 0 ? Math.max(0, Math.min(1, left / SERVE_WINDOW)) : 0;
+      var lastSec = ready && left > 0 && left <= SERVE_WARN_SEC;
+      var picking = ready && left > 0;                  // 正在窗口里等人起锅
+      var blink = Math.floor(nowMs() / 200) % 2 === 0;

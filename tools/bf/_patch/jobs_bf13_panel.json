@@ -1,0 +1,16 @@
+{
+  "jobs": [
+    { "file": "tools/bf/shots/panel.js",
+      "from": "/* ══════════ ① 进行中（放大后的整屏 · 1770×1185） ══════════",
+      "to": "              \" · 糊 \" + st.burnt + \" 份 · 分 \" + st.score);\n}",
+      "textFile": "tools/bf/_patch/bf13_p_s1.txt" },
+
+    { "file": "tools/bf/shots/panel.js",
+      "from": "  put(\"③ 双击盘 → 丢垃圾桶（不扣分）　　盘上停留超过 4.5s 会糊，糊了只能双击丢掉\",\n    20, bandY + 104, 27, \"#ffb347\");",
+      "text": "  put(\"③ 双击盘 → 丢垃圾桶（不扣分）　　盘上永久保鲜（bf-13）：没有倒计时 / 不会凉 / 不会糊，放多久都能上\",\n    20, bandY + 104, 27, \"#5dffa0\");" },
+
+    { "file": "tools/bf/shots/panel.js",
+      "from": "/* ══════════ ③ 通过结算 ══════════ */",
+      "textFile": "tools/bf/_patch/bf13_p_s2b_plus.txt" }
+  ]
+}

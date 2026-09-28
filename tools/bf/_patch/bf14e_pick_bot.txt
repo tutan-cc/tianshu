@@ -1,0 +1,7 @@
+    var col = d.columnOf("egg");
+    if (!d.stations()[col].plate && !d.stations()[col].food) d.drop("egg", col);
+    /* 用游戏时钟把这份煎蛋推到「起锅窗口」，再**点锅起锅**（bf-14：不再自动落盘。
+       墙钟在这里只有 ~1/5 速，所以必须用游戏时钟推。） */
+    for (var k = 0; k < 400 && !d.stations()[col].windowOpen; k++) d.tick(1 / 60);
+    var pick = d.takeOut(col);
+    var plated = !!(pick && pick.ok) && !!d.stations()[col].plate;

@@ -1,0 +1,5 @@
+                   serveWin:Math.round((s.serveWin || 0) * 1000) / 1000,
+                   windowLeft:Math.round(serveWinLeft(st, s) * 1000) / 1000,
+                   picking:(s.state === "perfect" && (s.serveWin || 0) > 0),
+                   blockedByPlate:(s.state === "perfect" && (s.serveWin || 0) > 0 && !!p),
+                   windowOpen:isServeWindowOpen(s) };

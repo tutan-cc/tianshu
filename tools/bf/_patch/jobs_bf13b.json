@@ -1,0 +1,11 @@
+{
+  "jobs": [
+    { "file": "breakfast.js",
+      "from": "    /** 单击盘（要求 A3）：自动送给正在需要这份、且耐心最少的顾客；\n        没人要 → 不消耗，留在盘上继续走热乎度衰减；糊了 → 只能双击丢。 */",
+      "text": "    /** 单击盘（要求 A3）：自动送给正在需要这份、且耐心最少的顾客；\n        没人要 → 不消耗，留在盘上（永久保鲜，放多久都能上）；糊了 → 只能双击丢。 */" },
+
+    { "file": "breakfast.js",
+      "from": "        return { prepPlates:PLATES_TOTAL, platesTotal:PLATES_TOTAL, columns:COL_N,\n                 serveWindow:SERVE_WINDOW, plateLife:SERVE_WINDOW,\n                 prep:prepStationIndices(), serve:serveStationIndices() };",
+      "text": "        return { prepPlates:PLATES_TOTAL, platesTotal:PLATES_TOTAL, columns:COL_N,\n                 serveWindow:SERVE_WINDOW, plateLife:PLATE_NO_TIMER, plateKeep:PLATE_KEEP,\n                 prep:prepStationIndices(), serve:serveStationIndices() };" }
+  ]
+}

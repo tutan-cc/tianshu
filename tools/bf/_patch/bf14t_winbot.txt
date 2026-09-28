@@ -1,0 +1,21 @@
+    // 2) 推进到有锅进入「起锅窗口」（bf-14：不再自动落盘；或 1 秒）
+    let frames = 0;
+    while (frames++ < 60 && !st.over) {
+      R.step(st, 1 / 60);
+      if (st.stations.some(s => s.state === "perfect" && s.serveWin > 0)) break;
+    }
+    if (st.over) break;
+    // 3) 起锅：窗口内**单击锅** → 落到本列专属盘（盘被占就先点盘把旧的送出去）
+    for (let i = 0; i < st.stations.length; i++) {
+      const s = st.stations[i];
+      if (s.state !== "perfect" || !(s.serveWin > 0)) continue;
+      if (R.plateOfStation(st, i)) { const r0 = R.serveFromColumn(st, i); if (!r0.ok) R.trashStation(st, i); }
+      else R.takeOut(st, i);
+    }
+    // 4) 单击每一列的专属盘：自动送给正在需要 + 耐心最少的顾客（没人要就留着）
+    for (let i = 0; i < st.stations.length; i++) if (R.plateOfStation(st, i)) R.serveFromColumn(st, i);
+    // 5) 清掉糊掉的残骸 / 没人要的存货，避免堵住某一列
+    for (let i = 0; i < st.stations.length; i++) {
+      const p = R.plateOfStation(st, i);
+      if ((p && p.state === "burnt") || st.stations[i].state === "burnt") R.trashStation(st, i);
+    }

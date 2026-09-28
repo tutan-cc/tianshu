@@ -1,0 +1,7 @@
+  /* 三列摆出三种状态（bf-14）：煎蛋**等在起锅窗口**、培根**刚起锅落盘**（热乎）、三明治还在烧 */
+  d.drop("egg", null); d.drop("bacon", null);
+  { let g = 0; while (g++ < 400 && !d.stations()[4].windowOpen) d.tick(1 / 60); }
+  d.takeOut(4);                                          // 培根：窗口内点锅 → 起锅落盘（热乎）
+  d.drop("sandwich", null);                              // 三明治随后下锅 → 还在烧
+  adv(d, 1.05);                                          // 飘字播完（煎蛋那口锅仍在窗口里）
+  d.setPlateAge(4, 0.4);                                 // 培根那份 → 热乎档（14 分）

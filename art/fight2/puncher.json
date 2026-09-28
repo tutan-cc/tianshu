@@ -1,28 +1,28 @@
 {
     "poses":  {
                   "ko":  {
-                             "w":  234,
-                             "lowY":  8,
+                             "w":  610,
+                             "lowY":  11,
                              "file":  "puncher_ko.png",
-                             "h":  126
+                             "h":  605
                          },
                   "hit":  {
-                              "w":  256,
-                              "lowY":  14,
+                              "w":  688,
+                              "lowY":  17,
                               "file":  "puncher_hit.png",
-                              "h":  307
+                              "h":  1004
                           },
                   "idle":  {
-                               "w":  209,
-                               "lowY":  12,
+                               "w":  562,
+                               "lowY":  8,
                                "file":  "puncher_idle.png",
-                               "h":  309
+                               "h":  1036
                            },
                   "strike":  {
-                                 "w":  256,
-                                 "lowY":  16,
+                                 "w":  688,
+                                 "lowY":  24,
                                  "file":  "puncher_strike.png",
-                                 "h":  308
+                                 "h":  1017
                              }
               },
     "ground":  8,

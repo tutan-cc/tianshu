@@ -1,0 +1,5 @@
+  assert.equal(R.placeFood(st, "congee", null), true);
+  const po0 = pickOut(st, 0, 12);                  // bf-14：熟了要在起锅窗口内点锅
+  assert.equal(po0.ok, true, "窗口内单击锅 → 起锅落盘");
+  const p = R.plateOfStation(st, 0);
+  assert.ok(p, "白粥落盘了");

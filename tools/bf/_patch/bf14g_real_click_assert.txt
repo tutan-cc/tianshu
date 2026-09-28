@@ -1,0 +1,4 @@
+  A(jp2.plated === true && jp2.platedTier === "hot" && jp2.winLeft > 0,
+    "真浏览器：真实鼠标**单击锅** → 起锅落到本列专属盘（bf-14 新交互；入盘即最高档「热乎」）",
+    "窗口剩余 " + String(jp2.winLeft) + "s · 盘上 tier=" + jp2.platedTier);
+  A(jp2.pick === jp2.want, "真浏览器：规则层挑中耐心 5 那位（不是第一位）",

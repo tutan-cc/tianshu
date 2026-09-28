@@ -21,7 +21,13 @@ if (!fs.existsSync(SHOT)) fs.mkdirSync(SHOT, { recursive: true });
 const TR = path.join(OUT, "dist", "test-results");
 if (!fs.existsSync(TR)) fs.mkdirSync(TR, { recursive: true });
 
-const REF_DEFAULT = "C:\\Users\\chris\\.dsh\\attachments\\v1\\objects\\f4\\f4c761eb86fa48b79e3a7f7da9f17c219add5fee567ec59f412fea34806aebd8";
+/* 参考图默认取**仓库内**那份（tools/mj/_refcrop/ref_tiles.png，已入库）。
+   ⚠ 原先默认值是作者本机的 dsh 附件缓存绝对路径
+     （C:\Users\chris\.dsh\attachments\v1\objects\f4\...），
+     换台机器就跑不了 —— 属于「只在作者机器上可用」的硬编码。
+     仓库里本来就有同源的那张图，指过去即可开箱即用。
+   仍可用命令行参数覆盖：node tools/mj/shots-vs-ref.js <参考图路径> */
+const REF_DEFAULT = path.join(__dirname, "_refcrop", "ref_tiles.png");
 const REF = process.argv[2] || REF_DEFAULT;
 const REF_RAW = path.join(TR, "ref_raw.bin");
 const REF_META = path.join(TR, "ref_raw.json");

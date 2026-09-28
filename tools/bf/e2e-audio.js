@@ -287,8 +287,14 @@ async function ev(e) {
       if (s.plate && s.plateState === "burnt") d.trashCol(col);      // 糊了就丢掉重来
       if (!s.food && !s.plate) d.drop(want, col);
       d.tick(1 / 60);
+      /* bf-14：锅里熟了要**点锅起锅**（不再自动落盘）；盘被占就先点盘把旧的送出去 */
       var s2 = d.stations()[col];
-      if (s2.plate && s2.plateState !== "burnt") { var r = d.serveCol(col); if (r && r.ok) served = true; }
+      if (s2.state === "perfect" && s2.windowOpen) {
+        if (s2.plate) d.serveCol(col);
+        else d.takeOut(col);
+      }
+      var s3 = d.stations()[col];
+      if (s3.plate && s3.plateState !== "burnt") { var r = d.serveCol(col); if (r && r.ok) served = true; }
     }
     var plays = d.audio().plays;
     return JSON.stringify({ served: served, restarts: restarts, steps: steps,
@@ -439,9 +445,14 @@ async function ev(e) {
     }
     var col = d.columnOf("egg");
     if (!d.stations()[col].plate && !d.stations()[col].food) d.drop("egg", col);
-    /* 用游戏时钟把这份煎蛋推到落盘（与无头用例同一口径；墙钟在这里只有 ~1/5 速） */
-    for (var k = 0; k < 400 && !d.stations()[col].plate; k++) d.tick(1 / 60);
-    var plated = !!d.stations()[col].plate;
+    /* 用游戏时钟把这份煎蛋推到「起锅窗口」，再**点锅起锅**（bf-14：不再自动落盘。
+       墙钟在这里只有 ~1/5 速，所以必须用游戏时钟推。） */
+    for (var k = 0; k < 400 && !d.stations()[col].windowOpen; k++) d.tick(1 / 60);
+    var winLeft = d.stations()[col].serveWin;               // 起锅窗口还剩多少秒（真浏览器里读得到）
+    clickBox(window.Breakfast.stationBox(col));             // ← 真实鼠标**单击锅** = 起锅（bf-14 新交互）
+    var po = d.stations()[col];                             // 点击本身不推进时钟 → 点完立刻读
+    var plated = !!po.plate;
+    var platedTier = po.tier;
     /* 摆耐心放在「点击前一刻」：等煎蛋熟的这几秒里耐心一直在掉 */
     d.orders().forEach(function(o){ if (o.id !== a && o.id !== b && o.id !== c) d.setPatience(o.id, 0.98); });
     var pA = abs(a, 30), pB = abs(b, 12), pC = abs(c, 5);
@@ -456,7 +467,8 @@ async function ev(e) {
     var hurry = os.filter(function(o){ return o.id === c; })[0];
     var others = os.filter(function(o){ return o.id === a || o.id === b; })
                     .map(function(o){ return o.id + ":" + (o.done.indexOf("egg") >= 0 ? "拿到了" : "没拿到"); });
-    return JSON.stringify({ plated: plated, pA: pA, pB: pB, pC: pC, pick: pick, want: c, got: got,
+    return JSON.stringify({ plated: plated, platedTier: platedTier, winLeft: winLeft,
+                            pA: pA, pB: pB, pC: pC, pick: pick, want: c, got: got,
                             patience: hurry ? hurry.patience : null, max: hurry ? hurry.patienceMax : null,
                             partialServes: d.state().partialServes, partialBonus: d.state().partialBonus,
                             dServes: d.state().partialServes - ps0,
@@ -469,6 +481,9 @@ async function ev(e) {
   A(jp2.plated === true && Math.abs(jp2.pC - 5) < 0.2 && Math.abs(jp2.pB - 12) < 0.3,
     "真浏览器：3 位都要煎蛋，耐心摆成 30 / 12 / 5（煎蛋已落到专属盘）",
     "30→" + jp2.pA + " · 12→" + jp2.pB + " · 5→" + jp2.pC);
+  A(jp2.plated === true && jp2.platedTier === "hot" && jp2.winLeft > 0,
+    "真浏览器：真实鼠标**单击锅** → 起锅落到本列专属盘（bf-14 新交互；入盘即最高档「热乎」）",
+    "窗口剩余 " + String(jp2.winLeft) + "s · 盘上 tier=" + jp2.platedTier);
   A(jp2.pick === jp2.want, "真浏览器：规则层挑中耐心 5 那位（不是第一位）",
     "pick → #" + jp2.pick + " · 期望 #" + jp2.want);
   A((jp2.got || []).indexOf(jp2.want) >= 0 && (jp2.got || []).length === 1,

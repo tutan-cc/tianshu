@@ -1,0 +1,3 @@
+    d.drop("egg", null);
+    for (let k = 0; k < 200 && !d.stations()[3].windowOpen; k++) d.tick(1 / 60);
+    A(d.takeOut(3).ok === true && !!d.stations()[3].plate, "煎蛋已经落在第 3 列的专属盘上（窗口内点锅起锅）");

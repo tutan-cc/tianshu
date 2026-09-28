@@ -1,0 +1,57 @@
+{
+ "jobs": [
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  /* 糊的那份：单击被拒（留在盘上）→ 双击才丢得掉（清锅 + 清盘，不扣分） */\n  B.debug.drop(\"egg\", null);",
+   "to": "    (m.texts.slice(-40).filter(x => /糊/.test(x))[0] || \"\"));",
+   "textFile": "tools/bf/_patch/bf13_h_a.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  /* ⑥.5 新操作模型：9 列各 1 专属盘 + 自动落盘 + 单击盘出餐 + 盘上过火报废 */",
+   "text": "  /* ⑥.5 新操作模型：9 列各 1 专属盘 + 自动落盘 + 单击盘出餐 + 盘上永久保鲜（bf-13 无倒计时）*/"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  A(d4.state().plateLife === 4.5 && d4.state().serveWindow === 4.5, \"过火计时 = 4.5s（SERVE_WINDOW）\");",
+   "text": "  A(!isFinite(d4.state().plateLife) && d4.state().plateKeep === true && d4.state().serveWindow === 4.5,\n    \"盘上永久保鲜：plateLife = Infinity（无倒计时）/ plateKeep = true；锅内窗口常量仍是 4.5（兼容层）\",\n    \"plateLife=\" + d4.state().plateLife + \" plateKeep=\" + d4.state().plateKeep);"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  A(p0.left > 4.0 && p0.left <= 4.5, \"盘上倒计时 ≈ 4.5s（过火计时在走）\", \"left=\" + p0.left);",
+   "text": "  A(!isFinite(p0.left), \"盘上**没有倒计时**（left = Infinity 哨兵；旧断言：≈4.5s 在走）\", \"left=\" + p0.left);"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  /* 热乎度降档 + 过火报废（放在同一列上验边界） */\n  d4.setPlateAge(0, B.HEAT.hotSec + 0.2);\n  d4.tick(1 / 60);\n  A(d4.plates()[0].tier === \"warm\", \"盘上停 1.7s → 温（10 分档）\", d4.plates()[0].tier + \" age=\" + d4.plates()[0].age);\n  d4.setPlateAge(0, B.HEAT.warmSec + 0.2);\n  d4.tick(1 / 60);\n  A(d4.plates()[0].tier === \"cold\", \"盘上停 3.2s → 凉（6 分档，仍可上餐）\", d4.plates()[0].tier + \" age=\" + d4.plates()[0].age);",
+   "text": "  /* bf-13 盘上永久保鲜：旧断言是「停 1.7s → 温 / 停 3.2s → 凉」，现在改成\n     「停 1.7s / 3.2s / 90s 都还是 hot」—— 档位不再随盘龄变化（这是本轮口径变化的核心）。 */\n  d4.setPlateAge(0, B.HEAT.hotSec + 0.2);\n  d4.tick(1 / 60);\n  A(d4.plates()[0].tier === \"hot\", \"盘上停 1.7s → 仍是 hot（旧断言：温 10 分档）\", d4.plates()[0].tier + \" age=\" + d4.plates()[0].age);\n  d4.setPlateAge(0, B.HEAT.warmSec + 0.2);\n  d4.tick(1 / 60);\n  A(d4.plates()[0].tier === \"hot\", \"盘上停 3.2s → 仍是 hot（旧断言：凉 6 分档）\", d4.plates()[0].tier + \" age=\" + d4.plates()[0].age);\n  d4.setPlateAge(0, 90);\n  d4.tick(1 / 60);\n  A(d4.plates()[0].tier === \"hot\" && d4.plates()[0].state === \"perfect\", \"盘上停 90s → 仍是 hot / perfect（永久保鲜）\",\n    d4.plates()[0].tier + \" age=\" + d4.plates()[0].age);"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  A(srv.ok === true && srv.heat === \"cold\" && srv.delta === 6, \"凉的那份照样能上餐（+6 · 不劝退）\",\n    JSON.stringify({ heat: srv.heat, delta: srv.delta }));",
+   "text": "  A(srv.ok === true && srv.heat === \"hot\" && srv.delta === 14, \"放了 90s 的那份照样吃最高档（热乎 +14；旧断言：凉 +6）\",\n    JSON.stringify({ heat: srv.heat, delta: srv.delta }));"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "      A(d4.stations()[nowant.col].plate === nowant.f, \"这份留在盘上继续走热乎度衰减（不消耗）\");\n      d4.setPlateAge(nowant.col, B.SERVE_WINDOW - 0.1);\n      d4.tick(1 / 60);\n      A(d4.plates().some(p => p.station === nowant.col && p.state === \"perfect\"), \"窗口前 0.1s：还是好的（未糊）\");\n      d4.setPlateAge(nowant.col, B.SERVE_WINDOW + 0.05);\n      d4.tick(1 / 60);\n      A(d4.plates().some(p => p.station === nowant.col && p.state === \"burnt\"), \"盘上停留超过 4.5s → 变糊\");\n      A(d4.state().expire === 1, \"记在「忘取」账上\");\n      const rBurn = d4.serveCol(nowant.col);\n      A(rBurn.ok === false && rBurn.why === \"burnt\", \"糊的单击被拒（原因码 burnt，只能丢）\", rBurn.why);\n      const sc5 = d4.state().score;\n      A(d4.trashCol(nowant.col) === true, \"双击（trashCol）才丢得掉\");",
+   "text": "      A(d4.stations()[nowant.col].plate === nowant.f, \"这份留在盘上永久保鲜（不消耗）\");\n      d4.setPlateAge(nowant.col, B.SERVE_WINDOW - 0.1);\n      d4.tick(1 / 60);\n      A(d4.plates().some(p => p.station === nowant.col && p.state === \"perfect\"), \"旧窗口前 0.1s：还是好的（未糊）\");\n      d4.setPlateAge(nowant.col, B.SERVE_WINDOW + 0.05);\n      d4.tick(1 / 60);\n      A(d4.plates().some(p => p.station === nowant.col && p.state === \"perfect\"), \"盘上停留超过 4.5s **也不糊**（旧断言：变糊）\");\n      A(d4.plates().some(p => p.station === nowant.col && p.tier === \"hot\"), \"档位也没掉（仍是热乎）\");\n      A(d4.state().expire === 0, \"「忘取」账仍是 0（旧断言：记了一次忘取）\");\n      d4.setPlateAge(nowant.col, 60);\n      d4.tick(1 / 60);\n      A(d4.plates().some(p => p.station === nowant.col && p.state === \"perfect\"), \"放到 60s 还是完美档、还在盘上\");\n      const rNo = d4.serveCol(nowant.col);\n      A(rNo.ok === false && rNo.why === \"no-want\", \"仍然只是「没人要」，不是 burnt（旧断言：原因码 burnt）\", rNo.why);\n      const sc5 = d4.state().score;\n      A(d4.trashCol(nowant.col) === true, \"双击（trashCol）照样丢得掉 —— 丢弃仍需玩家操作\");"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  /* ⑥.6 过火计时的边界：窗口前还活着 / 一过窗口就糊（盘上） */",
+   "to": "  A(d5.placeEx(\"egge\", null).why === \"no-food\", \"不存在的食材 → 原因码 no-food\");\n  d5.close();",
+   "textFile": "tools/bf/_patch/bf13_h_g.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "  /* 有食物 / 糊了的盘：画出档位与倒计时 / 只能丢 */",
+   "to": "A(t6c.some(x => /糊了/.test(x)) && t6c.some(x => /只能丢/.test(x)), \"糊了的盘画出「糊了 · 只能丢（双击）」\",\n    (t6c.filter(x => /只能丢/.test(x))[0] || \"\"));",
+   "textFile": "tools/bf/_patch/bf13_h_h.txt"
+  },
+  {
+   "file": "tools/bf/headless.js",
+   "from": "    /* ④ 糊了 → 红叉贴图 */\n    d5.burnPlate(6);",
+   "text": "    /* ④ 糊了 → 红叉贴图（bf-13：盘上不会自然变糊，糊盘只来自「锅里糊了再端上盘」）*/\n    d5.trash(6);                                     // 先清掉刚才那份包子盘\n    A(d5.burnPlate(6) === true, \"锅里烧糊 → 端上盘，造一份糊盘（盘上唯一的糊盘来源）\");"
+  }
+ ]
+}

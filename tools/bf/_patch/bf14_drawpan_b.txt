@@ -1,0 +1,1 @@
+      if (busy && !fd) g.globalAlpha = 0.42;                // 盘里还有一份（且锅空着）→ 锅位半透明

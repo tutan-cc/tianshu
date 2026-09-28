@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>卡牌对决 · 音效试听</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;background:
+  radial-gradient(ellipse 70% 50% at 20% 10%, rgba(90,60,180,.34), transparent 62%),
+  radial-gradient(ellipse 60% 50% at 85% 85%, rgba(200,50,110,.24), transparent 62%),
+  #08060f;
+  font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#e8e4f5;
+  padding:26px 30px 90px;-webkit-font-smoothing:antialiased}
+h1{font-size:22px;letter-spacing:2px;margin-bottom:4px}
+.sub{font-size:13px;color:#a99fc4;margin-bottom:18px;line-height:1.7}
+.sub b{color:#ffd76e}
+.bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:12px;align-items:center;
+  padding:12px 30px;background:rgba(10,7,20,.92);border-top:1px solid rgba(255,255,255,.09);z-index:10}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:12px}
+.item{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10);border-radius:12px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:8px;transition:border-color .2s,background .2s}
+.item:hover{border-color:rgba(255,215,110,.4);background:rgba(255,255,255,.07)}
+.item.hit{animation:pop .5s ease-out}
+@keyframes pop{0%{background:rgba(255,215,110,.22)}100%{background:rgba(255,255,255,.045)}}
+.item .top{display:flex;align-items:baseline;gap:8px}
+.item .nm{font-size:15px;font-weight:800}
+.item .key{font-size:11px;color:#7d739c;font-family:ui-monospace,Consolas,monospace}
+.item .ds{font-size:12px;color:#a99fc4;line-height:1.6;flex:1 1 auto}
+.item .why{font-size:11.5px;color:#8a80a8;line-height:1.55;border-left:2px solid rgba(255,215,110,.35);padding-left:8px}
+.row{display:flex;gap:8px}
+button{font:inherit;cursor:pointer;border-radius:9px;border:1px solid rgba(255,255,255,.18);
+  background:rgba(255,255,255,.06);color:#e8e4f5;padding:7px 14px;font-size:13px;font-weight:700;
+  transition:transform .12s,background .15s,border-color .15s}
+button:hover{background:rgba(255,215,110,.16);border-color:rgba(255,215,110,.6);transform:translateY(-1px)}
+button:active{transform:none scale(.98)}
+button.pri{background:linear-gradient(180deg,#ffe9a8,#ffc23a);color:#1a1024;border:none}
+button.pri:hover{filter:brightness(1.06)}
+input[type=range]{width:150px}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:800}
+.t-atk{background:rgba(255,77,109,.2);color:#ff8fa3;border:1px solid rgba(255,77,109,.45)}
+.t-def{background:rgba(77,216,255,.18);color:#8fd8ff;border:1px solid rgba(77,216,255,.45)}
+.t-heal{background:rgba(93,255,160,.16);color:#7dffb0;border:1px solid rgba(93,255,160,.45)}
+.t-sp{background:rgba(176,125,255,.18);color:#c9a8ff;border:1px solid rgba(176,125,255,.45)}
+.t-ui{background:rgba(255,255,255,.1);color:#cfc6e6;border:1px solid rgba(255,255,255,.22)}
+.grp{font-size:13px;font-weight:800;color:#ffd76e;letter-spacing:2px;margin:22px 0 4px}
+</style>
+</head>
+<body>
+<h1>卡牌对决 · 音效试听</h1>
+<div class="sub">
+  全部是 <b>Web Audio 实时合成</b>（不带任何音频文件）—— 所以你听到的就是游戏里的真声音。<br>
+  点击任意 <b>▶ 试听</b> 播放；想对比变体就来回点几下。<br>
+  选好后告诉我「哪个编号 / 哪个名字」，我就把它们接进游戏。
+</div>
+
+<div id="list"></div>
+
+<div class="bar">
+  <button class="pri" id="all">▶ 依次播放全部</button>
+  <button id="stop">■ 停止</button>
+  <span style="font-size:12.5px;color:#a99fc4">音量</span>
+  <input type="range" id="vol" min="0" max="100" value="55">
+  <span id="volTxt" style="font-size:12px;color:#8a80a8;min-width:34px">55%</span>
+  <span style="flex:1 1 auto"></span>
+  <span style="font-size:12px;color:#7d739c">（浏览器要求先有一次点击才能出声 —— 点一下任意按钮即可）</span>
+</div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════
+   合成引擎（与游戏内 cardfight.html 的 SFX 同一套写法）
+   ═══════════════════════════════════════════════════════════════════ */
+const Synth = (() => {
+  let ctx = null, master = null;
+  function ac() {
+    if (!ctx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      ctx = new C();
+      master = ctx.createGain();
+      master.gain.value = 0.55;
+      master.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+  function tone(f0, f1, dur, type, vol, delay) {
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime + (delay || 0);
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.012, dur * 0.25));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  function noise(dur, vol, filt, f0, f1, delay, q) {
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime + (delay || 0);
+    const n = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, n, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource(); src.buffer = buf;
+    const bq = c.createBiquadFilter();
+    bq.type = filt || "bandpass";
+    bq.Q.value = q == null ? 1.1 : q;
+    bq.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) bq.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bq); bq.connect(g); g.connect(master);
+    src.start(t0); src.stop(t0 + dur + 0.02);
+  }
+  return {
+    unlock(){ ac(); },
+    vol(v){ ac(); if (master) master.gain.value = v; },
+    tone, noise,
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   音效清单：name + 说明 + 为什么这样设计 + play()
+   ═══════════════════════════════════════════════════════════════════ */
+const S = (fn) => fn;
+const LIST = [
+  { g: "抽牌 / 翻牌" },
+  { nm: "抽牌 · 咻", tag: "t-ui", ds: "卡背从牌堆飞向卡槽",
+    why: "带通噪声从 700Hz 上扫到 2600Hz + 一记轻正弦。要的是「空气摩擦」而不是「点击」。",
+    play: () => { Synth.noise(0.16, 0.16, "bandpass", 700, 2600, 0, 1.4); Synth.tone(520, 900, 0.12, "sine", 0.05); } },
+  { nm: "翻面 · 木质", tag: "t-ui", ds: "手牌翻开（方案 A）",
+    why: "两个三角波高音（1250→780Hz）叠一记高通噪声，模拟纸牌/塑料敲击。",
+    play: () => { Synth.tone(1250, 780, 0.055, "triangle", 0.10); Synth.tone(640, 420, 0.05, "triangle", 0.05, 0.01); Synth.noise(0.04, 0.06, "highpass", 2400, 1800, 0, 0.8); } },
+  { nm: "翻面 · 清脆", tag: "t-ui", ds: "手牌翻开（方案 B，更亮更「弹」）",
+    why: "换成正弦 + 更高的起始频率，尾巴短促。喜欢干脆的手感选这个。",
+    play: () => { Synth.tone(1800, 1100, 0.045, "sine", 0.085); Synth.tone(2400, 1500, 0.03, "sine", 0.04, 0.008); Synth.noise(0.03, 0.05, "highpass", 3000, 2400, 0, 0.9); } },
+
+  { g: "出击（攻击牌）" },
+  { nm: "出击 · 小招", tag: "t-atk", ds: "突刺 / 低扫 / 吸血这类常规攻击",
+    why: "140→62Hz 正弦下扫 + 低通噪声爆音。低频给「打击」，噪声给「破空」。",
+    play: () => { Synth.tone(140, 62, 0.2, "sine", 0.15); Synth.noise(0.11, 0.13, "lowpass", 1500, 260, 0, 0.7); } },
+  { nm: "出击 · 大招", tag: "t-atk", ds: "重击 / 反击波（伤害 ≥15 的牌）",
+    why: "同一套但更低更沉（190→46Hz），额外叠一层锯齿波做「闷雷」尾音。",
+    play: () => { Synth.tone(190, 46, 0.26, "sine", 0.20); Synth.noise(0.16, 0.20, "lowpass", 2200, 260, 0, 0.7); Synth.tone(90, 40, 0.3, "sawtooth", 0.08, 0.02); } },
+  { nm: "挨打", tag: "t-atk", ds: "自己被打中（可换成更闷的版本）",
+    why: "比「出击」更闷：噪声低通截止压到 900Hz，听起来像隔着护具挨了一下。",
+    play: () => { Synth.tone(120, 52, 0.24, "sine", 0.16); Synth.noise(0.14, 0.14, "lowpass", 900, 200, 0, 0.6); } },
+
+  { g: "防御（格挡 / 护盾）" },
+  { nm: "格挡 · 被盾挡下", tag: "t-def", ds: "伤害被护盾全部吸收（方案 A）",
+    why: "纯低通闷响（480→180Hz）+ 一记低正弦。**没有任何高频** —— 这是与「打中」最明显的区分。",
+    play: () => { Synth.noise(0.17, 0.14, "lowpass", 480, 180, 0, 0.9); Synth.tone(150, 92, 0.16, "sine", 0.09); } },
+  { nm: "格挡 · 木盾", tag: "t-def", ds: "伤害被护盾吸收（方案 B，更硬更「板」）",
+    why: "在闷响上叠一记短促三角波「啪」，像木盾/铁板接了一下。",
+    play: () => { Synth.noise(0.14, 0.13, "lowpass", 700, 200, 0, 0.8); Synth.tone(300, 180, 0.08, "triangle", 0.11); Synth.tone(150, 92, 0.18, "sine", 0.08, 0.01); } },
+  { nm: "加护盾 · 金属泛音", tag: "t-def", ds: "打出格挡/铁壁/反击，护盾值增加",
+    why: "三个**非谐比例**正弦（1 : 2.76 : 5.4）—— 非谐比例才有金属/水晶味，谐波比例会像乐器。",
+    play: () => { [1, 2.76, 5.4].forEach((k, i) => Synth.tone(880 * k, 860 * k, 0.5 - i * 0.09, "sine", 0.055 / (i + 1), i * 0.035)); Synth.noise(0.14, 0.05, "highpass", 3600, 5200, 0, 0.8); } },
+
+  { g: "治疗 / 吸血" },
+  { nm: "回血 · 琶音", tag: "t-heal", ds: "治疗 / 再生（方案 A）",
+    why: "C-E-G-C 大三和弦上行（523/659/784/1046Hz），正弦音色。协和音程 = 温暖、正面。",
+    play: () => { [523, 659, 784, 1046].forEach((f, i) => Synth.tone(f, f, 0.3, "sine", 0.07, i * 0.07)); } },
+  { nm: "回血 · 柔和", tag: "t-heal", ds: "治疗 / 再生（方案 B，更轻更短）",
+    why: "只两个音、音量更低。如果你觉得 A 太「游戏化」，这个更含蓄。",
+    play: () => { [659, 988].forEach((f, i) => Synth.tone(f, f * 1.01, 0.42, "sine", 0.055, i * 0.1)); } },
+  { nm: "吸血", tag: "t-heal", ds: "吸血牌命中后回血",
+    why: "**下行**滑音（880→240Hz）—— 方向感是「吸回来」，与回血的上行琶音明显区分。",
+    play: () => { Synth.tone(880, 240, 0.4, "sine", 0.10); Synth.tone(440, 130, 0.42, "triangle", 0.05, 0.02); } },
+
+  { g: "特殊效果" },
+  { nm: "蓄力", tag: "t-sp", ds: "蓄力牌（下轮伤害翻倍）",
+    why: "噪声从 300Hz 扫到 3000Hz、持续 0.6 秒 + 音高上扫。上升 = 能量在聚集。",
+    play: () => { Synth.noise(0.62, 0.09, "bandpass", 300, 3000, 0, 3.2); Synth.tone(180, 900, 0.6, "triangle", 0.05); } },
+  { nm: "反弹 / 反击", tag: "t-sp", ds: "反击牌反弹伤害、反击波命中",
+    why: "两个**差 7Hz** 的方波同时响 —— 拍频产生「刺」的不谐和感，正好是反噬的听感。",
+    play: () => { Synth.tone(1180, 900, 0.16, "square", 0.055); Synth.tone(1187, 905, 0.16, "square", 0.055, 0.012); } },
+  { nm: "诅咒", tag: "t-sp", ds: "诅咒牌（伤害 + 对手治疗减半）",
+    why: "低频锯齿（150/159Hz，同样差几 Hz 做拍频）+ 0.5 秒长衰减。阴森、拖尾。",
+    play: () => { Synth.tone(150, 118, 0.5, "sawtooth", 0.075); Synth.tone(159, 125, 0.5, "sawtooth", 0.05, 0.01); } },
+
+  { g: "界面 / 收局" },
+  { nm: "交锋提示", tag: "t-ui", ds: "每次交锋开始时的一声轻响",
+    why: "420→300Hz 短正弦，音量只有 0.075。一局要响 15 次，必须轻。",
+    play: () => { Synth.tone(420, 300, 0.14, "sine", 0.075); } },
+  { nm: "轮次开始", tag: "t-ui", ds: "新的一轮，提示你去抽牌",
+    why: "两个三角波双音（660→990Hz），比「交锋提示」更亮一点，作为阶段切换信号。",
+    play: () => { Synth.tone(660, 660, 0.12, "triangle", 0.06); Synth.tone(990, 990, 0.16, "triangle", 0.055, 0.1); } },
+  { nm: "K.O.", tag: "t-atk", ds: "一方血量归零、倒地",
+    why: "320→60Hz 长下滑（0.85 秒）+ 延迟落地的噪声，模拟「倒下」。",
+    play: () => { Synth.tone(320, 60, 0.85, "sawtooth", 0.14); Synth.noise(0.3, 0.16, "lowpass", 900, 120, 0.3, 0.8); } },
+  { nm: "胜利", tag: "t-heal", ds: "结果面板：胜利",
+    why: "C 大调上行五音（523→1318Hz），三角波，明亮。",
+    play: () => { [523, 659, 784, 1046, 1318].forEach((f, i) => Synth.tone(f, f, 0.34, "triangle", 0.085, i * 0.11)); } },
+  { nm: "失败", tag: "t-atk", ds: "结果面板：败北",
+    why: "下行四音、每音略降调，正弦音色 —— 下沉感，但不刺耳（连败也别难听）。",
+    play: () => { [523, 466, 392, 311].forEach((f, i) => Synth.tone(f, f * 0.98, 0.38, "sine", 0.085, i * 0.14)); } },
+  { nm: "平局", tag: "t-ui", ds: "结果面板：平局",
+    why: "同一个音重复两次，不上不下 —— 听感上就是「没有结论」。",
+    play: () => { [494, 494].forEach((f, i) => Synth.tone(f, f, 0.4, "sine", 0.075, i * 0.22)); } },
+];
+
+/* ── 渲染 ───────────────────────────────────────────────────────── */
+const list = document.getElementById("list");
+const items = [];
+LIST.forEach((it) => {
+  if (it.g) {
+    const h = document.createElement("div");
+    h.className = "grp";
+    h.textContent = it.g;
+    list.appendChild(h);
+    return;
+  }
+  const d = document.createElement("div");
+  d.className = "item";
+  d.innerHTML = '<div class="top"><span class="tag ' + it.tag + '">音效</span>' +
+    '<span class="nm">' + it.nm + "</span></div>" +
+    '<div class="ds">' + it.ds + "</div>" +
+    '<div class="why">' + it.why + "</div>" +
+    '<div class="row"><button>▶ 试听</button></div>';
+  const btn = d.querySelector("button");
+  const fire = () => {
+    Synth.unlock();
+    it.play();
+    d.classList.remove("hit"); void d.offsetWidth; d.classList.add("hit");
+  };
+  btn.addEventListener("click", fire);
+  list.appendChild(d);
+  items.push({ it, fire });
+});
+
+document.getElementById("all").addEventListener("click", async () => {
+  Synth.unlock();
+  for (const x of items) { x.fire(); await new Promise((r) => setTimeout(r, 850)); }
+});
+document.getElementById("stop").addEventListener("click", () => {
+  /* 合成音都很短（≤0.9s），"停止"就是立刻把总线静音再恢复 */
+  Synth.vol(0);
+  setTimeout(() => Synth.vol(Number(document.getElementById("vol").value) / 100), 120);
+});
+document.getElementById("vol").addEventListener("input", (e) => {
+  document.getElementById("volTxt").textContent = e.target.value + "%";
+  Synth.vol(Number(e.target.value) / 100);
+});
+</script>
+</body>
+</html>

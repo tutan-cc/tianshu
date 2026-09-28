@@ -1,0 +1,7 @@
+  /** 盘上停留会不会「超时变糊」—— bf-13 起**恒为 false**：盘上永久保鲜，不存在过期。
+      函数名与签名保留（旧调用方 / 单测仍可读它），参数 ageSec 只留给兼容
+      —— 盘龄照旧记在 p.age 上，只是不再驱动任何判定。 */
+  function plateBurntAt(ageSec) { return false; }
+  /** 盘上这份还剩多少秒 —— bf-13 起**恒为 Infinity**：盘上没有倒计时。
+      UI 层读它就是「不画倒计时」的信号（见 drawPlate / PLATE_KEEP_TEXT）。 */
+  function plateLeftSec(ageSec) { return PLATE_NO_TIMER; }

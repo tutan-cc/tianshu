@@ -1,0 +1,25 @@
+{
+  "_synthetic": "非实测样本：为覆盖「margin<0.2」这条加固规则人工构造的响应（top1 与 top2 咬得很紧）。真实语料里 c14 的 margin 只有 0.21，最接近的就是它。",
+  "model": "jev-1.13.0",
+  "answers": {
+    "intent": {
+      "type": "choice",
+      "choice": "mahjong",
+      "confidence": 0.61,
+      "probabilities": {
+        "mahjong": 0.52, "breakfast": 0.41, "talk": 0.04, "fight": 0.0, "lottery": 0.0,
+        "stock": 0.03, "dodge": 0.0, "circuit": 0.0, "memory": 0.0, "none": 0.0
+      }
+    },
+    "in_game_action": { "type": "noul", "noul": 0.9 },
+    "out_of_bounds": { "type": "noul", "noul": 0.02 },
+    "urgency": {
+      "type": "score",
+      "score": 1.0,
+      "confidence": 0.8,
+      "legend": { "0": "平静、随口一提", "1": "有点想去做", "2": "比较着急、想马上做", "3": "非常迫切、情绪强烈" },
+      "probabilities": { "0": 0.2, "1": 0.8, "2": 0.0, "3": 0.0 }
+    }
+  },
+  "usage": { "input_tokens": 2049, "output_tokens": 0 }
+}
