@@ -54,6 +54,7 @@ const MODULES = [
   { file: "mahjong.js",   tag: "mj"  },
   { file: "breakfast.js", tag: "bf"  },
   { file: "jade.js",      tag: "jd"  },   // v1.32 新增「开窗」赌石模块
+  { file: "slash.js",     tag: "sl"  },   // v1.33 新增「一刀两断」切果模块
   { file: "map3d.js",     tag: "map" },
 ];
 
@@ -182,6 +183,7 @@ function wmText(s) {
     "bf " + kb.bf + "K",
     "mj " + kb.mj + "K",
     "jd " + kb.jd + "K",
+    "sl " + kb.sl + "K",
     "idx " + kb.idx + "K",
     "map " + kb.map + "K",
   ].join(" · ");
@@ -315,7 +317,7 @@ if (CHECK) {
     console.error("   → 跑 `node tools/dev/stamp.js` 重新盖章；若浏览器里看到旧戳，Ctrl+Shift+R 强刷。");
   } else {
     say("✔ 版本戳一致 · build " + state.build + " · ch " + state.ch + " · " +
-      "bf " + state.sizesKB.bf + "K / mj " + state.sizesKB.mj + "K / idx " + state.sizesKB.idx + "K / map " + state.sizesKB.map + "K");
+      "bf " + state.sizesKB.bf + "K / mj " + state.sizesKB.mj + "K / jd " + state.sizesKB.jd + "K / sl " + state.sizesKB.sl + "K / idx " + state.sizesKB.idx + "K / map " + state.sizesKB.map + "K");
   }
   process.exit(problems.length ? 1 : 0);
 }

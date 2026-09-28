@@ -376,6 +376,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     <button id="dbgMj" style="padding:9px 22px;border:1px solid var(--cyan);color:var(--cyan);font-size:12px;letter-spacing:2px;background:rgba(77,216,255,.08)">⚑ 跳到麻将</button>
     <button id="dbgBf" style="padding:9px 22px;border:1px solid #ff9ec7;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,158,199,.08)">⚑ 跳到早餐店</button>
     <button id="dbgJade" style="padding:9px 22px;border:1px solid #c9a24a;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(201,162,74,.08)">⚑ 跳到赌石（开窗）</button>
+    <button id="dbgSlash" style="padding:9px 22px;border:1px solid #5dffa0;color:#5dffa0;font-size:12px;letter-spacing:2px;background:rgba(93,255,160,.08)">⚑ 跳到切果</button>
     <button id="dbgTalk" style="padding:9px 22px;border:1px solid var(--line);color:var(--dim);font-size:12px;letter-spacing:2px;background:rgba(255,255,255,.04)">⚑ 全部解锁</button>
   </div>
   <div class="tmeta">互动影游原型 v0.5 · 序章 + 第一章 + 第二章 · 14 节点 · 5 种小游戏 · 全台词配音<br>实拍素材来自本地素材库（授权未核实）</div>
@@ -404,6 +405,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       <div id="mjRec" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:6px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="jadeBtn" style="border-color:#c9a24a;color:#ffd76e"><img class="gm-ico" src="art/icons/game/jade.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🪨</span> 开窗（赌石）</button>
       <div id="jadeNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
+      <button class="btn-m" id="slashBtn" style="border-color:#ff7d9c;color:#5dffa0"><img class="gm-ico" src="art/icons/game/slash.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🍉</span> 一刀两断（切果）</button>
+      <div id="slashNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="saveBtn">▣ 保存进度</button>
       <button class="btn-m" id="exportBtn">⇪ 导出存档</button>
       <button class="btn-m" id="importBtn">⇩ 导入存档</button>
@@ -665,6 +668,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 
 <!-- 自由局开局（三档注码 + 打法；面板本身由 mahjong.js 渲染） -->
 <div class="overlay side" id="mjLobby"><div id="mjLobbyHost"></div></div>
+<!-- 一刀两断 · 切果（玩法与绘制都在 slash.js，这里只给容器）
+     ⚠ 侧栏小游戏面板一律放这层（body 级 + .overlay.side），不要塞进 #cine —— 那次的教训见上面那段注释 -->
+<div class="overlay side" id="slash"><div class="panel" style="width:min(980px,97%)">
+  <h3>一 刀 两 断</h3><div class="sub2">夜市摊上的切果机 —— 按住鼠标划过水果，动作太慢切不开；别碰炸弹</div>
+  <div id="slashHost"></div>
+  <div style="display:flex;gap:8px;margin-top:10px"><button class="mbtn" id="slashClose" style="flex:1">收 摊</button></div>
+</div></div>
+
 <div id="toasts"></div>
 
 <!-- NPC 邀约条（手机消息风格，由 mahjong.js 渲染；固定在右下角，不挡沙盘） -->
@@ -675,6 +686,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 <script src="map3d.js"></script>
 <script src="breakfast.js"></script>
 <script src="jade.js"></script>
+<script src="slash.js"></script>
 <script>
 "use strict";
 /* ═══════════════ 数据层 ═══════════════ */
@@ -999,6 +1011,8 @@ const ACHV = {
   mjRival:{n:"冤家", d:"单局输光所选注码"},
   bfWin:{n:"早餐店老板", d:"在早餐店拼手速过关"},
   onedaofu:{n:"一刀富", d:"赌石单块净赚 ≥ ¥800（要蟒带+松花的高货）"},
+  slashCombo:{n:"一刀两断", d:"街机切果：一刀切开 5 个以上"},
+  slashAce:{n:"刀客", d:"街机切果：单局 ≥300 分"},
 };
 
 /* ═══════════════ 音频层 ═══════════════
@@ -1378,6 +1392,8 @@ function newState(){ return {version:SAVE_VER, done:[], stats:{cash:10, cha:5, p
   breakfastDay:{day:0, sent:[]}, bfWin:false, bfLast:null,
   /* ── 开窗 · 赌石：局数 / 累计净收支 / 单块最好 / 是否开出过一刀富 ── */
   jadeRuns:0, jadeNet:0, jadeBest:0, jadeJackpot:false,
+  /* ── 一刀两断 · 切果：局数 / 累计净收支 / 各模式最高分 / 两个成就标记 ── */
+  slashRuns:0, slashNet:0, slashBest:{classic:0,arcade:0,zen:0}, slashCombo5:false, slashAce:false,
   rpg:{xp:0, owned:[], equipped:{hand:null,outfit:null,accessory:null}, bag:{}}, buffs:{time:0,window:0,hp:0,capital:0}}; }
 function save(){ try{ localStorage.setItem("cs2_save", JSON.stringify(S)); }catch(e){} }
 /* 唯一入口：量纲 → 引用白名单 → 状态机边界 → 子系统缺省补齐；坏档一律返回 null */
@@ -1476,6 +1492,13 @@ function restore(raw){
     out.jadeNet     = num0(s.jadeNet, 0, -99999999, 99999999);
     out.jadeBest    = num0(s.jadeBest, 0, 0, 99999999);
     out.jadeJackpot = s.jadeJackpot === true;
+    // ── 一刀两断字段：旧档缺 slash* 一样补默认值（与 jd*/mj*/bf* 同策略）──
+    out.slashRuns = num0(s.slashRuns, 0, 0, 99999);
+    out.slashNet  = num0(s.slashNet, 0, -99999999, 99999999);
+    out.slashBest = {};
+    (function(){ var sb = s.slashBest || {}; ["classic","arcade","zen"].forEach(function(k){ out.slashBest[k] = num0(sb[k], 0, 0, 999999); }); })();
+    out.slashCombo5 = s.slashCombo5 === true;
+    out.slashAce    = s.slashAce === true;
     return out;
   }catch(e){ return null; }
 }
@@ -1516,6 +1539,8 @@ function checkAchv(){
   if(S.mjWin) got("mjWin");
   if(S.bfWin) got("bfWin");
   if(S.jadeJackpot) got("onedaofu");
+  if(S.slashCombo5) got("slashCombo");
+  if(S.slashAce) got("slashAce");
   if(S.rpg && Object.values(S.rpg.equipped).filter(Boolean).length>=3) got("gear");
 }
 function hudTitle(){ const s=S.stats; const m=Object.entries(s).sort((a,b)=>b[1]-a[1])[0];
@@ -1531,6 +1556,7 @@ function render(){
   const recEl=$("mjRec"); if(recEl) recEl.innerHTML=mjRecordHtml();
   const bfEl=$("bfNote"); if(bfEl){ try{ bfEl.innerHTML=bfNoteHtml()+bfSinceLast(); }catch(e){ bfEl.textContent="🍳 做份早餐"; } }
   const jdEl=$("jadeNote"); if(jdEl){ try{ jdEl.innerHTML=jadeNoteHtml(); }catch(e){ jdEl.textContent="🪨 开窗（赌石）"; } }
+  const slEl=$("slashNote"); if(slEl){ try{ slEl.innerHTML=slashNoteHtml(); }catch(e){ slEl.textContent="🍉 一刀两断"; } }
   const bd=$("bonds"); bd.innerHTML="";
   for(const k in BONDS){ const v=S.bonds[k]; bd.innerHTML+=`<div class="bond"><div class="face">${BONDS[k].f}</div>
     <div style="flex:1"><div class="nm">${BONDS[k].n} <span class="rl">${BONDS[k].r}</span></div>
@@ -4594,6 +4620,72 @@ $("jadeClose").addEventListener("click", ()=>{ AudioSys.click();
   if(window.Jade && Jade.isBusy()) Jade.dispose();     // 中途收摊：不结算、不吃本金
   $("jade").classList.remove("on"); render(); });
 
+/* ═══════════════ 一刀两断 · 切果（玩法与绘制都在 slash.js，这里只负责接 S / toast） ═══════════════
+   结算口径与开窗一致：模块内部只记账，钱在**每局结束**时按「奖金 − 入场」一次性落账。
+   中途点「收摊」不吃本金（没打完就不结算），也不白送。 */
+function slashAchvLine(kind){
+  const T = (window.Slash && Slash.TUNE) || { ACHV_SINGLE: 5, ACHV_SCORE: 300, ENTRY: 20 };
+  return kind === "combo" ? T.ACHV_SINGLE : T.ACHV_SCORE;
+}
+function slashNoteHtml(){
+  const r = S.slashRuns || 0;
+  const b = S.slashBest || {classic:0,arcade:0,zen:0};
+  const min = (window.Slash && Slash.TUNE) ? Slash.TUNE.ENTRY : 20;
+  if(!r) return `🍉 一刀两断 · 切果（街机）<br><span style="color:var(--dim)">入场 ¥${min} · 划过水果，别碰炸弹</span>`;
+  const net = S.slashNet||0;
+  const col = net>0 ? "var(--green)" : (net<0 ? "var(--red)" : "var(--dim)");
+  return `🍉 一刀两断：<b>${r}</b> 局 · 累计 <b style="color:${col}">${net>0?"+":""}¥${net}</b><br>`+
+    `<span style="color:var(--dim)">最高分 经典 ${b.classic||0} · 街机 ${b.arcade||0} · 禅意 ${b.zen||0}</span>`;
+}
+function openSlash(practice){
+  if(!window.Slash){ toast("切果模块未加载（缺 slash.js）"); return false; }
+  AudioSys.init(); AudioSys.click();
+  if(Slash.isBusy()){ $("slash").classList.add("on"); return true; }
+  const entry = Slash.TUNE.ENTRY;
+  /* 钱不够不劝退：直接给一局练手局（不结算财富），与开窗同款约定 */
+  let prac = !!practice;
+  if(!prac && S.stats.cash < entry){
+    prac = true;
+    toast(`财富不足（入场 ¥${entry}，当前 ¥${S.stats.cash}）—— 这次给你开<b>练手局</b>，不结算财富`);
+  }
+  $("slash").classList.add("on");
+  const ok = Slash.start($("slashHost"), {
+    practice: prac,
+    cash:  ()=>S.stats.cash,
+    phys:  ()=>S.stats.phy,        // 体魄 → 刀刃判定半径
+    intel: ()=>S.stats.int,        // 智慧 → 「定身」次数
+    best:  (m)=> (S.slashBest && S.slashBest[m]) || 0,
+    onSettle: (net, info)=>{
+      if(info && info.practice) return;                 // 练手局：演示结算，不落账
+      S.stats.cash = Math.max(0, S.stats.cash + net);
+      S.slashRuns = (S.slashRuns||0) + 1;
+      S.slashNet  = (S.slashNet||0) + net;
+      const m = (info && info.mode) || "classic";
+      if(!S.slashBest) S.slashBest = {classic:0,arcade:0,zen:0};
+      if(info.score > (S.slashBest[m]||0)) S.slashBest[m] = info.score;
+      if((info.bestCombo||0) >= Slash.TUNE.ACHV_SINGLE) S.slashCombo5 = true;
+      if(info.score >= Slash.TUNE.ACHV_SCORE) S.slashAce = true;
+      save(); render(); checkAchv();
+      const s = info.score;
+      toast(net>0 ? `🍉 切果赚了 <b>+¥${net}</b>（${s} 分）`
+        : (net<0 ? `🍉 切果亏了 <b>−¥${-net}</b>（${s} 分）` : `🍉 切果打平（${s} 分）`));
+    },
+    onFinish: ()=>{ save(); render(); }
+  });
+  if(!ok){ $("slash").classList.remove("on"); toast("切果模块启动失败（详见控制台）"); }
+  return ok;
+}
+/* 成就文案里的门槛从模块读（整条数值改过一次就会不一致，写死必踩） */
+ACHV.slashCombo.d = "街机切果：一刀切开 " + slashAchvLine("combo") + " 个以上";
+ACHV.slashAce.d   = "街机切果：单局 ≥" + slashAchvLine("score") + " 分";
+$("slashBtn").addEventListener("click", ()=>{ openSlash(); });
+$("slashClose").addEventListener("click", ()=>{ AudioSys.click();
+  if(window.Slash && Slash.isBusy()) Slash.dispose();   // 中途收摊：不结算、不吃本金
+  $("slash").classList.remove("on"); render(); });
+/* ⚑ 跳到切果：与其它小游戏同款 —— 点下去直接开一局练手局（新档只有 ¥10） */
+$("dbgSlash").addEventListener("click", ()=>{ enterGame();
+  setTimeout(()=>{ if(openSlash(true)===false) toast("切果模块未加载（缺 slash.js）"); }, 300); });
+
 /* ── 章末卡 ── */
 const CHN=["序章","第一章","第二章","第三章"];
 function showEndcard(){
@@ -4722,6 +4814,15 @@ window.__cs2 = {
   jadeNext: ()=> (window.Jade ? Jade.debug.next() : false),
   jadeFinish: ()=> (window.Jade ? Jade.debug.finishNow() : false),
   openJade: openJade,
+  /* 一刀两断 · 切果钩子（浏览器验收脚本用）—— 直接转发 Slash.debug */
+  get slash(){ return (window.Slash && Slash.debug) ? Slash.debug : null; },
+  get slashState(){ return (window.Slash && Slash.debug) ? Slash.debug.state() : null; },
+  slashBegin: ()=> (window.Slash ? Slash.debug.beginRun() : false),
+  slashSpawn: (t,k)=> (window.Slash ? Slash.debug.spawn(t,k) : null),
+  slashSwipe: (a,b,c,d)=> (window.Slash ? Slash.debug.swipe(a,b,c,d) : null),
+  slashTick: (ms)=> (window.Slash ? Slash.debug.tick(ms) : false),
+  slashFinish: ()=> (window.Slash ? Slash.debug.finishNow() : false),
+  openSlash: (pr)=> openSlash(pr),
 };
 
 /* ═══════════════ 启动 ═══════════════ */
@@ -4805,11 +4906,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260923-1020" data-fp="f43baa"
-     title="构建版本戳 · build 20260923-1020 · 内容指纹 f43baa（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260928-1034" data-fp="74d4bf"
+     title="构建版本戳 · build 20260928-1034 · 内容指纹 74d4bf（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1020 · ch f43baa · bf 211K · mj 320K · jd 54K · idx 301K · map 68K</div>
-<script>window.__BUILD={"build":"20260923-1020","fingerprint":"f43baa","sizes":{"idx":301,"mj":320,"bf":211,"jd":54,"map":68},"files":{"index.html":307923,"mahjong.js":327444,"breakfast.js":216215,"jade.js":55659,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790130010115,"map3d.js":1790070275672},"idxContentHash":"c2530fa05f4caa34f763830d80a2de27175e8a15","idxContentBytes":306575,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260928-1034 · ch 74d4bf · bf 211K · mj 320K · jd 54K · sl 56K · idx 308K · map 68K</div>
+<script>window.__BUILD={"build":"20260928-1034","fingerprint":"74d4bf","sizes":{"idx":308,"mj":320,"bf":211,"jd":54,"sl":56,"map":68},"files":{"index.html":315106,"mahjong.js":327444,"breakfast.js":216215,"jade.js":55659,"slash.js":57505,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790070275635,"jade.js":1790130010115,"slash.js":1790562863695,"map3d.js":1790070275672},"idxContentHash":"59b37a50701f982bd3b148461dc1862ae47fed9d","idxContentBytes":313698,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
