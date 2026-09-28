@@ -1,4 +1,4 @@
-﻿<#
+<#
   run-all-tests.ps1 — 一条命令跑完全部自动化测试，并汇总各层通过数
 
   为什么要有它：小游戏的测试分三层（纯逻辑单测 / 无头证据链 / 真浏览器 E2E），
@@ -44,7 +44,7 @@ $SUITES = @(
   # 改 jade.js 的 TUNE、PRICES、种水色分布或涨特征条件概率后，这一层必须重跑。
   [pscustomobject]@{ Layer = "logic";    Name = "开窗 · 赌石（规则+经济不变量）"; Script = "tests/jade.test.cjs";          Expect = 12 }
   # 一刀两断 · 切果（v1.33 新增）：几何/生成器/计分/模式配置 + 两条经济不变量
-  [pscustomobject]@{ Layer = "logic";    Name = "一刀两断 · 切果（含经济不变量）"; Script = "tests/slash.test.cjs";         Expect = 14 }
+  [pscustomobject]@{ Layer = "logic";    Name = "一刀两断 · 切果（含经济不变量）"; Script = "tests/slash.test.cjs";         Expect = 16 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将系统单测";                 Script = "tests/mj-system.test.cjs";        Expect = 15 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将逻辑（最大的一套）";       Script = "tools/test/mahjong-logic.js";     Expect = 1181 }
   [pscustomobject]@{ Layer = "logic";    Name = "index.html 内联脚本语法闸";     Script = "tools/dev/check-inline.js";       Expect = 0 }
