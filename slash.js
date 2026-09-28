@@ -602,6 +602,7 @@
         diffIdx: clampInt(opts.diff, 0, DIFFS.length - 1, 1),
         items: [], halves: [], parts: [], trail: [],
         score: 0, cut: 0, missed: 0, bombed: 0, lives: 0, bestCombo: 0, streak: 0, longest: 0,
+        lastMilestone: 0, comboFlash: null,
         t: 0, timeLeft: 0, spawnIn: 0.6, pointerDown: false, swipeCount: 0,
         fixLeft: 0, fixT: 0, freezeT: 0, doubleT: 0, frenzyT: 0,
         over: false, done: false, last: null, bladeR: 0, seedBase: (Date.now() & 0x7fffffff)
@@ -735,6 +736,13 @@
       ST.streak += hits;
       if (ST.streak > ST.longest) ST.longest = ST.streak;
       if (hits > ST.bestCombo) ST.bestCombo = hits;
+      /* 连斩里程碑：每 5 连击一次，音调递升 + 触发屏幕边缘泛红（见 render） */
+      var ms = Math.floor(ST.streak / 5);
+      if (ms > 0 && ms !== ST.lastMilestone) {
+        ST.lastMilestone = ms;
+        ST.comboFlash = { n: ST.streak, t: 0 };
+        try { if (root.AudioSys && AudioSys.blip) AudioSys.blip(430 + Math.min(9, ms) * 88, 0.11, "triangle", 0.09); } catch (e) {}
+      }
       ST.lastCut = { n: hits, crit: crits, gain: gain, streak: ST.streak };
       sfx(hits >= TUNE.COMBO_MIN ? "sfx-stock-up" : "sfx-fight-hit");
       paintUi();
@@ -827,6 +835,7 @@
     if (!ST) return;
     var dt = dtMs / 1000;
     if (ST.flash) { ST.flash.t += dtMs; if (ST.flash.t > 900) ST.flash = null; }
+    if (ST.comboFlash) ST.comboFlash.t += dtMs;
     if (ST.shake > 0) ST.shake = Math.max(0, ST.shake - dtMs / 320);
     if (ST.freezeT > 0) ST.freezeT = Math.max(0, ST.freezeT - dtMs);
     if (ST.doubleT > 0) ST.doubleT = Math.max(0, ST.doubleT - dtMs);
@@ -952,6 +961,33 @@
       g.globalAlpha = 1;
     }
     drawBlade(g, ST.trail);
+    /* 连斩 ≥10：屏幕四周泛红（越连越浓，到 30 封顶）—— 这是"手热起来了"的可视信号 */
+    if (ST.streak >= 10) {
+      var heat = Math.min(1, (ST.streak - 10) / 20) * 0.55 + 0.18;
+      var pulse = 0.78 + Math.abs(Math.sin(ST.t / 240)) * 0.22;
+      var vg = g.createRadialGradient(VIEW.W / 2, VIEW.H / 2, VIEW.H * 0.34, VIEW.W / 2, VIEW.H / 2, VIEW.W * 0.62);
+      vg.addColorStop(0, "rgba(255,40,60,0)");
+      vg.addColorStop(1, "rgba(255,40,60," + (heat * pulse).toFixed(3) + ")");
+      g.fillStyle = vg; g.fillRect(0, 0, VIEW.W, VIEW.H);
+      g.save();
+      g.globalAlpha = 0.85;
+      g.fillStyle = "#ffd0d8";
+      g.font = "bold 22px sans-serif"; g.textAlign = "center";
+      g.fillText("连斩 ×" + ST.streak, VIEW.W / 2, 56);
+      g.textAlign = "start"; g.restore();
+    }
+    /* 连斩里程碑的大字（每 5 连一次，与音效同时） */
+    if (ST.comboFlash) {
+      var ca = 1 - ST.comboFlash.t / 1100;
+      if (ca <= 0) ST.comboFlash = null;
+      else {
+        g.save();
+        g.globalAlpha = Math.max(0, ca);
+        g.fillStyle = "#ff8fa0"; g.font = "bold 44px sans-serif"; g.textAlign = "center";
+        g.fillText("连斩 ×" + ST.comboFlash.n, VIEW.W / 2, 150 - (1 - ca) * 30);
+        g.textAlign = "start"; g.restore();
+      }
+    }
     /* 暴击/特殊果的大字提示 */
     if (ST.flash) {
       var a = 1 - ST.flash.t / 900;
@@ -1034,6 +1070,12 @@
         .map(function (r) { return r.min + " 分 ¥" + r.cash; }).join(" · ");
       var hint = el("div", "sl-hint", "本模式最高分 <b>" + best + "</b> · 奖金阶梯：" + txt);
       btns.appendChild(hint);
+    } else if (ST.phase === "play") {
+      /* 对局中：清掉菜单按钮（否则模式/难度选择会一直挂在画面下方 —— 实测截图发现），只留一行操作提示 */
+      tip.innerHTML = "按住鼠标划过水果 —— <b>动作太慢切不开</b>；一刀 ≥" + TUNE.COMBO_MIN +
+        " 个算连击，正中快切是暴击。" + (ST.fixLeft > 0 ? " 空格 = 定身（还剩 " + ST.fixLeft + " 次）" : "");
+      res.style.display = "none";
+      btns.innerHTML = "";
     } else if (ST.phase === "pause") {
       tip.innerHTML = "已暂停。";
       btns.innerHTML = "";
@@ -1072,7 +1114,7 @@
     ST.phase = "play";
     ST.items = []; ST.halves = []; ST.parts = []; ST.trail = [];
     ST.score = 0; ST.cut = 0; ST.missed = 0; ST.bombed = 0; ST.bestCombo = 0;
-    ST.streak = 0; ST.longest = 0; ST.t = 0; ST.spawnIn = 0.5;
+    ST.streak = 0; ST.longest = 0; ST.lastMilestone = 0; ST.comboFlash = null; ST.t = 0; ST.spawnIn = 0.5;
     ST.lives = ST.mode.lives;
     ST.timeLeft = ST.mode.ms;
     ST.freezeT = ST.doubleT = ST.frenzyT = ST.fixT = 0;

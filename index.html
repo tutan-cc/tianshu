@@ -33,6 +33,11 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .tbtn{margin-top:32px;padding:15px 58px;border:1px solid var(--rose);color:var(--rose);font-size:15px;letter-spacing:6px;
   background:rgba(255,125,156,.07);transition:.25s}
 .tbtn:hover{background:var(--rose);color:#000;box-shadow:0 0 46px rgba(255,125,156,.5)}
+/* 调试入口默认隐藏：它们是开发工具，不该出现在玩家的第一屏（产品报告的 P0 项）。
+   加 ?dev=1 打开：index.html?dev=1 —— 按钮仍在 DOM 里，验收脚本的存在性检查与
+   程序化 .click() 都不受影响。 */
+#dbgRow{display:none}   /* 行内样式优先级高于任何 CSS —— 隐藏必须由这条规则管，别写在 style="" 里 */
+body.dev #dbgRow{display:flex}
 .tmeta{position:absolute;bottom:20px;font-size:10px;color:#3d3a52;letter-spacing:2px;text-align:center;line-height:1.9}
 
 /* ── 主界面 ── */
@@ -369,7 +374,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   <div class="tsub">重 启 人 生 · REBORN TWICE</div>
   <div class="tdesc">2025 年深夜，32 岁的陈默猝倒在办公室。<br>再睁眼，是 2015 年 9 月——22 岁，一无所有，却带着<b>未来十年的全部记忆</b>。<br>一本【重生手册】，几个会改变他命运的人。<br>这一次，换他把人生拿回来。</div>
   <button class="tbtn" id="startBtn">开 始 重 生</button>
-  <div style="display:flex;gap:10px;margin-top:12px">
+  <div id="dbgRow" style="gap:10px;margin-top:12px">
     <button id="dbgJump" style="padding:9px 22px;border:1px solid var(--purple);color:var(--purple);font-size:12px;letter-spacing:2px;background:rgba(176,125,255,.08)">⚑ 跳到谈判（调试）</button>
     <button id="dbgFight" style="padding:9px 22px;border:1px solid var(--red);color:var(--red);font-size:12px;letter-spacing:2px;background:rgba(255,77,109,.08)">⚑ 跳到打斗</button>
     <button id="dbgFight2" style="padding:9px 22px;border:1px solid #ffd76e;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,215,110,.08)">⚑ 跳到打斗 2.0</button>
@@ -5358,6 +5363,8 @@ window.__cs2 = {
 };
 
 /* ═══════════════ 启动 ═══════════════ */
+/* 调试模式开关：只有带 ?dev=1 才显示标题屏那排 ⚑ 跳转按钮（按钮本身仍在 DOM 里） */
+if(/(?:^|[?&])dev=1(?:&|$)/.test(location.search)) document.body.classList.add("dev");
 function makeRain(){ const r=$("rain"); for(let i=0;i<60;i++){ const d=document.createElement("i");
   d.style.left=Math.random()*100+"%"; d.style.height=(30+Math.random()*60)+"px";
   d.style.animationDuration=(0.7+Math.random()*1.1)+"s"; d.style.animationDelay=(-Math.random()*2)+"s"; r.appendChild(d); } }
@@ -5438,11 +5445,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260928-1044" data-fp="a4f709"
-     title="构建版本戳 · build 20260928-1044 · 内容指纹 a4f709（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260928-1103" data-fp="2eda50"
+     title="构建版本戳 · build 20260928-1103 · 内容指纹 2eda50（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260928-1044 · ch a4f709 · bf 226K · mj 320K · jd 54K · sl 56K · idx 339K · map 68K</div>
-<script>window.__BUILD={"build":"20260928-1044","fingerprint":"a4f709","sizes":{"idx":339,"mj":320,"bf":226,"jd":54,"sl":56,"map":68},"files":{"index.html":347122,"mahjong.js":327444,"breakfast.js":231571,"jade.js":55659,"slash.js":57505,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790563488434,"jade.js":1790130010115,"slash.js":1790562863695,"map3d.js":1790070275672},"idxContentHash":"6298a0bfd59de685805272c86771f0a132aec4ac","idxContentBytes":345714,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260928-1103 · ch 2eda50 · bf 226K · mj 320K · jd 54K · sl 58K · idx 340K · map 68K</div>
+<script>window.__BUILD={"build":"20260928-1103","fingerprint":"2eda50","sizes":{"idx":340,"mj":320,"bf":226,"jd":54,"sl":58,"map":68},"files":{"index.html":347762,"mahjong.js":327444,"breakfast.js":231571,"jade.js":55659,"slash.js":59872,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790563488434,"jade.js":1790130010115,"slash.js":1790564587149,"map3d.js":1790070275672},"idxContentHash":"8a1fee333b091e9d200b7a99215af91edd55547a","idxContentBytes":346354,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
