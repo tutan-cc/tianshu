@@ -43,6 +43,10 @@ $SUITES = @(
   # （盲出必亏 / 技能有回报 / 完美读料不失控 / 估价绝不读隐藏信息）。
   # 改 jade.js 的 TUNE、PRICES、种水色分布或涨特征条件概率后，这一层必须重跑。
   [pscustomobject]@{ Layer = "logic";    Name = "开窗 · 赌石（规则+经济不变量）"; Script = "tests/jade.test.cjs";          Expect = 12 }
+  # 准点下班：三关可达性 + 巡逻航线不卡死 + 视线/视野锥边界 + 时钟与奖励结构 + 经济不变量。
+  # 「时限必须 ≥ 最快可达时间」那条是回归断言 —— 第一版给地狱模式定的时限比理论最快还短，
+  # 整档在数学上不可能通关，而画面上完全看不出来。
+  [pscustomobject]@{ Layer = "logic";    Name = "准点下班（潜行规则+关卡自检）"; Script = "tests/clockout.test.cjs"; Expect = 22 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将系统单测";                 Script = "tests/mj-system.test.cjs";        Expect = 15 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将逻辑（最大的一套）";       Script = "tools/test/mahjong-logic.js";     Expect = 1181 }
   [pscustomobject]@{ Layer = "logic";    Name = "index.html 内联脚本语法闸";     Script = "tools/dev/check-inline.js";       Expect = 0 }
