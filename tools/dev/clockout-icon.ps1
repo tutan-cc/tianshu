@@ -134,10 +134,10 @@ $g.FillPath((New-Object System.Drawing.Drawing2D.LinearGradientBrush(
 $g.DrawPath((New-Pen2 255 122 78 18 5), $basePath)
 $g.DrawPath((New-Pen2 255 255 215 110 2.2), $basePath)
 
-# ── 视野锥：从左上角（画面外的主管）斜切下来，张角 65°、半径 98 ——
-#    这是整枚图标最大的一块，锥尖落在 (24,18)（离金边还有 10px 余量，不会被描边切到）。
-#    锥的下边界是那根 80° 的射线、外边界是圆弧，人的脚必须落在两者之内，
-#    所以人的位置不是随便摆的：x 必须 ≥ 44、脚底必须留在 y ≈ 100 以上 ──
+# ── 视野锥：从左上角（画面外的主管）斜切下来，张角 67°（13° → 80°）、半径 98 ——
+#    这是整枚图标最大的一块（约占画面 1/3），锥尖落在 (24,18)（离金边还有 10px 余量，
+#    不会被描边切到）。锥的下边界是那根 80° 的射线、外边界是半径 98 的圆弧，
+#    人的脚必须落在两者之内，所以人的位置不是随便摆的：x 必须 ≥ 44、脚底得留在 y ≈ 100 以上 ──
 $ax = 24.0; $ay = 18.0; $R = 98.0
 $cone = New-Object System.Drawing.Drawing2D.GraphicsPath
 $cone.AddPie([single]($ax - $R), [single]($ay - $R), [single]($R * 2), [single]($R * 2), [single]13, [single]67)
@@ -159,7 +159,11 @@ $g.FillPath($blob[0], $blob[1])
 $doorFrame = New-RoundedPath 88 37 31 69 3.5
 $g.FillPath((New-Solid 255 $FRAME[0] $FRAME[1] $FRAME[2]), $doorFrame)
 $doorLeaf = New-RoundedPath 90.5 40.5 26 65.5 2.5
-$g.FillPath((New-VGrad 41 106 186 255 214 20 164 98), $doorLeaf)
+# 门板的绿定成中深绿而不是薄荷绿：门板有一半压在黄锥上，薄荷绿和亮黄的相对亮度几乎一样
+# （实测 1.07），并排看时门的上半截会"溶"进黄锥里；压深到 (34,186,106)→(10,124,68) 之后
+# 门板对黄锥有 ≈1.7、对暗底有 ≈3 的亮度差，同时"亮"这件事交给门缝那条亮绿和门前那汪绿光，
+# 门整体还是"亮着的门洞" ──
+$g.FillPath((New-VGrad 41 106 34 186 106 10 124 68), $doorLeaf)
 # 门缝：门没关严的那一道亮绿（不是白的 —— 白色竖条会读成屏幕反光，整扇门就变手机了）
 $g.FillPath((New-Solid 232 196 255 218), (New-RoundedPath 90.5 40.5 4.5 65.5 2))
 
