@@ -631,9 +631,12 @@
   }
 
   /* 按 E（规格 §7.3）。⚠ 入口先做一次 captureIfSeen：在"已经被看见"的那一帧按 E
-     也是先失败，而且**不消耗**任何东西（文件夹还在手上）。 */
+     也是先失败，而且**不消耗**任何东西（文件夹还在手上）。
+     ⚠⚠ 失败后必须立刻走 settleIfLost：这条路径的 lost 不在 tick 驱动循环里产生，
+        结算不能只挂在驱动循环上（否则 result 恒为 null、onSettle 不触发、
+        而且结算面板会把失败画成"过关"）。 */
   function interactAt(g) {
-    if (g.phase !== "playing" || captureIfSeen(g)) return false;
+    if (g.phase !== "playing" || captureIfSeen(g)) { settleIfLost(g); return false; }
     var p = near(g);
     if (!p) return false;
     if (p.id === "seat") {
@@ -669,7 +672,7 @@
   /* 空格：用文件夹（规格 §7.4）。坐姿中也能用（没有 hidden 限制）。
      ⚠ 没拿文件夹时只提示、不消耗；被看见的当帧先失败、folder 保持 true。 */
   function useFile(g) {
-    if (g.phase !== "playing" || captureIfSeen(g)) return false;
+    if (g.phase !== "playing" || captureIfSeen(g)) { settleIfLost(g); return false; }
     if (!g.file) { notify(g, "先去打印区拿文件夹。"); return false; }
     g.file = false; g.cover = g.config.coverDuration;
     g.suspicion = Math.max(0, g.suspicion - 35);
@@ -967,7 +970,7 @@
     /* ── V2 引擎（世界像素原语，规格 §1–§5）── */
     WORLD_W:WORLD_W, WORLD_H:WORLD_H, MAPS:MAPS, MODES:MODES, LEVELS:LEVELS, TUNE:TUNE,
     dist:dist, walkable:walkable, clearLine:clearLine, segmentWalkable:segmentWalkable,
-    sees:sees, captureIfSeen:captureIfSeen, pathTo:pathTo, chooseRoute:chooseRoute,
+    sees:sees, captureIfSeen:captureIfSeen, settleIfLost:settleIfLost, pathTo:pathTo, chooseRoute:chooseRoute,
     patrol:patrol, random:random, conePoly:conePoly, near:near, tick:tick,
     createGame:createGame, start:beginPlay, enterFloor:enterFloor, changeFloor:changeFloor,
     interact:interactAt, useFile:useFile, retryLevel:retryLevel, nextLevel:nextLevel,
@@ -1345,10 +1348,12 @@
           n.sees = !g.hidden && g.cover <= 0 && !isCoworker(n) && sees(n, g.player, g.map);
         }
       }
-      if (was === "playing" && g.phase === "lost" && !g.settled) {
-        if (g.caughtBy) { g.caughtCount = (g.caughtCount || 0) + 1; g.ghost = false; }
-        endRun(g, g.caughtBy ? "caught" : "timeout");
-      }
+      /* 失败结算的统一收口（幂等）：任何把局面打成 lost 的地方都走它。
+         ⚠ 原来这里用 `was==='playing' && phase==='lost'` 判断，但 interactAt/useFile
+           入口自己会先 captureIfSeen —— 那是在进入本循环**之前**就把 playing 打成 lost 的，
+           于是 was 永远不等于 'playing'，这条路径永远不结算（result 恒 null、onSettle 不触发、
+           被抓计数不涨，结算面板还会把失败画成"这一关，顺利脱身"）。 */
+      settleIfLost(g);
     }
     syncWin(g);
   }
@@ -1367,6 +1372,17 @@
     g.savedTime = (g.savedTime || 0) + Math.max(0, g.config.time - g.elapsed);
     NEAR = null;
     beep(990, 0.22, "triangle", 0.09);
+  }
+
+  /* 失败结算的**统一收口**（幂等，endRun 自身也判 settled）。
+     为什么单独抽出来：被打成 lost 的地方有三处 —— tick 内的三次 captureIfSeen、
+     以及 interactAt / useFile 入口各自的那一次。后者发生在驱动循环**之外**，
+     只把结算挂在循环上会漏掉它们（见 interactAt 上方的注释）。 */
+  function settleIfLost(g) {
+    if (!g || g.phase !== "lost" || g.settled) return false;
+    if (g.caughtBy) { g.caughtCount = (g.caughtCount || 0) + 1; g.ghost = false; }
+    endRun(g, g.caughtBy ? "caught" : "timeout");
+    return true;
   }
 
   /* 结算 —— **唯一**调用 onSettle 的地方。

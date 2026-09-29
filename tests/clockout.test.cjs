@@ -277,11 +277,16 @@ test("契约6：进入视野的第一帧立即 lost，且 suspicion=100", () => 
 test("契约6：失败后施加输入 / E / 空格，整个状态快照完全不变", () => {
   const g = exposed();
   R.tick(g, 0.03);
+  /* 契约是「失败并结算之后任何输入都改不动状态」，不是「结算之前不可变」。
+     R.tick 是内层 tick，只把局面打成 lost、不负责结算（结算是收口函数的职责），
+     所以这里必须先显式结算一次再截图 —— 否则测的是「结算本身会不会漂」而不是「冻结」。 */
+  R.settleIfLost(g);
+  assert.equal(g.settled, true, "失败后没有结算（result 会恒为 null、onSettle 不触发）");
   const snap = JSON.stringify(g);
   for (let i = 0; i < 60; i++) R.tick(g, 1 / 30, { x: 1, y: 0 });
   R.useFile(g);
   R.interact(g);
-  assert.equal(JSON.stringify(g), snap, "失败后整局没有字节级冻结（移动/用文件夹/交互还能改状态，重试与结算都会漂）");
+  assert.equal(JSON.stringify(g), snap, "结算之后整局没有字节级冻结（移动/用文件夹/交互还能改状态）");
 });
 
 /* ═══════════════ ⑧ 契约 7：文件夹必须提前用 + cover 当帧到期当帧失效 ═══════════════ */
