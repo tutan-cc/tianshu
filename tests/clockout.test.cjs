@@ -1,21 +1,21 @@
-// 「准点下班」· 办公室潜行 —— 纯逻辑单测
+// 「准点下班」· 办公室潜行 —— 纯逻辑单测（V2：3000×2000 连续世界）
 // 运行：node tests/clockout.test.cjs
 //
 // 测什么、为什么不测别的：
-//   这个玩法的风险全在两处，画面和手感反而不会出错：
-//     ① **视线与视野锥**。潜行游戏的 bug 几乎全在这里 —— "隔着墙也看得见"、
-//        "站在隔板后面却被发现"、"贴在墙边反而绝对安全"。这些在画面上都很难判断，
-//        只有把判定抽成纯函数、直接喂坐标验边界才验得动。
-//     ② **关卡数据**。出口走不到、文件夹拿不到、巡逻航点落在墙里、
-//        航线中间隔着墙让巡逻者卡死 —— 这四类错误画面上全都只是"有点怪"，
-//        但每一类都能让这一关直接不可通关或难度崩塌。
-//   所以这里一条像素都不测，只锁：
-//     ① 三关的**可达性**（BFS：出口与文件夹必须从出生点走得到）
-//     ② 巡逻航线**不能卡死**（航点在可走格、相邻航点之间没有实心格）
-//     ③ 视线与视野锥的边界（含边界上的等号）
-//     ④ 时钟与奖励的结构（时限必须 ≥ 最快可达时间；奖励必须按进度打折）
-//     ⑤ 经济不变量（相对 E[value]，绝不写死元数）
-//   改 clockout.js 的 TUNE / LEVELS / 视线判定 / 赔付阶梯之后**必须**重跑本文件。
+//   V2 把引擎从"瓦片网格"换成了"连续世界像素 + 墙体矩形 + 视野锥"，风险随之集中到四处，
+//   而这四类错误在画面上全都只表现为"有点怪"：
+//     ① **视线与视野锥**。判定就是两个纯函数，潜行游戏的 bug 几乎全在这里 ——
+//        "隔着墙也看得见"、"正好贴在锥边上反而绝对安全"、"距离差 0.001px 就看不见"。
+//        眼睛看不出来，只有直接喂世界像素验边界才验得动。
+//     ② **巡逻 AI 与寻路**。NPC 不穿墙、不卡死、同 seed 逐位可复现，这三件事任一坏掉，
+//        表现都只是"这局有点怪"，但复现、调参与背板子全废。
+//     ③ **地图几何**。关键点落在墙里 / 出口走不到 / 某面墙既拦不住人也挡不住视线。
+//     ④ **状态机与时机**。失败必须整局字节级冻结、文件夹必须提前用、cover 当帧到期当帧失效、
+//        换层必须换图且整段继承剩余时间 —— 这些差一帧就变成"有时能过有时不能过"。
+//   所以这里一条像素都不测，只锁上面四类 + 本项目原有的两条老不变量（缺常量守卫 / 经济不变量）。
+//   规格 §8 的 11 条上游契约逐条对应下面的 `契约N：` 测试名，另加本项目最看重的视野锥边界
+//   与两条不变量（契约 12–14）。
+//   改 clockout.js 的 MAPS / MODES / LEVELS / 视线判定 / tick 顺序之后**必须**重跑本文件。
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -35,313 +35,845 @@ function load() {
 const C = load();
 const R = C.rules;
 const T = R.TUNE;
-const TILE = T.TILE;
+const MODES = Object.keys(R.MODES);
+const LEVELS = R.LEVELS;
+const WORLD_R = 18;      /* 规格 §1.2：玩家移动与 NPC 移动用的碰撞半径 */
 
+/* ── 工具 ───────────────────────────────────────────────────────────────── */
+
+/* 按 30fps 推进模拟（上游 tests/game.test.mjs 的 advance 口径）。 */
+function advance(g, seconds, input) {
+  const n = Math.round(seconds * 30);
+  for (let i = 0; i < n; i++) R.tick(g, 1 / 30, input);
+}
+/* "被暴露"的一局：玩家站在空地，一个 300 视距的主管正对着他（pause 钉住不动）。
+   站在这里是为了让"看见 / 没看见"只由被测的那一个变量决定。 */
+function exposed() {
+  const g = R.createGame(1, [], "normal", 42);
+  R.start(g);
+  g.player = { x: 1500, y: 1100, moving: false };
+  g.npcs = [{ id: "supervisor", x: 1500, y: 950, range: 300, fov: 1.2,
+              angle: Math.PI / 2, pause: 100, route: [], target: 0 }];
+  return g;
+}
+function patrolCount(g) {
+  let c = 0;
+  for (let i = 0; i < g.npcs.length; i++) if (g.npcs[i].id !== "coworker") c++;
+  return c;
+}
 function meanNet(mode, skill, n, seed0) {
   let sum = 0;
   n = n || 300; seed0 = seed0 || 50000;
   for (let i = 0; i < n; i++) sum += R.simulateRun(mode, skill, seed0 + i).net;
   return sum / n;
 }
+/* 建局很贵：出生点重选要扫 26×14 的候选网格、每个候选还要跑一次 BFS 寻路。
+   所以"只看不改"的断言统一走这个带缓存的入口，别把同一局反复建（整套要跑在 5 秒内）。
+   ⚠ 任何会改 g 的场景（tick / start / interact / 改 phase）必须自己 R.createGame。 */
+const specCache = new Map();
+function specGame(level, mode, seed, floor) {
+  const key = level + "|" + mode + "|" + seed + "|" + (floor || 1);
+  if (!specCache.has(key)) specCache.set(key, R.createGame(level, [], mode, seed, floor));
+  return specCache.get(key);
+}
 
-/* ═══════════════ ① 模块形状 ═══════════════ */
+/* ═══════════════ ① 模块形状（本项目原有不变量） ═══════════════ */
 
-test("模块对外形状符合规格", () => {
-  assert.equal(typeof C.start, "function");
-  assert.equal(typeof C.isBusy, "function");
-  assert.equal(typeof C.dispose, "function");
-  assert.equal(typeof C.version, "string");
-  assert.equal(typeof C.debug.state, "function");
-  assert.equal(typeof C.debug.tick, "function");
-  assert.equal(typeof C.debug.freeze, "function");
-  assert.equal(typeof C.debug.seek, "function");
-  assert.equal(typeof C.debug.placePatrol, "function");
-  assert.equal(typeof C.debug.lifecycle, "function");
-  assert.ok(Object.keys(R.MODES).length >= 2);
-  assert.ok(Object.keys(R.PAYOUT).length === Object.keys(R.MODES).length, "每个模式都要有自己的赔付阶梯");
-  assert.equal(R.LEVELS.length, 3, "三关三张地图");
+test("模块对外形状符合规格（V2 版本号 + 调试钩子一个不少）", () => {
+  assert.equal(typeof C.start, "function", "Clockout.start 必须存在（浏览器验收脚本依赖它）");
+  assert.equal(typeof C.isBusy, "function", "Clockout.isBusy 必须存在");
+  assert.equal(typeof C.dispose, "function", "Clockout.dispose 必须存在");
+  assert.equal(typeof C.version, "string", "Clockout.version 必须是字符串");
+  assert.equal(typeof C.debug.state, "function", "debug.state 必须存在");
+  assert.equal(typeof C.debug.tick, "function", "debug.tick 必须存在");
+  assert.equal(typeof C.debug.retry, "function", "debug.retry 必须存在（失败后 E/空格已失效，重试只能走它或点画面）");
+  assert.equal(typeof C.debug.seek, "function", "debug.seek 必须存在");
+  assert.equal(typeof C.debug.placePatrol, "function", "debug.placePatrol 必须存在");
 });
 
-/* ═══════════════ ② 关卡数据与可达性 ═══════════════ */
+test("rules 暴露 V2 的全部纯函数（规格 §1–§5 的判定层）", () => {
+  const need = ["walkable", "clearLine", "segmentWalkable", "pathTo", "sees", "captureIfSeen",
+                "buildLevel", "validateLevel", "retryLevel", "nextLevel", "createGame"];
+  const missing = need.filter((k) => typeof R[k] !== "function");
+  assert.deepEqual(missing, [], "rules 少了这些纯函数（判定层必须能被单测直接调用）：" + missing.join(", "));
+});
 
-test("关卡：三关都能解析，且外墙封闭、行宽一致", () => {
-  for (const def of R.LEVELS) {
-    const lv = R.buildLevel(def, 12345, "normal");
-    const probs = R.validateLevel(lv);
-    /* ⚠ 不能写 deepEqual(probs, [])：probs 是在 vm 里造出来的数组，
-       原型与测试 realm 的 Array 不同，deepStrictEqual 连两个空数组都会判不等。 */
-    assert.equal(probs.length, 0, "[" + lv.id + "] 关卡自检不过：\n  " + probs.join("\n  "));
-    assert.ok(lv.w > 20 && lv.h > 14, "[" + lv.id + "] 关卡太小：" + lv.w + "x" + lv.h);
+test("MODES 恰好三档，且每档都带齐 V2 真正生效的字段", () => {
+  assert.equal(MODES.length, 3, "难度必须恰好三档（普通/变态/地狱）");
+  const fields = ["speed", "range", "time", "extra", "wait", "cover", "pause", "floors"];
+  const missing = [];
+  for (const m of MODES) for (const f of fields) if (!Number.isFinite(R.MODES[m][f])) missing.push(m + "." + f);
+  assert.deepEqual(missing, [], "MODES 缺字段或值不是有限数：" + missing.join(", "));
+});
+
+test("LEVELS 恰好三关，且第 i 关与第 i 张地图一一对应", () => {
+  assert.equal(LEVELS.length, 3, "必须恰好三关");
+  assert.deepEqual(LEVELS.map((l) => l.mapId), R.MAPS.map((m) => m.id),
+    "第 i 关的 mapId 必须等于第 i 张地图的 id（关卡 ↔ 地图一一对应）");
+});
+
+test("MODES[x].time 是**倍率**不是秒数：实际时限 = round(LEVELS.time × 倍率)", () => {
+  const bad = [];
+  for (const m of MODES) for (let l = 1; l <= 3; l++) {
+    const g = specGame(l, m, 3);
+    const want = Math.round(LEVELS[l - 1].time * R.MODES[m].time);
+    if (g.config.time !== want) bad.push(m + " L" + l + " 实际 " + g.config.time + " ≠ " + want);
   }
+  assert.deepEqual(bad, [], "时限没有按倍率折算（把 MODES.time 当成秒数用会直接算错）：" + bad.join("; "));
 });
 
-test("关卡：每关恰有一个出生点、一组出口、一份文件夹、一台咖啡机", () => {
-  for (const def of R.LEVELS) {
-    const lv = R.buildLevel(def, 999, "normal");
-    assert.ok(lv.spawn, "[" + lv.id + "] 缺出生点");
-    assert.ok(lv.exit.length >= 1, "[" + lv.id + "] 缺出口");
-    assert.equal(lv.folders.length, 1, "[" + lv.id + "] 文件夹数量不是 1（多了会变成一路按过去）");
-    assert.equal(lv.coffee.length, 1, "[" + lv.id + "] 咖啡机数量不是 1");
-    assert.equal(lv.lounge.length, 1, "[" + lv.id + "] 缺茶水间（咖啡机的引诱目标）");
-    assert.ok(lv.patrols.length >= 4, "[" + lv.id + "] 巡逻者太少（" + lv.patrols.length + "），没有潜行压力");
-  }
+/* ═══════════════ ② 契约 1：三张图互不相同 + 五个关键点可达 ═══════════════ */
+
+test("契约1：三张地图的 walls 互不相同", () => {
+  const n = new Set(R.MAPS.map((m) => JSON.stringify(m.walls))).size;
+  assert.equal(n, 3, "三张地图的墙体几何必须互不相同，否则换关其实是在同一张图上跑");
 });
 
-test("关卡：出口与文件夹必须从出生点走得到（不可通关是潜行游戏最恶心的 bug）", () => {
-  for (const def of R.LEVELS) {
-    for (const seed of [1, 777, 90210]) {
-      const lv = R.buildLevel(def, seed, "normal");
-      /* validateLevel 里的 BFS 已经查过；这里再独立算一遍，防它以后被改坏 */
-      const seen = new Set([lv.spawn.x + "," + lv.spawn.y]);
-      const q = [[lv.spawn.x, lv.spawn.y]];
-      while (q.length) {
-        const [cx, cy] = q.shift();
-        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-          const nx = cx + dx, ny = cy + dy;
-          if (nx < 0 || ny < 0 || nx >= lv.w || ny >= lv.h) continue;
-          if (lv.solid[ny][nx]) continue;
-          const k = nx + "," + ny;
-          if (seen.has(k)) continue;
-          seen.add(k); q.push([nx, ny]);
-        }
-      }
-      for (const e of lv.exit) assert.ok(seen.has(e.x + "," + e.y), "[" + lv.id + "] 出口走不到");
-      for (const f of lv.folders) assert.ok(seen.has(f.x + "," + f.y), "[" + lv.id + "] 文件夹走不到");
-      assert.ok(seen.size > lv.w * lv.h * 0.25, "[" + lv.id + "] 可走区域太小：" + seen.size + " 格");
+test("契约1：每关 5 个关键点都能站人 walkable(p,18)", () => {
+  const bad = [];
+  for (let l = 1; l <= 3; l++) {
+    const g = specGame(l, "normal", 7);
+    for (const id of Object.keys(g.map.points)) {
+      const p = g.map.points[id];
+      if (!R.walkable(p.x, p.y, WORLD_R, g.map)) bad.push("L" + l + " " + id + "(" + p.x + "," + p.y + ")");
     }
   }
+  assert.deepEqual(bad, [], "关键点落在墙里（玩家站不上去，整关直接废）：" + bad.join(", "));
 });
 
-test("回归：巡逻航线不能卡死（航点在可走格、相邻航点之间没有实心格）", () => {
-  /* 这条是**真事**换来的：第一版有 5 条航线的两个航点之间隔着墙/工位，
-     巡逻者是直线走向下一个航点的、不做寻路，于是一头顶在墙上原地站住。
-     画面上只表现为"这个保安站着不动"，几乎不可能联想到是关卡数据的问题。 */
-  for (const def of R.LEVELS) {
-    const lv = R.buildLevel(def, 4242, "normal");
-    for (let i = 0; i < lv.patrolRoutes.length; i++) {
-      const route = lv.patrolRoutes[i];
-      for (let j = 0; j < route.length; j++) {
-        const [wx, wy] = route[j];
-        assert.ok(!lv.solid[wy][wx], "[" + lv.id + "] 航点 (" + wx + "," + wy + ") 在实心格里");
-        const [nx, ny] = route[(j + 1) % route.length];
-        const steps = Math.max(2, Math.ceil(Math.hypot(nx - wx, ny - wy) / 0.2));
-        for (let k = 1; k < steps; k++) {
-          const t = k / steps;
-          const sx = Math.floor(wx + (nx - wx) * t), sy = Math.floor(wy + (ny - wy) * t);
-          assert.ok(!lv.solid[sy][sx],
-            "[" + lv.id + "] 航线 (" + wx + "," + wy + ")→(" + nx + "," + ny + ") 中间被实心格 (" + sx + "," + sy + ") 挡住，巡逻者会卡死");
+test("契约1：每关 5 个关键点都能从出生点走得到（pathTo 非空）", () => {
+  const bad = [];
+  for (let l = 1; l <= 3; l++) {
+    const g = specGame(l, "normal", 7);
+    for (const id of Object.keys(g.map.points)) {
+      if (!R.pathTo(g.map, g.player, g.map.points[id]).length) bad.push("L" + l + " " + id);
+    }
+  }
+  assert.deepEqual(bad, [], "关键点从出生点走不到（不可通关，潜行游戏最恶心的 bug）：" + bad.join(", "));
+});
+
+test("契约1：validateLevel 对三张地图都报不出问题", () => {
+  const probs = [];
+  for (const m of R.MAPS) probs.push(...R.validateLevel(m));
+  assert.equal(probs.length, 0, "地图自检不过：\n  " + probs.join("\n  "));
+});
+
+/* ═══════════════ ③ 契约 2：家具既挡路又挡视线 ═══════════════ */
+
+test("契约2：每面墙的中心 walkable(...,18) 必须为 false（挡得住人）", () => {
+  const bad = [];
+  for (const map of R.MAPS) {
+    for (const a of map.walls) {
+      if (R.walkable(a[0] + a[2] / 2, a[1] + a[3] / 2, WORLD_R, map) !== false) bad.push("图" + map.id + " " + JSON.stringify(a));
+    }
+  }
+  assert.deepEqual(bad, [], "这些墙太薄，玩家能站进墙里（家具形同虚设）：" + bad.join(", "));
+});
+
+test("契约2：横穿每面墙的 clearLine 必须为 false（挡得住视线）", () => {
+  const bad = [];
+  for (const map of R.MAPS) {
+    for (const a of map.walls) {
+      const y = a[1] + a[3] / 2;
+      if (R.clearLine({ x: a[0] - 40, y: y }, { x: a[0] + a[2] + 40, y: y }, map) !== false) bad.push("图" + map.id + " " + JSON.stringify(a));
+    }
+  }
+  assert.deepEqual(bad, [], "隔着这些墙还能互相看见（潜行的遮挡完全失效）：" + bad.join(", "));
+});
+
+/* ═══════════════ ④ 契约 3：同 seed 可复现，换 seed 必须变 ═══════════════ */
+
+test("契约3：同 seed 建局完全可复现（npcs 逐字段一致）", () => {
+  const a = R.createGame(1, [], "hell", 11);
+  const b = R.createGame(1, [], "hell", 11);
+  assert.equal(JSON.stringify(a.npcs), JSON.stringify(b.npcs),
+    "同 seed 两次建局的 NPC 不一致（bug 复现不了、蒙卡也测不了）");
+});
+
+test("契约3：不同 seed 的巡逻目的地必须不同（否则重试就是背板子）", () => {
+  const bad = [];
+  for (const m of MODES) {
+    const a = specGame(2, m, 1337);
+    const b = specGame(2, m, 1338);
+    if (JSON.stringify(a.npcs.map((n) => n.route)) === JSON.stringify(b.npcs.map((n) => n.route))) bad.push(m);
+  }
+  assert.deepEqual(bad, [], "换 seed 后巡逻路线一字不变（重试变成背板子，随机巡查名存实亡）：" + bad.join(", "));
+});
+
+/* ═══════════════ ⑤ 契约 4：巡逻不穿墙、不卡死 ═══════════════ */
+
+/* 这条是全场最贵的一条：3 关 × 3 模式 × 2 seed，各跑满 1800 帧（dt=0.05 → 90 秒）。
+   seed 取 2 个而不是 3 个，纯粹是为了让整套跑进 5 秒 —— 帧数一帧没减（"跑足"这件事不能打折）。
+   玩家用 cover=1000 免疫，把"被抓"这个变量摘掉，只留巡逻本身。跑一次给下面两条断言共用。 */
+let patrolRun = null;
+function runPatrolStress() {
+  if (patrolRun) return patrolRun;
+  const offTrack = [], stuck = [];
+  for (let l = 1; l <= 3; l++) {
+    for (const mode of MODES) {
+      for (let seed = 1; seed <= 2; seed++) {
+        const tag = "L" + l + "/" + mode + "/seed" + seed;
+        const g = R.createGame(l, [], mode, seed);
+        R.start(g);
+        g.time = 1000; g.cover = 1000;                 /* 免疫 + 不会超时 */
+        const origins = g.npcs.map((n) => ({ x: n.x, y: n.y }));
+        let escaped = false;
+        for (let i = 0; i < 1800 && !escaped; i++) {
+          R.tick(g, 0.05);
+          for (const n of g.npcs) {
+            if (!R.walkable(n.x, n.y, WORLD_R, g.map)) {
+              offTrack.push(tag + " " + n.id + " 在 (" + n.x.toFixed(1) + "," + n.y.toFixed(1) + ")");
+              escaped = true;
+              break;
+            }
+          }
         }
+        g.npcs.forEach((n, i) => {
+          const d = Math.hypot(n.x - origins[i].x, n.y - origins[i].y);
+          if (!(d > 20)) stuck.push(tag + " " + n.id + " 90 秒只挪了 " + d.toFixed(2) + "px");
+        });
       }
     }
   }
+  patrolRun = { offTrack: offTrack, stuck: stuck };
+  return patrolRun;
+}
+
+test("契约4：多关×多模式×多 seed 跑满 1800 帧，每帧每个 NPC 都在可走位置", () => {
+  const r = runPatrolStress();
+  assert.deepEqual(r.offTrack.slice(0, 3), [], "巡逻者穿墙 / 走出了可走区域：" + r.offTrack.slice(0, 3).join(" | "));
 });
 
-test("巡逻者真的会动（跑 8 秒，每一条航线都必须有位移）", () => {
-  for (const def of R.LEVELS) {
-    const lv = R.buildLevel(def, 777, "normal");
-    const before = lv.patrols.map((p) => ({ x: p.x, y: p.y }));
-    for (let t = 0; t < 500; t++) for (const p of lv.patrols) R.stepPatrol(lv, p, 0.016, t * 0.016, {});
-    lv.patrols.forEach((p, i) => {
-      const d = Math.hypot(p.x - before[i].x, p.y - before[i].y);
-      assert.ok(d > 8, "[" + lv.id + "] 第 " + i + " 个巡逻者 8 秒只动了 " + d.toFixed(1) + " px（卡死）");
-    });
+test("契约4：跑满 90 秒后每个 NPC 位移都必须 > 20px（没有卡死）", () => {
+  const r = runPatrolStress();
+  assert.deepEqual(r.stuck.slice(0, 3), [], "有巡逻者 90 秒原地不动（撞墙清空路线后没能自愈）：" + r.stuck.slice(0, 3).join(" | "));
+});
+
+/* ═══════════════ ⑥ 契约 5：出生点安全（第一帧不会即被抓） ═══════════════ */
+
+test("契约5：每种模式每关建局后第一帧仍是 playing", () => {
+  const bad = [];
+  for (let l = 1; l <= 3; l++) {
+    for (const mode of MODES) {
+      const g = R.createGame(l, [], mode, 1);
+      R.start(g);
+      R.tick(g, 0.05);
+      if (g.phase !== "playing") bad.push("L" + l + "/" + mode + " → " + g.phase + "：" + g.message);
+    }
   }
+  assert.deepEqual(bad, [], "出生点不安全（开局第一帧就被抓，这一档根本没法玩）：" + bad.join(" | "));
 });
 
-/* ═══════════════ ③ 视线与视野锥 ═══════════════ */
+/* ═══════════════ ⑦ 契约 6：进入视野第一帧失败 + 失败后整局冻结 ═══════════════ */
 
-test("视线：空地通、工位断、隔板断；隔板能走过但工位不能", () => {
-  const lv = R.buildLevel(R.LEVELS[0], 1, "normal");
-  // 第 1 关底部 y=17 整行开阔（工位在 y=7..9 与 y=13..15）
-  assert.equal(R.losClear(lv, 15.5 * TILE, 17.5 * TILE, 17.5 * TILE, 17.5 * TILE), true, "空地上两格直线必须通");
-  // 工位块 fill(3,7,5,3) 在 y=7..9，所以 y=8 上从 x=1 到 x=9 会被工位挡住
-  assert.equal(R.losClear(lv, 1.5 * TILE, 8.5 * TILE, 9.5 * TILE, 8.5 * TILE), false, "隔着工位必须看不见");
-  // 半高隔板 fill(9,10,14,1) 在 y=10
-  assert.equal(R.losClear(lv, 15.5 * TILE, 9.5 * TILE, 15.5 * TILE, 11.5 * TILE), false, "隔着隔板必须看不见");
-  // 但隔板**不挡人** —— 这是"沿隔板背面走"这条技巧成立的前提
-  assert.equal(R.isSolidW(lv, 15.5 * TILE, 10.5 * TILE), false, "隔板必须能走过（半高）");
-  assert.equal(R.isSolidW(lv, 4.5 * TILE, 8.5 * TILE), true, "工位必须走不过");
-  // 越界一律当实心（否则玩家能走出地图）
-  assert.equal(R.isSolidW(lv, -5, 100), true, "越界必须当实心");
-  assert.equal(R.isOpaqueW(lv, lv.w * TILE + 5, 100), true, "越界必须挡视线");
+test("契约6：进入视野的第一帧立即 lost，且 suspicion=100", () => {
+  const g = exposed();
+  assert.equal(R.sees(g.npcs[0], g.player, g.map), true, "测试前提：这一局确实已经被主管看见");
+  R.tick(g, 0.03);
+  assert.equal(g.phase, "lost", "第一帧被看见却没有立即失败（潜行的核心承诺：看见即结束）");
+  assert.equal(g.suspicion, 100, "被抓当帧 suspicion 必须是 100（HUD 靠它切红色暴露态）");
 });
 
-test("视野锥：距离 + 张角 + 遮挡三条全过才看得见，边界含等号", () => {
-  const lv = R.buildLevel(R.LEVELS[0], 1, "normal");
-  const pat = { x: 16.5 * TILE, y: 17.5 * TILE, angle: 0, range: T.RANGE, halfFov: Math.PI * T.FOV_DEG / 360 };
-  const see = (dx, dy) => R.canSee(lv, pat, pat.x + dx, pat.y + dy, {});
-  const a = pat.halfFov;
-  // 朝上打，别打进底墙（底墙是 y=h-1）
-  assert.equal(see(150, 0), true, "正前方必须看得见");
-  assert.equal(see(-150, 0), false, "正后方必须看不见");
-  assert.equal(see(Math.cos(a) * 150, -Math.sin(a) * 150), true, "正好在半 FOV 上必须算看得见（闭区间）");
-  assert.equal(see(Math.cos(a + 0.03) * 150, -Math.sin(a + 0.03) * 150), false, "超出半 FOV 必须看不见");
-  assert.equal(see(T.RANGE, 0), true, "正好在 range 上必须看得见（闭区间）");
-  assert.equal(see(T.RANGE + 2, 0), false, "超出 range 必须看不见");
-  assert.equal(see(1, 0), true, "贴脸必须看得见");
-  // 伪装（文件夹）期间一律看不见
-  assert.equal(R.canSee(lv, pat, pat.x + 150, pat.y, { disguised: true }), false, "伪装期间必须免疫被发现");
-  // 遮挡优先：把手电筒转过去对着工位，即使角度对也必须看不见
-  const pat2 = { x: 1.5 * TILE, y: 8.5 * TILE, angle: 0, range: T.RANGE, halfFov: 0.5 };
-  assert.equal(R.canSee(lv, pat2, 9.5 * TILE, 8.5 * TILE, {}), false, "中间隔着工位，角度对也不能看见");
-  // anySees 返回第一个看见的
-  assert.equal(R.anySees(lv, [pat], pat.x + 150, pat.y, {}), pat);
-  assert.equal(R.anySees(lv, [pat], pat.x - 150, pat.y, {}), null);
+test("契约6：失败后施加输入 / E / 空格，整个状态快照完全不变", () => {
+  const g = exposed();
+  R.tick(g, 0.03);
+  const snap = JSON.stringify(g);
+  for (let i = 0; i < 60; i++) R.tick(g, 1 / 30, { x: 1, y: 0 });
+  R.useFile(g);
+  R.interact(g);
+  assert.equal(JSON.stringify(g), snap, "失败后整局没有字节级冻结（移动/用文件夹/交互还能改状态，重试与结算都会漂）");
 });
 
-/* ═══════════════ ④ 巡逻的确定性与难度 ═══════════════ */
+/* ═══════════════ ⑧ 契约 7：文件夹必须提前用 + cover 当帧到期当帧失效 ═══════════════ */
 
-test("巡逻：同 seed 完全可复现，换 seed 必须变（`每次重试随机巡逻`）", () => {
-  for (const def of R.LEVELS) {
-    const a = R.buildLevel(def, 5000, "normal").patrols.map((p) => p.x + "," + p.y + "," + p.angle).join("|");
-    const b = R.buildLevel(def, 5000, "normal").patrols.map((p) => p.x + "," + p.y + "," + p.angle).join("|");
-    const c = R.buildLevel(def, 5001, "normal").patrols.map((p) => p.x + "," + p.y + "," + p.angle).join("|");
-    assert.equal(a, b, "[" + def.id + "] 同 seed 必须逐字复现（否则 bug 复现不了、蒙卡也测不了）");
-    assert.notEqual(a, c, "[" + def.id + "] 换 seed 航线必须变，否则重试就变成背板子");
+test("契约7：被看见的当帧用文件夹无法补救（仍 lost，且 file 保留在手上）", () => {
+  const late = exposed();
+  late.file = true;
+  R.useFile(late);
+  assert.equal(late.phase, "lost", "被看见当帧用文件夹竟然补救成功（文件夹变成了免死金牌，可以一路按过去）");
+  assert.equal(late.file, true, "失败那一帧不该消耗文件夹（先捕获后使用，file 必须原样留着）");
+});
+
+test("契约7：提前使用文件夹得到 cover === coverDuration", () => {
+  const early = exposed();
+  early.npcs[0].angle = 0;                    /* 先把主管转开，别让"使用"这一步本身失败 */
+  early.file = true;
+  R.useFile(early);
+  assert.equal(early.cover, early.config.coverDuration,
+    "用文件夹后的免疫时长不等于 coverDuration（模式伪装时长形同虚设）");
+});
+
+test("契约7：cover > 0 期间即使正对视野也安全（1 秒内仍 playing）", () => {
+  const early = exposed();
+  early.npcs[0].angle = 0;
+  early.file = true;
+  R.useFile(early);
+  early.npcs[0].angle = Math.PI / 2;           /* 立刻转回来正对玩家 */
+  advance(early, 1);
+  assert.equal(early.phase, "playing", "伪装有效期内仍然被抓（cover 没有真正免疫视线）");
+});
+
+test("契约7：cover 降到 0.01 时遇 dt=0.03 当帧即失效（先递减后判定）", () => {
+  const early = exposed();
+  early.npcs[0].angle = 0;
+  early.file = true;
+  R.useFile(early);
+  early.npcs[0].angle = Math.PI / 2;
+  early.cover = 0.01;
+  R.tick(early, 0.03);
+  assert.equal(early.phase, "lost", "保护到期不是当帧生效（cover 先判定后递减的话会白送一帧无敌）");
+});
+
+/* ═══════════════ ⑨ 契约 8：难度压力关系 + 重试/过关保留 ═══════════════ */
+
+/* 三档压力关系只用第 2 关（bossDelay≠0 且时限各不相同）横向比。
+   这一组是纯读的，走缓存入口。 */
+function modeTrio() { return MODES.map((m) => specGame(2, m, 0)); }
+
+test("契约8：时限关系 普通 > 变态 > 地狱/层数", () => {
+  const [n, e, h] = modeTrio();
+  assert.ok(n.time > e.time && e.time > h.time / h.floors,
+    "时限关系不成立：" + n.time + " / " + e.time + " / " + (h.time / h.floors) +
+    "（变态必须比普通短；地狱更长是因为两层共用，按层折算后必须仍比变态紧）");
+});
+
+test("契约8：NPC 数随难度递增", () => {
+  const [n, e, h] = modeTrio();
+  assert.ok(n.npcs.length < e.npcs.length && e.npcs.length < h.npcs.length,
+    "NPC 数没有随难度递增：" + n.npcs.length + " / " + e.npcs.length + " / " + h.npcs.length);
+});
+
+test("契约8：coverDuration 随难度递减", () => {
+  const [n, e, h] = modeTrio();
+  assert.ok(n.config.coverDuration > e.config.coverDuration && e.config.coverDuration > h.config.coverDuration,
+    "伪装时长没有随难度递减：" + n.config.coverDuration + " / " + e.config.coverDuration + " / " + h.config.coverDuration);
+});
+
+test("契约8：liftWait 随难度递增", () => {
+  const [n, e, h] = modeTrio();
+  assert.ok(n.config.liftWait < e.config.liftWait && e.config.liftWait < h.config.liftWait,
+    "电梯等待没有随难度递增：" + n.config.liftWait + " / " + e.config.liftWait + " / " + h.config.liftWait);
+});
+
+test("契约8：retryLevel 保留 mode/clearedTimes、回到本关第一层、换新 seed", () => {
+  const g = R.createGame(2, [12], "hell", 5, 2);
+  const retry = R.retryLevel(g);
+  assert.equal(retry.mode, "hell", "重试丢了模式（重试会变成换难度）");
+  assert.equal(retry.level, 2, "重试没有回到本关");
+  assert.equal(retry.floor, 1, "地狱二层重试没有回到第一层（会带着「已经上过二层」的状态重开）");
+  assert.equal(JSON.stringify(retry.clearedTimes), "[12]", "重试丢了已通关记录（进度被清空）");
+  assert.notEqual(retry.seed, g.seed, "重试沿用了旧 seed（重试变成背板子）");
+});
+
+test("契约8：nextLevel 保留 mode、level+1、并把本关 elapsed 追加进 clearedTimes", () => {
+  const g = R.createGame(2, [12], "extreme", 5);
+  g.phase = "won";
+  g.elapsed = 15;
+  const next = R.nextLevel(g);
+  assert.equal(next.mode, "extreme", "过关后丢了模式");
+  assert.equal(next.level, 3, "nextLevel 没有推进到下一关");
+  assert.equal(JSON.stringify(next.clearedTimes), "[12,15]", "本关 elapsed 没有入账到 clearedTimes");
+});
+
+/* ═══════════════ ⑩ 契约 9：三模式 × 三关 × 每层 全流程实跑 ═══════════════ */
+
+/* 这条要"真的按 pathTo 走过去"，所以是整套里最贵的一段：跑一次，把每一步观测都记进 row，
+   再由下面的若干条测试各断言一件事（一条测试只锁一个契约）。 */
+function walkTo(g, p, row) {
+  const route = R.pathTo(g.map, g.player, p);
+  row.routeLens.push(route.length);
+  if (!route.length) { row.notes.push("pathTo 返回空 → (" + p.x + "," + p.y + ")"); return false; }
+  const pts = [];
+  for (let i = 0; i < route.length; i++) pts.push([route[i][0], route[i][1]]);
+  pts.push([p.x, p.y]);
+  for (let k = 0; k < pts.length; k++) {
+    const tx = pts[k][0], ty = pts[k][1];
+    let arrived = false;
+    for (let i = 0; i < 200; i++) {
+      const dx = tx - g.player.x, dy = ty - g.player.y, d = Math.hypot(dx, dy);
+      if (d < 4) { arrived = true; break; }
+      R.tick(g, 1 / 60, { x: dx / d, y: dy / d });
+      if (g.phase !== "playing") { row.notes.push("走位途中离开 playing：" + g.phase + " / " + g.message); return false; }
+    }
+    if (!arrived) {
+      row.notes.push("走不到路点 (" + tx + "," + ty + ")，玩家卡在 (" +
+        g.player.x.toFixed(1) + "," + g.player.y.toFixed(1) + ")");
+      return false;
+    }
   }
-});
-
-test("地狱模式必须真的更难：巡逻更快、视野更广、伪装更短、时限更紧", () => {
-  const n = R.MODES.normal, h = R.MODES.hell;
-  const pn = R.buildLevel(R.LEVELS[2], 5, "normal").patrols[0];
-  const ph = R.buildLevel(R.LEVELS[2], 5, "hell").patrols[0];
-  assert.ok(ph.speed > pn.speed, "地狱的巡逻速度没有更快");
-  assert.ok(ph.range > pn.range, "地狱的视距没有更远");
-  assert.ok(ph.halfFov > pn.halfFov, "地狱的视野张角没有更宽");
-  assert.ok(h.disguise < n.disguise, "地狱的伪装时间没有更短");
-  assert.ok(h.time < n.time, "地狱的时限没有更紧");
-});
-
-/* ═══════════════ ⑤ 时钟与奖励的结构 ═══════════════ */
-
-test("回归：时限必须 ≥ 最快可达时间（否则这一档数学上不可能通关）", () => {
-  /* 这条是**真事**换来的：第一版给地狱模式定 150 秒，
-     而三关 parTime 之和 ×0.92（skill 1.0 时的用时系数）≈ 166 秒 ——
-     比理论最快还短 16 秒，实测超时率恒为 100%，也就是"这一档永远拿不到全通"。 */
-  const fastest = (skill) => R.LEVELS.reduce((s, lv) => s + lv.parTime, 0) * (1.22 - 0.30 * skill);
-  for (const id of Object.keys(R.MODES)) {
-    const mode = R.MODES[id];
-    const f1 = fastest(1.0);
-    assert.ok(mode.time > f1,
-      id + "：时限 " + mode.time + "s ≤ 理论最快 " + f1.toFixed(1) + "s，这一档不可能通关");
-    // 还要留出一点容错，不能"刚好等于最快"
-    assert.ok(mode.time >= f1 * 1.06, id + "：时限只比理论最快多 " + ((mode.time / f1 - 1) * 100).toFixed(1) + "%，没有容错空间");
+  return true;
+}
+let flowRun = null;
+function runFlow() {
+  if (flowRun) return flowRun;
+  const rows = [], levels = [];
+  for (const mode of MODES) {
+    let g = R.createGame(1, [], mode, 10);
+    for (let l = 1; l <= 3; l++) {
+      R.start(g);
+      const lv = { mode: mode, level: l, startPhase: g.phase, rows: [] };
+      for (let floor = 1; floor <= g.floors; floor++) {
+        const r = { mode: mode, level: l, floor: floor, floors: g.floors, notes: [], routeLens: [] };
+        r.floorOk = (g.floor === floor);
+        r.patrolsAtStart = patrolCount(g);
+        g.npcs = [];                                    /* 隔离潜行层：这条只验"能不能走通流程" */
+        r.walkPrinter = walkTo(g, g.map.points.printer, r);
+        r.phaseAfterWalkPrinter = g.phase;
+        r.interactPrinter = R.interact(g);
+        r.fileAfterPickup = g.file === true;
+        r.useFileOk = R.useFile(g);
+        r.cover = g.cover;
+        r.coverDuration = g.config.coverDuration;
+        r.walkLift = walkTo(g, g.map.points.lift, r);
+        r.phaseAfterWalkLift = g.phase;
+        r.interactLiftCall = R.interact(g);
+        r.liftAfterCall = g.lift;
+        r.liftTimerAfterCall = g.liftTimer;
+        r.liftWait = g.config.liftWait;
+        advance(g, g.config.liftWait + 0.1);
+        r.liftAfterWait = g.lift;
+        r.phaseAfterWait = g.phase;
+        const oldMapId = g.map.id, oldTime = g.time, oldElapsed = g.elapsed;
+        r.interactLiftEnter = R.interact(g);
+        r.phaseAfterEnter = g.phase;
+        r.mapChanged = g.map.id !== oldMapId;
+        r.timeKept = g.time === oldTime;
+        r.elapsedKept = g.elapsed === oldElapsed;
+        r.cargoCleared = (g.file === false && g.fileTaken === false && g.cover === 0);
+        r.floorAfter = g.floor;
+        if (floor < g.floors) {
+          r.patrolsOnSecondFloor = patrolCount(g);
+          advance(g, 3);                                /* floor-intro 期间推 3 秒 */
+          r.timeFrozen = g.time === oldTime;
+          r.elapsedFrozen = g.elapsed === oldElapsed;
+          r.nextLevelInFloorIntro = R.nextLevel(g);
+          r.enterFloorOk = R.enterFloor(g);
+          r.phaseAfterEnterFloor = g.phase;
+        } else {
+          r.phaseFinal = g.phase;
+        }
+        rows.push(r); lv.rows.push(r);
+      }
+      lv.totalTime = R.totalTime(g);
+      lv.afterLastFloor = g.phase;
+      lv.next = R.nextLevel(g);
+      levels.push(lv);
+      if (l < 3) { if (lv.next) g = lv.next; else break; }
+    }
   }
+  flowRun = { rows: rows, levels: levels };
+  return flowRun;
+}
+function flowRows() { return runFlow().rows; }
+
+test("契约9：每层都能按 pathTo 实走到打印区", () => {
+  const bad = flowRows().filter((r) => !r.walkPrinter)
+    .map((r) => r.mode + "/L" + r.level + "/F" + r.floor + " " + r.notes.join("；"));
+  assert.deepEqual(bad, [], "走不到打印区（这一层不可能通关）：" + bad.join(" | "));
 });
 
-test("回归：奖励必须按通关进度打折（不能「什么都不做」也拿钱）", () => {
-  /* 第一版时间分是全额给的，于是"一关不过、原地躲到时间结束"也能拿到满额时间分，
-     实测 0 关却有 900 分、还能换到赔付 —— 那是一个不动就赚钱的漏洞。
-     正确的结构：时间分 × (通关数 / 总关数)。 */
-  let zeroClearedMax = 0;
-  for (let i = 0; i < 200; i++) {
-    const r = R.simulateRun("normal", 0.02, 70000 + i);
-    if (r.cleared === 0) zeroClearedMax = Math.max(zeroClearedMax, r.score);
-  }
-  assert.ok(zeroClearedMax < R.scoreOf("level") * 0.5,
-    "一关不过却拿到 " + zeroClearedMax + " 分（≥ 半关的分），奖励没有按进度打折");
-  // 而且一关不过绝不该赚到钱
-  for (let i = 0; i < 200; i++) {
-    const r = R.simulateRun("normal", 0.02, 71000 + i);
-    if (r.cleared === 0) assert.ok(r.net <= 0, "一关不过却是正收益：" + r.net);
-  }
+test("契约9：在打印区按 E 就能拿到文件夹", () => {
+  const bad = flowRows().filter((r) => !r.interactPrinter || !r.fileAfterPickup)
+    .map((r) => r.mode + "/L" + r.level + "/F" + r.floor + " file=" + r.fileAfterPickup);
+  assert.deepEqual(bad, [], "站在打印区按 E 却拿不到文件夹：" + bad.join(" | "));
 });
 
-test("回归：失败 24 次必须判定为超时结束整轮，不能「跳着过关」", () => {
-  /* 第一版写的是 `if (attempts > 24) break;` —— 只跳出内层 while，
-     于是"第一关没过"会被当成过关继续打第二关，产出"0 关却有时间分"这类假数据。 */
-  for (let i = 0; i < 200; i++) {
-    const r = R.simulateRun("hell", 0.01, 81000 + i);
-    assert.ok(r.cleared <= R.MODES.hell.levels, "通关数越界");
-    if (r.timeout) assert.equal(r.remaining, 0, "判定超时却还有剩余时间");
+test("契约9：走位全程都留在 playing（路没被堵死，也没踩进视野）", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (r.phaseAfterWalkPrinter !== "playing" || r.phaseAfterWalkLift !== "playing") {
+      bad.push(r.mode + "/L" + r.level + "/F" + r.floor + " " + r.notes.join("；"));
+    }
   }
+  assert.deepEqual(bad, [], "实走过程中离开了 playing：" + bad.join(" | "));
 });
 
-/* ═══════════════ ⑥ 计分与赔付 ═══════════════ */
-
-test("计分：表里没有任何「被发现/被抓」的加分项", () => {
-  assert.equal(Object.prototype.hasOwnProperty.call(R.SCORE_TABLE, "caught"), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(R.SCORE_TABLE, "detected"), false);
-  assert.equal(R.scoreOf("caught"), 0, "未登记的事件一律 0 分");
-  assert.equal(R.scoreOf("detected"), 0);
-  assert.equal(R.scoreOf("任何没登记的名字"), 0);
-  for (const k of Object.keys(R.SCORE_TABLE)) {
-    if (k === "time") continue;
-    assert.ok(R.scoreOf(k) > 0, k + " 的分值应为正");
+test("契约9：走位用的 pathTo 路线必须都非空", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (!r.routeLens.length || r.routeLens.some((n) => !n)) bad.push(r.mode + "/L" + r.level + "/F" + r.floor);
   }
+  assert.deepEqual(bad, [], "寻路给出了空路线（说明关键点之间根本不连通）：" + bad.join(", "));
 });
 
-test("赔付：阶梯单调不减、0 分不给钱、封顶取最高档", () => {
+test("契约9：useFile 得到 cover === coverDuration", () => {
+  const bad = flowRows().filter((r) => !r.useFileOk || r.cover !== r.coverDuration)
+    .map((r) => r.mode + "/L" + r.level + "/F" + r.floor + " cover=" + r.cover + " 期望 " + r.coverDuration);
+  assert.deepEqual(bad, [], "用文件夹后的免疫时长不对：" + bad.join(" | "));
+});
+
+test("契约9：电梯 idle → calling（liftTimer=liftWait）→ 等够 liftWait+0.1s → open", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (!r.interactLiftCall || r.liftAfterCall !== "calling") bad.push(r.mode + "/L" + r.level + "/F" + r.floor + " 呼叫后 lift=" + r.liftAfterCall);
+    if (r.liftTimerAfterCall !== r.liftWait) bad.push(r.mode + "/L" + r.level + "/F" + r.floor + " liftTimer=" + r.liftTimerAfterCall + " ≠ " + r.liftWait);
+    if (r.liftAfterWait !== "open") bad.push(r.mode + "/L" + r.level + "/F" + r.floor + " 等够时间仍为 " + r.liftAfterWait);
+  }
+  assert.deepEqual(bad, [], "电梯状态机不对：" + bad.join(" | "));
+});
+
+test("契约9：非末层换层后 floor 变 2 且换到**下一张图**（map.id 必须变）", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (r.floor >= r.floors) continue;
+    if (r.phaseAfterEnter !== "floor-intro") bad.push(r.mode + "/L" + r.level + " 换层后 phase=" + r.phaseAfterEnter);
+    if (r.floorAfter !== r.floor + 1) bad.push(r.mode + "/L" + r.level + " floor=" + r.floorAfter);
+    if (!r.mapChanged) bad.push(r.mode + "/L" + r.level + " 换层没换图");
+  }
+  assert.deepEqual(bad, [], "换层没有换到下一张图 / floor 没变 2：" + bad.join(" | "));
+});
+
+test("契约9：换层时 time 与 elapsed 完全不变（整段继承，不是重置）", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (r.floor >= r.floors) continue;
+    if (!r.timeKept) bad.push(r.mode + "/L" + r.level + " 剩余时间被重置");
+    if (!r.elapsedKept) bad.push(r.mode + "/L" + r.level + " elapsed 被重置");
+  }
+  assert.deepEqual(bad, [], "换层重置了计时（两层共用时限的承诺被破坏）：" + bad.join(" | "));
+});
+
+test("契约9：换层清空携带物（file / fileTaken / cover）", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (r.floor >= r.floors) continue;
+    if (!r.cargoCleared) bad.push(r.mode + "/L" + r.level);
+  }
+  assert.deepEqual(bad, [], "换层没有清空文件夹与伪装（二层可以直接按空格，打印区失去意义）：" + bad.join(" | "));
+});
+
+test("契约9：floor-intro 期间推 3 秒，计时一动不动", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (r.floor >= r.floors) continue;
+    if (!r.timeFrozen || !r.elapsedFrozen) bad.push(r.mode + "/L" + r.level);
+  }
+  assert.deepEqual(bad, [], "换层介绍浮层期间计时还在走（读说明就是扣时间）：" + bad.join(" | "));
+});
+
+test("契约9：floor-intro 时 nextLevel 无效，enterFloor 后才继续", () => {
+  const bad = [];
+  for (const r of flowRows()) {
+    if (r.floor >= r.floors) continue;
+    if (r.nextLevelInFloorIntro !== null) bad.push(r.mode + "/L" + r.level + " nextLevel 在 floor-intro 上居然生效了");
+    if (!r.enterFloorOk || r.phaseAfterEnterFloor !== "playing") bad.push(r.mode + "/L" + r.level + " enterFloor 失败");
+  }
+  assert.deepEqual(bad, [], "换层浮层的进入/推进语义不对：" + bad.join(" | "));
+});
+
+test("契约9：末层 interact 必须 won", () => {
+  const bad = flowRows().filter((r) => r.floor >= r.floors && r.phaseFinal !== "won")
+    .map((r) => r.mode + "/L" + r.level + " → " + r.phaseFinal);
+  assert.deepEqual(bad, [], "站在 opened 电梯前按下 E 却没有通关：" + bad.join(" | "));
+});
+
+test("契约9：每关 totalTime > 0（三关累计用时必须真被记下来）", () => {
+  const bad = runFlow().levels.filter((lv) => !(lv.totalTime > 0))
+    .map((lv) => lv.mode + "/L" + lv.level + " totalTime=" + lv.totalTime);
+  assert.deepEqual(bad, [], "totalTime 不是正数（结算数字会变成 0）：" + bad.join(", "));
+});
+
+test("契约9：前两关能 nextLevel 到下一关，第 3 关之后再 nextLevel 为 null", () => {
+  const bad = [];
+  for (const lv of runFlow().levels) {
+    if (lv.level < 3 && !lv.next) bad.push(lv.mode + "/L" + lv.level + " 通关后拿不到下一关");
+    if (lv.level === 3 && lv.next !== null) bad.push(lv.mode + " 第 3 关之后还能继续推进");
+  }
+  assert.deepEqual(bad, [], "关卡推进的边界不对：" + bad.join(" | "));
+});
+
+/* ═══════════════ ⑪ 契约 10：地狱双层与二层失败重试 ═══════════════ */
+
+test("契约10：地狱每层巡查数（不含同事）为 6", () => {
+  const bad = [];
+  for (let l = 1; l <= 3; l++) {
+    for (const floor of [1, 2]) {
+      const n = patrolCount(specGame(l, "hell", 7, floor));
+      if (n !== 6) bad.push("L" + l + " F" + floor + " 巡查=" + n);
+    }
+  }
+  assert.deepEqual(bad, [], "地狱每层巡查数不是 6（模式描述与实机不一致）：" + bad.join(", "));
+});
+
+test("契约10：二层失败后 retryLevel 回到 floor=1", () => {
+  const g = R.createGame(2, [12], "hell", 7, 2);
+  g.phase = "lost";
+  assert.equal(R.retryLevel(g).floor, 1, "地狱二层失败后重试没有回到第一层（会从二层半途重开）");
+});
+
+test("契约10：二层失败后 retryLevel 保留 level / mode / 已通关记录", () => {
+  const g = R.createGame(2, [12], "hell", 7, 2);
+  g.phase = "lost";
+  const retry = R.retryLevel(g);
+  assert.equal(retry.level, 2, "重试丢了关卡号");
+  assert.equal(retry.mode, "hell", "重试丢了模式");
+  assert.equal(JSON.stringify(retry.clearedTimes), "[12]", "重试丢了已通关记录");
+});
+
+/* ═══════════════ ⑫ 契约 11：暂停 / 超时 / 过早推进 / 非法关卡 ═══════════════ */
+
+test("契约11：paused 期间推 2 秒，计时不变", () => {
+  const g = R.createGame(1, [], "normal", 99);
+  R.start(g);
+  g.phase = "paused";
+  const t = g.time;
+  advance(g, 2);
+  assert.equal(g.time, t, "暂停期间还在倒计时（暂停键形同虚设）");
+});
+
+test("契约11：time 耗尽的当帧即 lost，且 time 归零", () => {
+  const g = R.createGame(1, [], "normal", 99);
+  R.start(g);
+  g.time = 0.01;
+  R.tick(g, 0.05);
+  assert.equal(g.phase, "lost", "时间耗尽没有当帧失败（会白送一帧继续行动）");
+  assert.equal(g.time, 0, "超时后 time 没有夹到 0（HUD 会显示负数）");
+});
+
+test("契约11：非 won 时 nextLevel 返回 null", () => {
+  const g = R.createGame(1, [], "normal", 99);
+  R.start(g);
+  assert.equal(R.nextLevel(g), null, "还在 playing 就能 nextLevel（可以跳关，三关的进度就没有意义了）");
+});
+
+test("契约11：lost 上再调 start() 无效", () => {
+  const g = R.createGame(1, [], "normal", 99);
+  R.start(g);
+  g.phase = "lost";
+  R.start(g);
+  assert.equal(g.phase, "lost", "在失败局上调用 start() 让它复活了（结算会重复落地）");
+});
+
+test("契约11：非法关卡 createGame(4) 抛 RangeError", () => {
+  /* ⚠ 用名字判断而不是 assert.throws(fn, RangeError)：模块跑在 vm 的独立 realm 里，
+     它抛出的 RangeError 不是测试 realm 的 RangeError，instanceof 一定为 false。 */
+  assert.throws(() => R.createGame(4), (e) => e && e.name === "RangeError",
+    "越界关卡没有抛 RangeError（会造出一个 map 为 undefined 的坏局）");
+});
+
+/* ═══════════════ ⑬ 契约 12：视野锥边界（本项目最看重的两条） ═══════════════ */
+
+/* 空地图：只有 bounds、没有墙，把"遮挡"这个变量摘掉，只验距离与角度。 */
+const EMPTY = { bounds: [0, 0, 3000, 2000], walls: [] };
+const NX = 1500, NY = 1000;
+function guard(angle, fov, range) {
+  return { id: "supervisor", x: NX, y: NY, angle: angle, fov: fov, range: range };
+}
+
+test("契约12：距离**正好等于** range 算看得见（判定是严格 >）", () => {
+  assert.equal(R.sees(guard(0, 1.1, 300), { x: 1800, y: 1000 }, EMPTY), true,
+    "距离正好等于 range 却被判看不见（把 > 写成 >= 会凭空切掉一圈视野）");
+});
+
+test("契约12：距离超过 range 看不见", () => {
+  assert.equal(R.sees(guard(0, 1.1, 300), { x: 1800.001, y: 1000 }, EMPTY), false,
+    "距离超出 range 还能看见（视距参数失效）");
+});
+
+test("契约12：角度**正好等于**半角算看不见（判定是严格 <）", () => {
+  const half = 1.1 / 2;
+  const p = { x: NX + 150, y: NY + 150 };                  /* atan2(150,150) 正好是 π/4 */
+  const base = Math.atan2(p.y - NY, p.x - NX);
+  const n = guard(base - half, 1.1, 300);
+  const d = Math.atan2(p.y - n.y, p.x - n.x) - n.angle;    /* 与引擎 sees() 内的算式逐字相同 */
+  assert.equal(d, half, "测试前提：这个点必须正好落在半角上（否则这条断言测不到等号）");
+  assert.equal(R.sees(n, p, EMPTY), false,
+    "角度正好等于半角却算看得见（把 < 写成 <= 会让贴着锥边走变成绝对危险）");
+});
+
+test("契约12：角度略小于半角算看得见（边界没被多切一刀）", () => {
+  const half = 1.1 / 2;
+  const p = { x: NX + 150, y: NY + 150 };
+  const base = Math.atan2(p.y - NY, p.x - NX);
+  assert.equal(R.sees(guard(base - half * 0.999, 1.1, 300), p, EMPTY), true,
+    "半角内侧一点点就看不见了（视野锥比标称的窄）");
+});
+
+test("契约12：左右对称 —— 负方向半角内看得见、正好半角看不见", () => {
+  const half = 1.1 / 2;
+  const p = { x: NX + 150, y: NY + 150 };
+  const base = Math.atan2(p.y - NY, p.x - NX);
+  assert.equal(R.sees(guard(base + half * 0.999, 1.1, 300), p, EMPTY), true, "锥体左半边（负偏移）不对称");
+  assert.equal(R.sees(guard(base + half, 1.1, 300), p, EMPTY), false, "负方向正好等于半角却算看得见");
+});
+
+test("契约12：贴脸（1px）正前方看得见 —— V2 没有最小距离豁免", () => {
+  assert.equal(R.sees(guard(0, 1.1, 300), { x: NX + 1, y: NY }, EMPTY), true,
+    "贴脸反而看不见（偷偷加了最小距离分支，玩家可以钻进怀里）");
+});
+
+test("契约12：墙后的目标看不见（遮挡优先于角度）", () => {
+  const walled = { bounds: [0, 0, 3000, 2000], walls: [[1650, 900, 40, 200]] };
+  assert.equal(R.sees(guard(0, 1.1, 300), { x: 1800, y: 1000 }, walled), false,
+    "隔着墙还能看见（潜行的遮挡完全失效）");
+});
+
+test("契约12：世界 bounds 之外的点看不见（边界也算阻挡）", () => {
+  assert.equal(R.sees(guard(0, 1.1, 300), { x: 3100, y: 1000 }, EMPTY), false,
+    "目标点在 world bounds 之外却算看得见（clearLine 漏掉了边界）");
+});
+
+test("契约12：fov 是弧度整锥张角 —— 主管/老板/保安 1.1、同事 1.5", () => {
+  const bad = [];
+  for (const mode of MODES) {
+    const g = specGame(1, mode, 3);
+    for (const n of g.npcs) {
+      const want = n.id === "coworker" ? 1.5 : 1.1;
+      if (n.fov !== want) bad.push(mode + "/" + n.id + " fov=" + n.fov + " 期望 " + want);
+    }
+  }
+  assert.deepEqual(bad, [], "视野锥张角不是规格值（fov 是**整锥弧度**，不是倍数）：" + bad.join(", "));
+});
+
+test("契约12：同事永远不能抓人（只能喊话）", () => {
+  const g = R.createGame(1, [], "normal", 42);
+  R.start(g);
+  g.player = { x: 1500, y: 1100, moving: false };
+  g.npcs = [{ id: "coworker", x: 1500, y: 950, range: 300, fov: 1.5,
+              angle: Math.PI / 2, pause: 100, route: [], target: 0 }];
+  assert.equal(R.sees(g.npcs[0], g.player, g.map), true, "测试前提：这一局同事确实看得见玩家");
+  assert.equal(R.captureIfSeen(g), false, "同事把人抓了（同事只该喊话，不该是隐形杀手）");
+});
+
+/* ═══════════════ ⑭ 契约 13：缺常量守卫 ═══════════════ */
+
+test("契约13：TUNE 里被代码引用的常量必须全部存在且为有限数", () => {
+  /* 上一个玩法栽过：`TUNE.DOG_RANGE` 忘了定义 → `d < NaN` 恒假 → 整条机制是死的，
+     而页面不报错、画面也完全正常。所以这里直接把源码里引用到的键名抠出来逐个验。 */
+  const refs = new Set();
+  const re = /TUNE\.([A-Za-z_][A-Za-z0-9_]*)/g;
+  let m;
+  while ((m = re.exec(SRC))) refs.add(m[1]);
+  const bad = [...refs].filter((k) => !Number.isFinite(T[k]));
+  assert.deepEqual(bad, [], "TUNE 缺这些常量（代码引用了但它们不存在/不是有限数）：" + bad.join(", "));
+});
+
+test("契约13：MODES 里被代码引用的字段必须全部存在且为有限数", () => {
+  const refs = new Set();
+  const re = /difficulty\.([A-Za-z_][A-Za-z0-9_]*)/g;
+  let m;
+  while ((m = re.exec(SRC))) refs.add(m[1]);
+  const bad = [];
+  for (const k of refs) for (const id of MODES) {
+    const v = R.MODES[id][k];
+    if (v === undefined) bad.push(id + "." + k + " 不存在");
+    else if (typeof v === "number" && !Number.isFinite(v)) bad.push(id + "." + k + " 不是有限数");
+  }
+  assert.deepEqual(bad, [], "MODES 缺这些字段（代码引用了但它们不存在）：" + bad.join(", "));
+});
+
+test("契约13：config 里被代码引用的字段必须全部存在（三模式 × 三关）", () => {
+  const refs = new Set();
+  const re = /config\.([A-Za-z_][A-Za-z0-9_]*)/g;
+  let m;
+  while ((m = re.exec(SRC))) refs.add(m[1]);
+  const bad = [];
+  for (const mode of MODES) for (let l = 1; l <= 3; l++) {
+    const cfg = specGame(l, mode, 3).config;
+    for (const k of refs) if (cfg[k] === undefined) bad.push(mode + "/L" + l + "." + k);
+  }
+  assert.deepEqual(bad, [], "config 缺这些字段（代码引用了但它们没被算出来）：" + bad.join(", "));
+});
+
+test("契约13：TUNE 的关键手感常量必须为正", () => {
+  const positive = ["ENTRY", "TILE", "P_R", "SPEED", "PATROL_SPEED", "FOV_DEG", "FOV_COWORKER",
+                    "RANGE", "DISGUISE_SEC", "DISGUISE_HELL", "FOLDER_PER_LEVEL", "COFFEE_LURE_SEC",
+                    "COFFEE_REACH", "ELEV_WAIT", "ELEV_REACH", "TIME_NORMAL", "TIME_HELL", "REVEAL_SEC",
+                    "WORLD_W", "WORLD_H", "PER_LEVEL", "PER_SECOND_LEFT", "GHOST_BONUS", "SPEED_BONUS_MAX"];
+  const bad = positive.filter((k) => !(T[k] > 0));
+  assert.deepEqual(bad, [], "这些 TUNE 常量必须为正，否则对应机制会静默失效：" + bad.join(", "));
+});
+
+test("契约13：TUNE 的兼容键必须与引擎真正生效的数值一致", () => {
+  const bad = [];
+  if (T.DISGUISE_SEC !== R.MODES.normal.cover) bad.push("DISGUISE_SEC ≠ normal.cover");
+  if (T.DISGUISE_HELL !== R.MODES.hell.cover) bad.push("DISGUISE_HELL ≠ hell.cover");
+  if (T.ELEV_WAIT !== LEVELS[0].liftWait + R.MODES.normal.wait) bad.push("ELEV_WAIT ≠ L1.liftWait + normal.wait");
+  if (T.RANGE !== LEVELS[0].range * R.MODES.normal.range) bad.push("RANGE ≠ L1.range × normal.range");
+  if (T.PATROL_SPEED !== LEVELS[0].speed * R.MODES.normal.speed) bad.push("PATROL_SPEED ≠ L1.speed × normal.speed");
+  if (T.TIME_NORMAL !== LEVELS[0].time) bad.push("TIME_NORMAL ≠ L1.time");
+  if (T.TIME_HELL !== Math.round(LEVELS[0].time * R.MODES.hell.time)) bad.push("TIME_HELL ≠ round(L1.time × hell.time)");
+  if (Math.abs(T.FOV_DEG - 1.1 * 180 / Math.PI) > 1e-6) bad.push("FOV_DEG ≠ 1.1 rad");
+  if (Math.abs(T.FOV_COWORKER - 1.5 * 180 / Math.PI) > 1e-6) bad.push("FOV_COWORKER ≠ 1.5 rad");
+  assert.deepEqual(bad, [], "TUNE 的兼容键和引擎真实数值漂了（读兼容键的旧脚本/界面会显示错的数）：" + bad.join("; "));
+});
+
+test("契约13：pathTo 的路点全部落在 TUNE.TILE 网格上（网格步长键没有失效）", () => {
+  const bad = [];
+  for (const map of R.MAPS) {
+    for (const w of R.pathTo(map, map.points.start, map.points.lift)) {
+      if (w[0] % T.TILE !== 0 || w[1] % T.TILE !== 0) bad.push("图" + map.id + " (" + w[0] + "," + w[1] + ")");
+    }
+  }
+  assert.deepEqual(bad, [], "寻路路点不在 TUNE.TILE 网格上（TILE 已经不是真正的网格步长）：" + bad.join(", "));
+});
+
+/* ═══════════════ ⑮ 契约 14 + 经济不变量（本项目原有不变量） ═══════════════ */
+
+test("契约14：低技能长期期望为负（乱撞必亏）", () => {
+  const bad = MODES.filter((m) => !(meanNet(m, 0.03) < 0))
+    .map((m) => m + " E[净]=" + meanNet(m, 0.03).toFixed(2));
+  assert.deepEqual(bad, [], "低技能居然能赚钱（挂机就是印钞机）：" + bad.join(", "));
+});
+
+test("契约14：高技能期望为正（练熟了必须有回报）", () => {
+  const bad = MODES.filter((m) => !(meanNet(m, 1.0) > 0))
+    .map((m) => m + " E[净]=" + meanNet(m, 1.0).toFixed(2));
+  assert.deepEqual(bad, [], "练到满级还不赚钱（玩家没有理由练）：" + bad.join(", "));
+});
+
+test("契约14：高技能期望有界（不超过入场费的 3 倍，不能是印钞机）", () => {
+  /* 写成"入场费的 N 倍"而不是写死元数 —— 调 ENTRY 时这条断言不会变成假绿灯 */
+  const bad = MODES.filter((m) => !(meanNet(m, 1.0) < T.ENTRY * 3))
+    .map((m) => m + " E[净]=" + meanNet(m, 1.0).toFixed(2));
+  assert.deepEqual(bad, [], "高技能收益超过入场费的 3 倍，属于印钞机：" + bad.join(", "));
+});
+
+test("契约14：三模式的收益量级可比（没有哪一档明显更划算）", () => {
+  const nets = MODES.map((m) => meanNet(m, 0.95));
+  const lo = Math.min(...nets), hi = Math.max(...nets);
+  assert.ok(lo > 0, "有模式在高技能下仍不赚钱：" + nets.map((v) => v.toFixed(1)).join(" / "));
+  assert.ok(hi / lo < 2.5, "三模式的收益量级差得太多（" + lo.toFixed(1) + " … " + hi.toFixed(1) + "），会没人打难的那档");
+});
+
+test("经济：赔付阶梯单调不减、0 分不给钱、封顶取最高档", () => {
+  const bad = [];
   for (const id of Object.keys(R.PAYOUT)) {
     const lad = R.PAYOUT[id];
-    assert.equal(R.payoutOf(0, id), 0, id + "：0 分不该给钱");
-    assert.equal(R.payoutOf(-100, id), 0, id + "：负分不给钱");
+    if (R.payoutOf(0, id) !== 0) bad.push(id + "：0 分给了钱");
+    if (R.payoutOf(-100, id) !== 0) bad.push(id + "：负分给了钱");
+    if (lad[0].min !== 0) bad.push(id + "：第一档不从 0 分开始");
     let prev = -1;
     for (let sc = 0; sc <= lad[lad.length - 1].min + 3000; sc += 71) {
       const p = R.payoutOf(sc, id);
-      assert.ok(p >= prev, id + "：分数涨了赔付却降了（" + sc + "）");
+      if (p < prev) bad.push(id + "：分数涨了赔付却降了（" + sc + "）");
       prev = p;
     }
-    for (let i = 1; i < lad.length; i++) assert.ok(lad[i].min > lad[i - 1].min, id + "：门槛必须递增");
-    assert.equal(lad[0].min, 0, id + "：第一档必须从 0 分开始");
+    for (let i = 1; i < lad.length; i++) if (!(lad[i].min > lad[i - 1].min)) bad.push(id + "：门槛没有递增");
   }
+  assert.deepEqual(bad, [], "赔付阶梯不合法：" + bad.join("; "));
 });
 
-/* ═══════════════ ⑦ 经济不变量（相对 E[value]，不写死元数） ═══════════════ */
-
-test("经济：乱撞必亏（低技能长期期望为负）", () => {
-  for (const id of Object.keys(R.MODES)) {
-    const e = meanNet(id, 0.03);
-    assert.ok(e < 0, id + "：低技能居然能赚钱（E[净] = " + e.toFixed(2) + "）");
-    assert.ok(e <= -T.ENTRY * 0.4, id + "：低技能亏损太浅（" + e.toFixed(2) + "），容错过高");
-  }
+test("经济：得分表里没有任何「被发现/被抓」的加分项", () => {
+  assert.equal(Object.prototype.hasOwnProperty.call(R.SCORE_TABLE, "caught"), false, "得分表里混进了 caught 加分项");
+  assert.equal(Object.prototype.hasOwnProperty.call(R.SCORE_TABLE, "detected"), false, "得分表里混进了 detected 加分项");
+  assert.equal(R.scoreOf("caught"), 0, "未登记的事件必须 0 分（失败只能扣，不能变成收益）");
+  assert.equal(R.scoreOf("任何没登记的名字"), 0, "未登记的事件必须 0 分");
 });
 
-test("经济：手熟能赚，且技术越好赚得越多（单调）", () => {
-  for (const id of Object.keys(R.MODES)) {
-    const lo = meanNet(id, 0.03);
-    const mid = meanNet(id, 0.6);
-    const hi = meanNet(id, 0.98);
-    assert.ok(hi > 0, id + "：练熟了还不赚钱，玩家没有理由练");
-    assert.ok(hi > mid, id + "：0.98 与 0.6 没拉开（" + mid.toFixed(2) + " → " + hi.toFixed(2) + "）");
-    assert.ok(mid > lo, id + "：0.6 与 0.03 没拉开");
+test("经济：一关不过绝不赚到钱（奖励必须按进度打折）", () => {
+  /* 第一版时间分是全额给的，于是"一关不过、原地躲到时间结束"也能拿满额时间分 —— 那是一个
+     不动就赚钱的漏洞。正确结构：时间分 × (通关数 / 总关数)。 */
+  let worst = -Infinity, n = 0;
+  for (let i = 0; i < 200; i++) {
+    const r = R.simulateRun("normal", 0.02, 70000 + i);
+    if (r.cleared === 0) { n++; worst = Math.max(worst, r.net); }
   }
+  assert.ok(n > 0, "样本里没有「零通关」的局，这条不变量测不出来");
+  assert.ok(worst <= 0, "一关不过却是正收益：" + worst + "（奖励没有按进度打折）");
 });
 
-test("经济：不能是印钞机（高技能期望收益相对入场费有界）", () => {
-  for (const id of Object.keys(R.MODES)) {
-    const hi = meanNet(id, 1.0);
-    const cap = R.PAYOUT[id][R.PAYOUT[id].length - 1].pay - T.ENTRY;
-    assert.ok(hi <= cap + 1e-9, id + "：期望收益超过最高档赔付 − 入场费");
-    /* 写成"入场费的 N 倍"而不是写死元数 —— 调 ENTRY 时这条断言不会变成假绿灯 */
-    assert.ok(hi < T.ENTRY * 3, id + "：E[净] = " + hi.toFixed(1) + " 超过入场费的 3 倍，属于印钞机");
-  }
-});
-
-test("经济：两个模式的收益量级可比（没有哪一档明显更划算）", () => {
-  const nets = Object.keys(R.MODES).map((m) => meanNet(m, 0.95));
-  const lo = Math.min(...nets), hi = Math.max(...nets);
-  assert.ok(lo > 0, "有模式在高技能下仍不赚钱");
-  assert.ok(hi / lo < 2.5, "两个模式的收益量级差得太多（" + lo.toFixed(1) + " … " + hi.toFixed(1) + "）");
-});
-
-test("经济：三关全通必须比只过一关明显赚得多（进度要有意义）", () => {
-  let sumAll = 0, nAll = 0, sumOne = 0, nOne = 0;
-  for (let i = 0; i < 400; i++) {
-    const r = R.simulateRun("normal", 0.95, 90000 + i);
-    if (r.cleared === 3) { sumAll += r.net; nAll++; }
-    if (r.cleared === 1) { sumOne += r.net; nOne++; }
-  }
-  assert.ok(nAll > 50, "样本里几乎没有全通的局（" + nAll + "），经济不变量测不出来");
-  const eAll = sumAll / nAll;
-  assert.ok(eAll > 0, "全通的期望收益居然是负的：" + eAll.toFixed(2));
-  if (nOne > 5) {
-    const eOne = sumOne / nOne;
-    assert.ok(eAll > eOne + T.ENTRY, "全通(" + eAll.toFixed(1) + ") 与只过一关(" + eOne.toFixed(1) + ") 差得太少，进度没有意义");
-  }
-});
-
-test("回归：评级分布与实机一致（S 只在三关全通且零被发现时出现）", () => {
+test("经济：评级分布与实机一致（S 只在三关全通且零被发现时出现）", () => {
   const seen = {};
   for (let i = 0; i < 600; i++) {
     const r = R.simulateRun("normal", 0.9, 12000 + i);
@@ -350,28 +882,4 @@ test("回归：评级分布与实机一致（S 只在三关全通且零被发现
     if (r.grade === "A") assert.ok(r.allClear && !r.ghost, "A 却不是「全通但有被发现」");
   }
   assert.ok(Object.keys(seen).length >= 2, "评级分布太单一：" + JSON.stringify(seen));
-});
-
-/* ═══════════════ ⑧ 缺常量守卫 ═══════════════ */
-
-test("回归：TUNE 里被代码引用的常量必须全部存在且是有限数", () => {
-  /* 上一个玩法栽过：`TUNE.DOG_RANGE` 忘了定义 → `d < NaN` 恒假 → 整条机制是死的，
-     而页面不报错、画面也完全正常。这类"缺常量"必须用断言挡住。 */
-  const REQUIRED = [
-    "ENTRY", "TILE", "P_R", "SPEED", "PATROL_SPEED",
-    "FOV_DEG", "RANGE", "SCAN_SWEEP_DEG", "SCAN_TURN", "PATROL_TURN", "SCAN_HOLD",
-    "DISGUISE_SEC", "DISGUISE_HELL", "FOLDER_PER_LEVEL",
-    "COFFEE_LURE_SEC", "COFFEE_COOLDOWN", "COFFEE_REACH",
-    "ELEV_WAIT", "ELEV_REACH", "TIME_NORMAL", "TIME_HELL", "REVEAL_SEC",
-    "PER_LEVEL", "PER_SECOND_LEFT", "GHOST_BONUS", "SPEED_BONUS_MAX",
-  ];
-  const missing = REQUIRED.filter((k) => !Number.isFinite(T[k]));
-  assert.deepEqual(missing, [], "TUNE 缺这些常量（代码引用了但它们不存在）：" + missing.join(", "));
-  for (const k of ["TILE", "P_R", "SPEED", "PATROL_SPEED", "FOV_DEG", "RANGE", "ELEV_WAIT", "REVEAL_SEC"]) {
-    assert.ok(T[k] > 0, k + " 必须为正");
-  }
-  // 视野锥张角必须在合理区间：太窄看不见人，太宽就没有躲的空间
-  assert.ok(T.FOV_DEG > 30 && T.FOV_DEG < 140, "FOV_DEG = " + T.FOV_DEG + " 超出合理区间");
-  // 视距至少要能覆盖两格，否则"视野"这件事读不出来
-  assert.ok(T.RANGE > T.TILE * 2, "RANGE 太小（" + T.RANGE + "），视野锥没有意义");
 });

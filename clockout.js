@@ -2,45 +2,59 @@
    clockout.js —「准点下班」· 办公室潜行（俯视）
 
    自包含 IIFE，暴露全局 window.Clockout；ES5 风格，不使用 ES module，
-   不依赖页面内变量（只读 opts / 挂载 hostEl）。零素材：工位、隔板、咖啡机、
+   不依赖页面内变量（只读 opts / 挂载 hostEl）。零素材：工位、咖啡机、电梯、
    巡逻者、视野锥全部用 canvas 图元程序化绘制。
 
-   一句话规格：俯视办公楼里躲开主管的黄色视野锥，用工位和隔板当掩体，捡文件夹伪装，
-   按咖啡机把巡逻引开，三关之内搭电梯溜走。被发现立即失败（本关重来，已过关保留）。
+   一句话规格（V2 引擎 · 按 clockout-v2-spec.md 逐条实现）：3000×2000 连续世界里躲开
+   主管/老板/保安的视野锥（**只有墙体矩形挡视线**），用工位坐姿伪装、用文件夹换 6 秒免疫、
+   用咖啡机把主管钉在原地，三关之内走进电梯。**被看见立即失败**（整局冻结，重试本关时
+   已通关的关卡保留）。地狱模式两层：一层电梯 → 换**下一张图** → 二层电梯 = 通关。
 
-   对外 API（规格）：
-     window.Clockout.start(hostEl, opts) -> boolean
+   对外 API（**签名与 debug 钩子保持不变**，浏览器验收脚本依赖它们）：
+     window.Clockout.start(hostEl, opts) -> boolean   // 建局即开打：第一帧就已经是 playing
        opts:{ cash:()=>number, phys:()=>number, intel:()=>number,
-              onSettle:(net,info)=>{}, onFinish:(sum)=>{},
-              practice:boolean, mode:"normal|hell", seed:number }
+              onSettle:(net,info)=>{}, onFinish:(result)=>{},
+              practice:boolean, mode:"normal|extreme|hell", seed:number }
+       info 至少含：{ grade, cleared, levels, ghost, timeUsed, timeLeft, pay, entry, net, why, caught }
+       net = 赔付 − 入场（¥20）；练手局不调用 onSettle、不收费。
      window.Clockout.isBusy(), dispose()
-     window.Clockout.debug = { state(), level(), patrols(), press(key), seek(x,y),
-                               tick(ms), freeze(on), restart(opts), winLevel(),
-                               finishNow(), lifecycle() }
+     window.Clockout.debug = { state(), level(), patrols(), key(n,d), keyDown(k), tick(ms),
+       freeze(on), unfreeze(), pause(), resume(), restart(opts), interact(), useFolder(),
+       seek(x,y), levelDone(), nextLevel(), finishNow(), setTime(s), giveFolder(),
+       placePatrol(i,x,y,deg), blindAll(on), lifecycle(), retry() }
+       ⚠ seek(x,y) / placePatrol(i,x,y,deg) 收的是**世界像素**（V1 是格坐标）：3000×2000 里
+         直接给点，例如电梯 (2790,1650)、工位 (930,1110)。
+       ⚠ state().phase 用规格状态机：intro / playing / paused / floor-intro / won / lost；
+         V1 的 play/caught/levelclear/result 语义放进 state().status（老脚本可改读它）。
+       ⚠ state().worldW/worldH 现在是**世界尺寸** 3000×2000；画布尺寸见 canvasW/canvasH。
+       ⚠ g.npcs 的下标：0 主管 / 1 老板 / 2.. 保安 / **最后一个是同事**（同事不抓人也不绘制，
+         所以 placePatrol(0..N-1) 摆的都是看得见、抓得到人的巡查）。
 
-   附加（单测用，不属于规格）：window.Clockout.rules = { buildLevel, isSolid,
-     blocksSight, losClear, canSee, anySees, buildPatrols, stepPatrol, validateLevel,
-     simulateRun, payoutOf, scoreOf, LEVELS, TUNE, MODES }
+   附加（单测用，不属于规格）：window.Clockout.rules / window.Clockout.MAPS / .WORLD
 
    ── 设计要点（为什么这么做，改之前先读）────────────────────────────────────────
-   1) **视线判定是纯函数，也是整个玩法的心脏**。`视线内 = 距离 ≤ range
-      && |角度差| ≤ 半个 FOV && 连线上没有挡视线格`。它不碰 canvas，单测直接喂坐标
-      验边界（正好半 FOV 处含等号、隔板挡视线但能走过）。潜行游戏的 bug 几乎全在这里，
-      把它抽出来才验得动。
+   1) **判定只有两条纯函数**：`walkable(x,y,r,map)`（矩形膨胀 + bounds 四条边）与
+      `clearLine`（8px 步长采样、**不含两端点**、半径 0）。视野 = 距离 `>` 严格失败 ∧
+      角度 `<` 严格通过 ∧ 中间没有墙。潜行游戏的 bug 几乎全在这里，所以它不碰 canvas，
+      单测直接喂像素坐标验边界（正好等于 range 算看得见、正好等于半角算看不见）。
 
-   2) **掩体分两级**：工位 `D` 挡人也挡视线，半高隔板 `p` 只挡视线、人能走过。
-      这是本作唯一在原型之外加的东西，也是让"路线"有得算的关键 ——
-      沿隔板背面走成了可执行的技巧，而不是"离得远就行"。
+   2) **墙体是"实拍家具轮廓"的像素矩形**（规格 §6，三张图 20/20/22 面，坐标一字不改）。
+      它们既挡人也挡视线 —— V2 **没有** V1 那种"挡视线但能走过"的半高隔板，
+      所以"路线"来自绕行与时机，而不是贴边蹭过去。改动任何数字前先跑 validateLevel。
 
-   3) **关卡用构建器 API 描述，不手数 ASCII**。手数字符宽度必然出错、而且改不动；
-      构建器还能顺手让 validateLevel 去断言"出口和文件夹都可达"
-      （关卡不可能通关是潜行游戏最恶心的 bug，而且画面上完全看不出来）。
+   3) **巡逻是随机目标 + 25px 网格 BFS 寻路**，不是固定航线：每次重试换 seed 就换一套
+      走位（背板子没用，得读现场），但同 seed 必须完全可复现（状态在 `g.seed` 上自增哈希，
+      用 imul 的 ES5 等价实现，连上游的随机序列都能逐位对上）。
 
-   4) **每次重试重新随机巡逻**（原作 `每次重试随机巡逻`）：背板子没用，得读现场。
-      但同一 seed 必须完全可复现，否则 bug 复现不了、蒙卡也测不了。
+   4) **咖啡机是唯一能改变棋盘的动作**，而且只对主管生效（原地转向、完全不动、连停顿
+      计时都冻住）。同事不抓人、也不绘制，但会在 75px 内喊话并把主管的朝向扭向你 1.8 秒 ——
+      这是"被发现"最隐形的一个来源，也是它存在的唯一理由。
 
-   5) **咖啡机是唯一能改变棋盘的动作**：把巡逻引去茶水间，那条路线就空出来。
-      没有它，游戏退化成纯躲避。
+   5) **失败即冻结**：`phase='lost'` 之后 tick / interact / useFile 全部短路，整个 g 对象
+      字节级不变（规格契约）—— 所以**失败后 E 与空格也不再是重试键**（那会改动状态）；
+      重试走画面点击或 debug.retry()。经济结算同时落地（onSettle 只调一次）；
+      「重试」= 回到本关第一层 + 保留已通关记录 + 换新 seed，入口费按新一局再收一次。
+      `state().seed` 是**实时随机状态**（会随巡逻推进），要判"这局用的哪个种子"读 seed0。
    ══════════════════════════════════════════════════════════════════════════════ */
 (function (root) {
   "use strict";
@@ -48,57 +62,62 @@
 
   var doc = root.document;
 
-  /* ═════════════════ 1. 调参区（改手感只动这里） ═════════════════ */
+  /* ═════════════════ 1. 世界常量（规格 §1 / §6 · 全部是**像素**，不是格子） ═════════════════
+     V2 引擎在 3000×2000 的连续坐标里跑：玩家半径 18、速度 220 px/s（斜向不加速），
+     墙体是可重叠的矩形数组，视线用 8px 步长采样，寻路用 25px 网格 BFS。
+     改手感只动这一节；改判定之前先读第 2 节的注释。 */
+
+  var WORLD_W = 3000, WORLD_H = 2000;      /* §1.1 世界尺寸（px） */
+  var PLAYER_R = 18, PLAYER_SPEED = 220;   /* §1.2 / §1.4 玩家碰撞半径、速度 */
+  var DT_MAX = 0.05;                       /* §1.3 单帧 dt 上限（s） */
+  var SAMPLE_STEP = 8;                     /* §1.2 clearLine 采样间距（px，间距 ≤ 8） */
+  var GRID_STEP = 25;                      /* §1.2 pathTo 网格步长（px，4 邻域 BFS） */
+  var REACH = { lift:88, seat:76, printer:85, coffee:76 };   /* §1.2 交互半径（严格 <，且要 clearLine） */
+  var FOV_NPC = 1.1, FOV_COWORKER = 1.5;   /* §1.8 视野锥：**弧度、整锥张角** */
 
   var TUNE = {
-    ENTRY: 20,                // 入场 ¥20（与刮刮乐/开窗/外卖同价）
+    ENTRY: 20,                /* 入场 ¥20（与刮刮乐/开窗/外卖同价） */
 
-    /* ── 网格与移动 ── */
-    TILE: 40,                 // 每格边长（世界像素）
-    P_R: 11,                  // 玩家碰撞半径
-    SPEED: 172,               // 玩家速度 px/s
-    PATROL_SPEED: 96,         // 巡逻者速度 px/s
+    /* ── 世界 / 移动（规格值）── */
+    WORLD_W: WORLD_W, WORLD_H: WORLD_H,
+    P_R: PLAYER_R,
+    SPEED: PLAYER_SPEED,
+    /* ⚠ 兼容键：V2 没有地格了，TILE 只表示寻路网格步长；PATROL_SPEED 是普通第 1 关的
+       基础速度（真正生效的速度 = 关卡基础表 × 模式倍率，见 createGame）。 */
+    TILE: GRID_STEP,
+    PATROL_SPEED: 120,
 
-    /* ── 视野锥（玩法的心脏，改之前先跑 tests/clockout.test.cjs）── */
-    FOV_DEG: 74,              // 视野锥总张角
-    RANGE: 320,               // 视距（世界像素）= 8 格
-    SCAN_SWEEP_DEG: 62,       // 停下扫视时左右各摆多少度
-    SCAN_TURN: 70,            // 扫视角速度（度/秒）
-    PATROL_TURN: 200,         // 行走转向角速度（度/秒）
-    SCAN_HOLD: 1.5,           // 每个航点扫视多少秒
+    /* ── 视野锥 ── */
+    FOV_DEG: 63.025357464,    /* = 1.1 rad（主管/老板/保安）；同事 1.5 rad = 85.94366927° */
+    FOV_COWORKER: 85.94366927,
+    RANGE: 280,               /* 兼容键：普通第 1 关的主管视距 */
+
+    /* ⚠ 下面 4 个是 V1 地格版遗留：V2 的朝向是**瞬时**的，没有"停下扫视"状态机。
+       留着键只是为了不让旧脚本/旧单测读到 undefined（读到 0 也一眼看得出没在用）。 */
+    SCAN_SWEEP_DEG: 0, SCAN_TURN: 0, PATROL_TURN: 0, SCAN_HOLD: 0,
 
     /* ── 伪装（文件夹）── */
-    DISGUISE_SEC: 6.5,        // 按空格后免疫被发现的秒数
-    DISGUISE_HELL: 4.0,
-    FOLDER_PER_LEVEL: 1,      // 每关一份（不放多，多了就变成"一路按过去"）
+    DISGUISE_SEC: 6,          /* 普通模式 cover；变态 4 / 地狱 2.5 */
+    DISGUISE_HELL: 2.5,
+    FOLDER_PER_LEVEL: 1,      /* 每层一份（**换层会清空**：二层要重新去打印区拿） */
 
     /* ── 咖啡机（调虎离山）── */
-    COFFEE_LURE_SEC: 7.0,     // 被引开多久
-    COFFEE_COOLDOWN: 3.0,     // 冷却，防止连按把巡逻永远钉在茶水间
-    COFFEE_REACH: 2.0,        // 多远内能按到（格）
+    COFFEE_LURE_SEC: 8,       /* 普通第 1 关 lureDuration（变态/地狱按关卡表） */
+    COFFEE_COOLDOWN: 0,       /* V2 没有冷却：lureUsed 一次性 */
+    COFFEE_REACH: REACH.coffee,
 
     /* ── 电梯 ── */
-    ELEV_WAIT: 5.0,           // 呼叫后要等几秒（这段时间必须活着）
-    ELEV_REACH: 1.8,          // 多远内能按到（格）
+    ELEV_WAIT: 3,             /* 普通第 1 关等待秒数（变态 +2 / 地狱 +4） */
+    ELEV_REACH: REACH.lift,
+    TIME_NORMAL: 150, TIME_HELL: 204,   /* 兼容键：三关各自时限的第 1 关裸值 */
+    REVEAL_SEC: 1.15,         /* 兼容键：V2 失败即整局冻结，没有"定格后重开" */
+    CAUGHT_TIME_COST: 0,      /* 兼容键：V2 没有额外罚时 */
 
-    /* ── 时限：**三关共用**（原作是两层共用）──
-       时间不会因为你被抓住而重置，所以"被发现一次"的真实代价是时间。 */
-    /* ⚠ 时限必须 ≥ 最快可达时间，否则这一档在数学上不可能通关。
-       最快 = Σ(每关 parTime) × 0.92（skill 1.0 时的用时系数）= (52+60+68)×0.92 ≈ 166 秒。
-       第一版给 hell 定 150 秒 —— 比理论最快还短 16 秒，实测超时率恒为 100%，
-       也就是"这一档永远拿不到全通"。现在 195 秒：够全通，但几乎没有容错。 */
-    TIME_NORMAL: 215,
-    TIME_HELL: 195,
-
-    /* ── 失败定格 ── */
-    REVEAL_SEC: 1.15,         // 被发现后定格多久再重开本关
-    CAUGHT_TIME_COST: 0,      // 额外罚时（0=只损失已经走过的时间，够疼了）
-
-    /* ── 计分 ── */
-    PER_LEVEL: 1200,          // 每过一关
-    PER_SECOND_LEFT: 10,      // 每剩 1 秒
-    GHOST_BONUS: 800,         // 全程零被发现
-    SPEED_BONUS_MAX: 900      // 用时奖励上限（防止刷时间）
+    /* ── 计分（经济结算口径不变：net = 赔付 − 入场 ¥20）── */
+    PER_LEVEL: 1200,          /* 每过一关 */
+    PER_SECOND_LEFT: 10,      /* 每省下 1 秒（三关累计省时） */
+    GHOST_BONUS: 800,         /* 全程零被发现 */
+    SPEED_BONUS_MAX: 900      /* 用时奖励上限（防止刷时间） */
   };
 
   /* 得分登记表 —— 唯一的加分行数来源。
@@ -109,191 +128,127 @@
     ghost: TUNE.GHOST_BONUS
   };
 
+  /* 难度表（规格 §1.6 逐字）。
+     ⚠ `time` 是**倍率**不是秒数：V1 的 `time:215/195` 语义已废弃，每关自己的时限是
+       `Math.round(LEVELS[i].time × MODES[m].time)`（普通 150/140/130、变态 125/116/108、
+       地狱 204/190/177 —— 地狱更长是因为**两层共用**）。
+     ⚠ `n` / `sub` / `levels` / `patrolMul` / `fovMul` / `disguise` 是兼容键：
+       index.html 读 `.n`，旧单测读 `.levels`；新引擎真正用的是 speed/range/time/extra/wait/cover/pause/floors。 */
   var MODES = {
-    normal: { id:"normal", n:"正常", sub:"三关，215 秒共用", levels:3, time:TUNE.TIME_NORMAL, patrolMul:1.0, fovMul:1.0, disguise:TUNE.DISGUISE_SEC },
-    hell:   { id:"hell",   n:"地狱", sub:"巡逻更快更广，150 秒", levels:3, time:TUNE.TIME_HELL,   patrolMul:1.35, fovMul:1.18, disguise:TUNE.DISGUISE_HELL }
+    normal:  { id:"normal",  name:"普通", n:"正常", sub:"三关 · 每层 2 名巡查 · 6 秒伪装", levels:3,
+               speed:1,    range:1,    time:1,    extra:0, wait:0, cover:6,   pause:1,   floors:1,
+               patrolMul:1, fovMul:1, disguise:6, description:"每层 2 名巡查 · 6 秒文件伪装" },
+    extreme: { id:"extreme", name:"变态", n:"变态", sub:"三关 · 每层 3 名巡查 · 更快更广", levels:3,
+               speed:1.22, range:1.13, time:.83,  extra:1, wait:2, cover:4,   pause:.65, floors:1,
+               patrolMul:1.22, fovMul:1, disguise:4, description:"每层 3 名巡查 · 更快更广 · 4 秒伪装" },
+    hell:    { id:"hell",    name:"地狱", n:"地狱", sub:"双层楼 · 每层 6 名巡查 · 2.5 秒伪装", levels:3,
+               speed:1.42, range:1.26, time:1.36, extra:4, wait:4, cover:2.5, pause:.32, floors:2,
+               patrolMul:1.42, fovMul:1, disguise:2.5, description:"双层楼 · 每层 6 名巡查 · 2.5 秒伪装" }
   };
 
   /* 赔付阶梯：每模式一条（单一阶梯会把某个模式变成印钞机 —— 切果那次踩过）。
-     数值由 simulateRun 分布反推，见 tests/clockout.test.cjs 的不变量断言。 */
+     数值由 simulateRun 分布反推，见 tests/clockout.test.cjs 的不变量断言。
+     ⚠ 门槛必须按"该模式能拿到的满分"定：变态/地狱每关时限更短 → 省时奖励更少，
+       所以它们的门槛整体下移，否则难度越高给钱越少（那就没人打难的）。 */
   var PAYOUT = {
-    normal: [ {min:0,pay:0}, {min:1400,pay:3}, {min:2400,pay:9}, {min:3300,pay:17},
-              {min:4100,pay:27}, {min:4700,pay:40}, {min:5200,pay:58} ],
-    hell:   [ {min:0,pay:0}, {min:1300,pay:3}, {min:2200,pay:9}, {min:3000,pay:16},
-              {min:3700,pay:26}, {min:4300,pay:40}, {min:4800,pay:58} ]
+    normal:  [ {min:0,pay:0}, {min:1400,pay:3}, {min:2400,pay:9}, {min:3300,pay:17},
+               {min:4100,pay:27}, {min:4700,pay:40}, {min:5200,pay:58} ],
+    extreme: [ {min:0,pay:0}, {min:1300,pay:3}, {min:2200,pay:9}, {min:3000,pay:17},
+               {min:3700,pay:27}, {min:4300,pay:40}, {min:4700,pay:58} ],
+    hell:    [ {min:0,pay:0}, {min:1300,pay:3}, {min:2200,pay:9}, {min:3000,pay:16},
+               {min:3700,pay:26}, {min:4300,pay:40}, {min:4800,pay:58} ]
   };
 
-  /* ═════════════════ 2. 地格语义 ═════════════════
-     solid = 挡人（走不过去）; opaque = 挡视线。两者**故意分开**：
-     半高隔板挡视线但能走过，这是"路线"这件事的全部来源。 */
+  /* ═════════════════ 2. 三张地图的真实几何（规格 §6 · 20/20/22 面墙） ═════════════════
+     V2 的"家具"就是下面这些像素矩形：**既挡人也挡视线**，没有 V1 那种半高隔板中间态。
+     坐标一字不改（来自三张定稿插画的实测轮廓）：动任何一个数字，玩法点都可能落进墙里，
+     或者出生点不再安全 —— 所以改完必须跑 validateLevel，它会把这类错误直接报出来。
+     bounds = [left, top, right, bottom]，walkable 用它在四条边上各内缩 r。 */
+  var MAPS = [
+    { id:1, name:"开放办公区", art:"office-open", caption:"工位区、茶水间、打印室与接待区",
+      bounds:[150,260,2910,1780],
+      walls:[
+        [0,0,1080,540],      [1290,0,675,560],    [2070,0,450,500],    [2520,0,480,580],
+        [0,540,255,500],     [360,600,465,480],   [840,600,465,460],   [1620,600,60,300],
+        [1680,600,750,480],  [2430,700,120,380],  [2700,600,300,520],  [0,1150,750,660],
+        [825,1160,495,480],  [825,1600,30,200],   [1680,1170,900,420], [1680,1540,39,100],
+        [2190,1580,360,120], [2580,1110,420,120], [2580,1200,60,380],  [2910,1180,90,620]
+      ],
+      points:{ start:{x:300,y:1120}, printer:{x:1380,y:1460}, seat:{x:930,y:1110},
+               distraction:{x:790,y:1410}, lift:{x:2790,y:1650} },
+      spawns:[[1500,800],[2200,560],[1000,1120],[2680,1100],[1520,1600]] },
+
+    { id:2, name:"会议中心", art:"office-meeting", caption:"大会议室、电话间、协作客厅与项目室",
+      bounds:[170,270,2820,1790],
+      walls:[
+        [0,0,1290,600],      [1890,0,600,740],    [2490,0,510,300],    [2640,300,360,260],
+        [1350,160,420,160],  [180,640,750,340],   [1515,420,180,320],  [1200,640,420,160],
+        [1155,800,480,180],  [1500,900,300,240],  [1485,1080,75,140],  [1980,720,600,230],
+        [2790,740,210,400],  [270,1120,960,320],  [225,1420,630,140],  [900,1480,330,200],
+        [480,1680,600,120],  [1425,1380,510,240], [1950,1120,900,580], [0,980,120,820]
+      ],
+      points:{ start:{x:380,y:1700}, printer:{x:1670,y:1680}, seat:{x:1820,y:900},
+               distraction:{x:1270,y:1570}, lift:{x:2710,y:650} },
+      spawns:[[1250,1050],[1840,540],[1340,1500],[2700,1050],[1900,1250]] },
+
+    { id:3, name:"行政楼层", art:"office-executive", caption:"行政办公室、档案库、前台与双电梯厅",
+      bounds:[170,310,2820,1600],
+      walls:[
+        [0,0,990,560],       [300,560,600,80],    [1980,0,1020,560],   [2100,560,570,80],
+        [1080,0,120,340],    [1740,0,180,340],    [0,620,330,180],     [2670,620,330,180],
+        [30,780,840,900],    [1095,620,90,360],   [1185,530,630,60],   [1215,590,390,260],
+        [1140,860,450,170],  [1095,980,300,60],   [1794,770,255,150],  [1800,640,255,40],
+        [2040,770,30,220],   [2070,770,420,30],   [2445,800,45,140],   [855,1160,600,480],
+        [1725,1080,1140,560],[2670,780,330,300]
+      ],
+      points:{ start:{x:1550,y:1550}, printer:{x:2070,y:1030}, seat:{x:1060,y:1100},
+               distraction:{x:1500,y:1400}, lift:{x:1500,y:390} },
+      spawns:[[950,700],[1500,460],[2100,1000],[2070,700],[950,1100]] }
+  ];
+
+  /* ⚠ 兼容键：V1 的地格语义表。V2 没有地格了，留一个表让旧脚本里
+     `rules.TILE["#"].solid` 这类读法不至于炸掉。 */
   var TILE = {
     "#": { solid:true,  opaque:true,  n:"墙" },
-    "D": { solid:true,  opaque:true,  n:"工位" },
-    "p": { solid:false, opaque:true,  n:"隔板" },
+    "D": { solid:true,  opaque:true,  n:"家具（V2：墙体矩形）" },
+    "p": { solid:true,  opaque:true,  n:"隔断（V2 已并入墙体）" },
     ".": { solid:false, opaque:false, n:"地板" },
-    "E": { solid:false, opaque:false, n:"出口" },
-    "C": { solid:true,  opaque:false, n:"咖啡机" },
+    "E": { solid:false, opaque:false, n:"出口电梯" },
+    "C": { solid:false, opaque:false, n:"咖啡机" },
     "F": { solid:false, opaque:false, n:"文件夹" },
     "L": { solid:false, opaque:false, n:"茶水间" },
     "@": { solid:false, opaque:false, n:"出生点" }
   };
 
-  /* ═════════════════ 3. 关卡（构建器 API 描述，不手数 ASCII） ═════════════════ */
+  /* ═════════════════ 3. 关卡基础表（规格 §1.5 逐字） ═════════════════ */
 
-  function makeBuilder(w, h) {
-    var g = [];
-    var i, j;
-    for (j = 0; j < h; j++) { g.push([]); for (i = 0; i < w; i++) g[j].push("."); }
-    var routes = [];
-    return {
-      w: w, h: h, grid: g, routes: routes,
-      put: function (x, y, ch) { if (x >= 0 && y >= 0 && x < w && y < h) g[y][x] = ch; return this; },
-      fill: function (x, y, ww, hh, ch) {
-        for (var yy = y; yy < y + hh; yy++) for (var xx = x; xx < x + ww; xx++) this.put(xx, yy, ch);
-        return this;
-      },
-      border: function () {
-        for (var x = 0; x < w; x++) { this.put(x, 0, "#"); this.put(x, h - 1, "#"); }
-        for (var y = 0; y < h; y++) { this.put(0, y, "#"); this.put(w - 1, y, "#"); }
-        return this;
-      },
-      /* 用墙围出一个房间，并在指定边开一个门 */
-      room: function (x, y, ww, hh, doorSide, doorAt) {
-        this.fill(x, y, ww, 1, "#"); this.fill(x, y + hh - 1, ww, 1, "#");
-        this.fill(x, y, 1, hh, "#"); this.fill(x + ww - 1, y, 1, hh, "#");
-        var d = doorAt === undefined ? Math.floor(ww / 2) : doorAt;
-        if (doorSide === "n") this.put(x + d, y, ".");
-        else if (doorSide === "s") this.put(x + d, y + hh - 1, ".");
-        else if (doorSide === "w") this.put(x, y + d, ".");
-        else this.put(x + ww - 1, y + d, ".");
-        return this;
-      },
-      /* 一条巡逻航线（航点数组）。每次重试会按新 seed 抖动重排 —— `每次重试随机巡逻`。 */
-      patrol: function (route) { routes.push(route); return this; }
-    };
+  /* 关卡基础表（规格 §1.5 逐字）。真正生效的 config 由 createGame 按模式算（规格 §1.7）：
+       time = round(base.time × MODES[mode].time)、liftWait = base.liftWait + wait、
+       bossDelay = 普通 ? base.bossDelay : 0、coverDuration = MODES[mode].cover。
+     ⚠ V1 的构建器 API（makeBuilder / ASCII 地格 / w,h / parTime）随引擎一起删除：
+       地格不见了、出口统一是电梯、时限改成**每关独立**（V1 是三关共用一个池子）。 */
+  var LEVELS = [
+    { id:1, name:"开放办公区", time:150, liftWait:3, bossDelay:12, lureDuration:8, speed:120, range:280, bossSpeed:100,
+      description:"穿过工位、茶水间和打印区。走中央通道，或沿外侧绕开随机巡查。",
+      hint:"出口在东侧中央，留意小地图。" },
+    { id:2, name:"会议中心", time:140, liftWait:4, bossDelay:5, lureDuration:7, speed:130, range:300, bossSpeed:115,
+      description:"错开的会议室遮挡视线，路线更曲折。穿过两翼通道，抵达东北侧电梯。",
+      hint:"东北侧出口，会议室两侧都能绕行。" },
+    { id:3, name:"行政楼层", time:130, liftWait:5, bossDelay:0, lureDuration:6, speed:140, range:320, bossSpeed:125,
+      description:"中央前台阻断直线，两翼办公室提供掩护。随机巡视的老板守着最后一道关卡。",
+      hint:"出口在北侧中央，从左翼或右翼绕行。" }
+  ];
+  /* 兼容键：V1 的页面/单测读过 LEVELS[i].sub / .elevator / .parTime。
+     sub 取地图 caption；elevator 恒 true（三关出口都是电梯）；parTime = 本关裸时限。 */
+  for (var LVI = 0; LVI < LEVELS.length; LVI++) {
+    LEVELS[LVI].sub = MAPS[LVI].caption;
+    LEVELS[LVI].mapId = MAPS[LVI].id;
+    LEVELS[LVI].elevator = true;
+    LEVELS[LVI].parTime = LEVELS[LVI].time;
   }
 
-  var LEVELS = [
-    {
-      id: "open", name: "开放办公区", sub: "工位区 · 茶水间 · 打印室 · 接待区",
-      hint: "出口在北侧中央，从左翼或右翼绕行。先去打印区拿文件夹。",
-      w: 32, h: 20, elevator: false, parTime: 52,
-      build: function () {
-        var g = makeBuilder(32, 20);
-        g.border();
-        /* 出口：北侧中央的门（两格宽） */
-        g.put(15, 1, "E"); g.put(16, 1, "E");
-        /* 茶水间（左上）：咖啡机 + 引诱目标点 */
-        g.room(1, 2, 7, 4, "s", 4);
-        g.put(6, 3, "C"); g.put(6, 5, "L");
-        /* 打印室（右上）：文件夹 */
-        g.room(24, 2, 7, 4, "s", 3);
-        g.put(27, 4, "F");
-        /* 工位阵列：三列 × 两排（实心，要绕） */
-        g.fill(3, 7, 5, 3, "D");
-        g.fill(12, 7, 5, 3, "D");
-        g.fill(21, 7, 5, 3, "D");
-        g.fill(3, 13, 5, 3, "D");
-        g.fill(12, 13, 5, 3, "D");
-        g.fill(21, 13, 5, 3, "D");
-        /* 半高隔板：横贯中部（挡视线、能走过）—— 沿它背面走是这一关的核心技巧 */
-        g.fill(9, 10, 14, 1, "p");
-        /* 出生点：自己在工位后面 */
-        g.put(16, 17, "@");
-        /* 巡逻航线：四条，覆盖左右翼与中央通道 */
-        g.patrol([[9, 4], [9, 17]]);
-        g.patrol([[19, 4], [19, 17]]);
-        /* ⚠ 横向航线必须走**没有工位**的空带：工位占 y=7..9 与 y=13..15，
-           走 y=9 会一头顶在工位上卡死（validateLevel 会报"航线中间被实心格挡住"）。 */
-        g.patrol([[2, 6], [29, 6]]);
-        g.patrol([[2, 16], [29, 16]]);
-        return g;
-      }
-    },
-    {
-      id: "meeting", name: "会议中心", sub: "大会议室 · 电话间 · 协作客厅 · 项目室",
-      hint: "出口在东侧中央的换层电梯，留意小地图。呼叫电梯后要等它到。",
-      w: 34, h: 20, elevator: true, parTime: 60,
-      build: function () {
-        var g = makeBuilder(34, 20);
-        g.border();
-        /* 换层电梯：东侧中央（两格高） */
-        g.put(32, 9, "E"); g.put(32, 10, "E");
-        /* 大会议室（左上，门朝南开） */
-        g.room(1, 1, 11, 8, "s", 5);
-        g.fill(3, 3, 7, 3, "D");
-        /* 电话间（中上，两间小格子） */
-        g.room(14, 1, 5, 5, "s", 2);
-        g.room(20, 1, 5, 5, "s", 2);
-        /* 茶水间 + 咖啡机（右下角） */
-        g.room(26, 14, 7, 5, "n", 4);
-        g.put(31, 16, "C"); g.put(31, 17, "L");
-        /* 项目室（左下，门朝东开） */
-        g.room(1, 12, 9, 7, "e", 3);
-        g.fill(3, 14, 5, 3, "D");
-        /* 协作客厅：中部开阔区，摆沙发（用隔板表示半高隔断） */
-        g.fill(13, 9, 12, 1, "p");
-        g.fill(13, 15, 12, 1, "p");
-        g.fill(15, 11, 3, 2, "D");
-        g.fill(21, 11, 3, 2, "D");
-        /* 文件夹：电话间里（要绕进去拿） */
-        g.put(21, 3, "F");
-        /* 出生点：协作客厅南侧 */
-        g.put(18, 17, "@");
-        g.patrol([[12, 7], [12, 16]]);        // 中部竖廊（会议室与项目室之间）
-        g.patrol([[24, 7], [24, 16]]);        // 东侧竖廊
-        g.patrol([[2, 10], [30, 10]]);        // 横贯上层（y=10 是唯一没有房间的横带）
-        g.patrol([[11, 17], [25, 17]]);       // 南部横带
-        /* 电话间两条：只能各自进出一次（原来写成一条横穿两间的 4 点环线，
-           中间隔着两道隔墙，巡逻者会卡在墙上） */
-        g.patrol([[16, 3], [16, 7]]);
-        g.patrol([[22, 3], [22, 7]]);
-        return g;
-      }
-    },
-    {
-      id: "admin", name: "行政楼层", sub: "行政办公室 · 档案库 · 前台 · 双电梯厅",
-      hint: "电梯在东北侧。档案库的柜子多、视线碎，穿过去比绕外面快。",
-      w: 34, h: 22, elevator: true, parTime: 68,
-      build: function () {
-        var g = makeBuilder(34, 22);
-        g.border();
-        /* 双电梯厅：东北侧（本关终点） */
-        g.room(26, 1, 7, 6, "s", 3);
-        g.put(30, 3, "E"); g.put(30, 4, "E");
-        /* 行政办公室（左上，门朝南） */
-        g.room(1, 1, 10, 7, "s", 4);
-        g.fill(3, 3, 3, 3, "D"); g.fill(7, 3, 2, 3, "D");
-        /* 档案库（中下大间）：密集排架 —— 视线碎，穿过去快但风险高 */
-        g.room(9, 11, 16, 10, "n", 7);
-        /* ⚠ 排架从 y=13 每 2 格一排，只放 4 排：写 5 排会落到 y=21 = 底边外墙，
-           把外墙写穿（validateLevel 的"外墙封闭"检查就是逮这个的）。 */
-        var i;
-        for (i = 0; i < 4; i++) g.fill(11, 13 + i * 2, 12, 1, "D");
-        /* 前台（中上） */
-        g.fill(13, 2, 8, 1, "D");
-        g.put(16, 4, "C"); g.put(16, 5, "L");
-        /* 文件夹：档案库最里侧（要钻进去） */
-        g.put(22, 18, "F");
-        /* 半高隔板：前台两侧的通道隔断 */
-        g.fill(11, 8, 4, 1, "p");
-        g.fill(19, 8, 4, 1, "p");
-        /* 出生点：西南角工位 */
-        g.put(3, 19, "@");
-        g.patrol([[2, 9], [2, 20]]);          // 左走廊
-        g.patrol([[31, 7], [31, 20]]);         // 右走廊
-        g.patrol([[5, 9], [28, 9]]);           // 上层横向
-        g.patrol([[5, 10], [24, 10]]);         // 次层横向
-        /* 档案库内部两条：必须沿**没有排架**的行/列走
-           （排架在 y=13/15/17/19 且横跨 x=11..22，所以走 x=23 的竖列与 y=18 的横行） */
-        g.patrol([[23, 12], [23, 19]]);
-        g.patrol([[11, 18], [22, 18]]);
-        return g;
-      }
-    }
-  ];
 
-  /* ═════════════════ 4. 纯规则层（无 DOM，可在 vm 里整局自跑） ═════════════════ */
+  /* ═════════════════ 4. 随机数与几何原语（纯规则层，无 DOM，可在 vm 里整局自跑） ═════════════════ */
 
   /* xorshift32：确定性随机。**不用 Math.imul**（仓库要求兼容 IE11）。
      ⚠ 必须预热 8 轮：xorshift32 的第一个输出对相近种子几乎不变
@@ -317,237 +272,614 @@
     while (a < -Math.PI) a += Math.PI * 2;
     return a;
   }
+  /* 摄像机夹取（规格 §1.1）：视野比世界还大时贴 0，否则夹在 [0, world-view]。 */
+  function clampCam(v, world, view) { var m = world - view; if (m < 0) m = 0; return limit(v, 0, m); }
+  function hyp(dx, dy) { return Math.sqrt(dx * dx + dy * dy); }
+  function dist(a, b) { return hyp(a.x - b.x, a.y - b.y); }
 
-  /* ── 构建器结果 → 关卡对象 ── */
-  function buildLevel(def, patrolsSeed, modeId) {
-    var b = def.build();
-    var grid = b.grid, w = b.w, h = b.h;
-    var lv = {
-      id: def.id, name: def.name, sub: def.sub, hint: def.hint,
-      w: w, h: h, grid: grid, elevator: !!def.elevator, parTime: def.parTime,
-      spawn: null, exit: [], folders: [], coffee: [], lounge: [], patrolRoutes: b.routes || []
-    };
-    var x, y, ch;
-    for (y = 0; y < h; y++) {
-      for (x = 0; x < w; x++) {
-        ch = grid[y][x];
-        if (ch === "@") lv.spawn = { x:x, y:y };
-        else if (ch === "E") lv.exit.push({ x:x, y:y });
-        else if (ch === "F") lv.folders.push({ x:x, y:y, taken:false });
-        else if (ch === "C") lv.coffee.push({ x:x, y:y });
-        else if (ch === "L") lv.lounge.push({ x:x, y:y });
-      }
-    }
-    /* 地格索引：把字符换成属性表，省掉每帧的字符串比较 */
-    lv.solid = []; lv.opaque = [];
-    for (y = 0; y < h; y++) {
-      lv.solid.push([]); lv.opaque.push([]);
-      for (x = 0; x < w; x++) {
-        var t = TILE[grid[y][x]] || TILE["."];
-        lv.solid[y].push(t.solid ? 1 : 0);
-        lv.opaque[y].push(t.opaque ? 1 : 0);
-      }
-    }
-    lv.patrols = buildPatrols(lv, patrolsSeed, modeId || "normal");
-    return lv;
+  /* 32 位乘法 —— Math.imul 的 ES5 等价实现（仓库禁用 Math.imul）。
+     只需要低 32 位正确，自增哈希随机数只用得到这一半；
+     这样连上游引擎的随机序列都能逐位对上，排查"路线不一样"时可以直接拿它当参照。 */
+  function imul(a, b) {
+    var ah = (a >>> 16) & 0xffff, al = a & 0xffff, bh = (b >>> 16) & 0xffff, bl = b & 0xffff;
+    return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0)) | 0;
   }
 
-  function tileAt(lv, tx, ty) {
-    if (tx < 0 || ty < 0 || tx >= lv.w || ty >= lv.h) return "#";
-    return lv.grid[ty][tx];
-  }
-  /* 世界坐标（像素）→ 是否实心 / 是否挡视线 */
-  function isSolidW(lv, px, py) {
-    var tx = Math.floor(px / TUNE.TILE), ty = Math.floor(py / TUNE.TILE);
-    if (tx < 0 || ty < 0 || tx >= lv.w || ty >= lv.h) return true;
-    return !!lv.solid[ty][tx];
-  }
-  function isOpaqueW(lv, px, py) {
-    var tx = Math.floor(px / TUNE.TILE), ty = Math.floor(py / TUNE.TILE);
-    if (tx < 0 || ty < 0 || tx >= lv.w || ty >= lv.h) return true;
-    return !!lv.opaque[ty][tx];
-  }
+  /* ═════════════════ 4.1 两个几何原语（规格 §1.2 / §3.3） ═════════════════
+     `walkable` = 圆形碰撞盒（用"矩形向外膨胀 r"来近似，和上游一致：不是四角采样）+
+     bounds 四条边。`clearLine` = 8px 步长采样、**不含两端点**、半径 0。
+     这两条就是全部的空间判定：潜行游戏的 bug 几乎全在这里，所以它们必须是纯函数。 */
 
-  /* ── 视线：1/4 格步长采样 ──
-     比 Bresenham 简单，在 40px 格子下精度绰绰有余。
-     起终点本身**不参与遮挡判定**（否则站在墙边的人永远"看不见"）。 */
-  function losClear(lv, x0, y0, x1, y1) {
-    var dx = x1 - x0, dy = y1 - y0;
-    var dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 1) return true;
-    var steps = Math.ceil(dist / (TUNE.TILE * 0.25));
-    for (var i = 1; i < steps; i++) {
-      var t = i / steps;
-      if (isOpaqueW(lv, x0 + dx * t, y0 + dy * t)) return false;
+  /* 半径 r 的圆能不能站在 (x,y)。r=0 = 只看这个点（视线采样用）；
+     越界一律 false —— 世界边界也算阻挡。 */
+  function walkable(x, y, r, map) {
+    map = map || MAPS[0];
+    if (r === undefined || r === null) r = PLAYER_R;
+    var b = map.bounds;
+    if (x < b[0] + r || x > b[2] - r || y < b[1] + r || y > b[3] - r) return false;
+    var w = map.walls;
+    for (var i = 0; i < w.length; i++) {
+      var a = w[i];
+      if (x + r > a[0] && x - r < a[0] + a[2] && y + r > a[1] && y - r < a[1] + a[3]) return false;
     }
     return true;
   }
 
-  /* ── 视野锥：距离 + 张角 + 遮挡，三条全过才看得见 ──
-     ⚠ 张角边界含等号（正好在半 FOV 上算"看得见"）—— 边界行为必须写死并测住，
-     否则调参时会莫名其妙多出一堆"擦边看不见"。 */
-  function canSee(lv, pat, px, py, opt) {
-    opt = opt || {};
-    if (opt.disguised) return false;                 // 伪装期间一律看不见
-    var dx = px - pat.x, dy = py - pat.y;
-    var d2 = dx * dx + dy * dy;
-    var range = pat.range * (opt.rangeMul || 1);
-    if (d2 > range * range) return false;
-    if (d2 < 1) return true;                         // 贴脸
-    var diff = Math.abs(normAngle(Math.atan2(dy, dx) - pat.angle));
-    if (diff > pat.halfFov + 1e-9) return false;
-    return losClear(lv, pat.x, pat.y, px, py);
-  }
-  /* 返回第一个看见玩家的巡逻者（没看见返回 null） */
-  function anySees(lv, pats, px, py, opt) {
-    for (var i = 0; i < pats.length; i++) {
-      if (canSee(lv, pats[i], px, py, opt)) return pats[i];
+  /* 两点之间的视线通不通（规格 §3.3）：steps=ceil(dist/8)，只查 i=1..steps-1。
+     ⚠ **不含两端点**：否则站在墙边的人永远"看不见"（自己挡住自己）。
+     只使用 map.walls 与 bounds，不使用任何角色体积。 */
+  function clearLine(a, b, map) {
+    map = map || MAPS[0];
+    var steps = Math.ceil(dist(a, b) / SAMPLE_STEP);
+    for (var i = 1; i < steps; i++) {
+      var t = i / steps;
+      if (!walkable(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 0, map)) return false;
     }
+    return true;
+  }
+
+  /* 线段能不能走人（半径 18）—— 只给 pathTo 用：**含两端点**，和 clearLine 不同。
+     少了它，BFS 会规划出"擦着墙角过去"的格子，NPC 一走就卡住。 */
+  function segmentWalkable(a, b, map) {
+    var count = Math.ceil(dist(a, b) / SAMPLE_STEP);
+    for (var i = 0; i <= count; i++) {
+      var t = count ? i / count : 0;
+      if (!walkable(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, PLAYER_R, map)) return false;
+    }
+    return true;
+  }
+
+  /* 视野锥的多边形（渲染用，规格 §1.1）：从 NPC 往外打 47 条射线（i=0..46），
+     每条以 7px 步长推进到第一个挡视线的采样点。**裁剪是玩法的一部分**：
+     不裁剪的扇形，玩家读不出"哪里是安全的" —— 机制还在，但玩不出来。 */
+  function conePoly(n, map, opt) {
+    opt = opt || {};
+    var rays = opt.rays || 46, range = n.range;
+    var pts = [{ x:n.x, y:n.y }];
+    var a0 = n.angle - n.fov / 2, a1 = n.angle + n.fov / 2;
+    for (var i = 0; i <= rays; i++) {
+      var a = a0 + (a1 - a0) * (i / rays);
+      var cx = Math.cos(a), cy = Math.sin(a), d = 7;
+      while (d < range) {
+        if (!walkable(n.x + cx * d, n.y + cy * d, 0, map)) break;
+        d += 7;
+      }
+      if (d > range) d = range;
+      pts.push({ x:n.x + cx * d, y:n.y + cy * d });
+    }
+    return pts;
+  }
+
+  /* ═════════════════ 5. 看见 / 被抓 / 四种角色（规格 §3 / §4） ═════════════════ */
+
+  /* 自增哈希随机（规格 §5.1）：状态就在 g.seed 上自增，同 seed ⇒ 完全相同的序列。
+     ⚠ 用 imul 的 ES5 等价实现而不是 Math.imul（仓库禁用），位级结果与上游一致。 */
+  function random(g) {
+    var t = (g.seed = (g.seed + 0x6D2B79F5) >>> 0);
+    t = imul(t ^ (t >>> 15), t | 1);
+    t = (t ^ (t + imul(t ^ (t >>> 7), t | 61))) >>> 0;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  /* 看不看得见（规格 §3.2），三步一条都不能少：
+     ① 距离 `>` **严格**（正好等于 range 算看得见）
+     ② clearLine 遮挡（8px 采样、不含端点）
+     ③ 角度 `<` **严格**（正好等于半角算**看不见**）
+     fov 是弧度整锥张角，不是倍数；角度差用 atan2(sin,cos) 归一化，跨 ±π 不会误判。 */
+  function sees(n, p, map) {
+    map = map || MAPS[0];
+    if (dist(n, p) > n.range || !clearLine(n, p, map)) return false;
+    var d = Math.atan2(p.y - n.y, p.x - n.x) - n.angle;
+    return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) < n.fov / 2;
+  }
+
+  function isCoworker(n) { return n.id === "coworker"; }
+  /* 老板到场了吗（规格 §4）：没到场就不动、不绘制、也抓不到人。 */
+  function bossAwake(g) { return g.elapsed >= g.config.bossDelay; }
+  function isDrawable(g, n) {
+    if (isCoworker(n)) return false;                      /* 同事永不绘制 */
+    if (n.id === "boss" && !bossAwake(g)) return false;   /* 老板没到场也不绘制 */
+    return true;
+  }
+  function supervisorOf(g) {
+    for (var i = 0; i < g.npcs.length; i++) if (g.npcs[i].id === "supervisor") return g.npcs[i];
+    return null;
+  }
+  function coworkerOf(g) {
+    for (var i = 0; i < g.npcs.length; i++) if (isCoworker(g.npcs[i])) return g.npcs[i];
     return null;
   }
 
-  /* ── 巡逻者 ── */
-  function mkPatrol(route, seed, mode, idx) {
-    var rng = makeRng(seed ^ (idx * 0x9E3779B1));
-    var T = TUNE.TILE;
-    var wps = [];
-    for (var i = 0; i < route.length; i++) {
-      /* 每次重试航线都要抖一下（原作"每次重试随机巡逻"），但抖完仍要是可走的格 */
-      var jx = Math.round((rng() - 0.5) * 2.4), jy = Math.round((rng() - 0.5) * 2.4);
-      wps.push({ x: (route[i][0] + jx + 0.5) * T, y: (route[i][1] + jy + 0.5) * T });
+  /* 谁能抓你（规格 §3.1）：**同事永远不能**；老板没到场不能；hidden / cover>0 完全免疫。
+     ⚠ tick 里 cover 是**先递减后判定**，所以 cover 剩 0.01 的那一帧就已经不免疫了。 */
+  function captureIfSeen(g) {
+    if (g.hidden || g.cover > 0) return false;
+    var w = null;
+    for (var i = 0; i < g.npcs.length; i++) {
+      var n = g.npcs[i];
+      if (isCoworker(n)) continue;
+      if (n.id === "boss" && !bossAwake(g)) continue;
+      if (sees(n, g.player, g.map)) { w = n; break; }
     }
-    var p = {
-      i: idx, wps: wps, wp: 0, x: wps[0].x, y: wps[0].y,
-      angle: rng() * Math.PI * 2,
-      range: TUNE.RANGE * mode.fovMul,
-      halfFov: deg2rad(TUNE.FOV_DEG * mode.fovMul) / 2,
-      speed: TUNE.PATROL_SPEED * mode.patrolMul,
-      mode: "walk",           // walk | scan | lure
-      timer: 0,
-      scanFrom: 0, scanDir: (rng() < 0.5 ? -1 : 1),
-      lure: null, lureUntil: 0,
-      sees: false
-    };
-    return p;
-  }
-  function buildPatrols(lv, seed, modeId) {
-    var mode = MODES[modeId] || MODES.normal;
-    var routes = lv.patrolRoutes || [];
-    var out = [];
-    for (var i = 0; i < routes.length; i++) out.push(mkPatrol(routes[i], (seed >>> 0) || 7, mode, i));
-    return out;
+    if (!w) return false;
+    g.caughtBy = w.id; g.suspicion = 100;
+    fail(g, (w.id === "boss" ? "老板" : "主管") + "发现了你，下班行动失败。文件夹只能提前使用。");
+    return true;
   }
 
-  /* 巡逻状态机：walk（走向下一航点）→ scan（原地左右扫视）→ walk …
-     返回是否发生了转向（供渲染层决定要不要画"警觉"提示）。 */
-  function stepPatrol(lv, p, dt, now, opt) {
-    opt = opt || {};
-    var T = TUNE.TILE;
-    /* 被咖啡机引开：目标改到茶水间 */
-    var target = null, isLure = false;
-    if (p.lure && now < p.lureUntil) { target = p.lure; isLure = true; }
-    else {
-      if (p.lure) { p.lure = null; p.mode = "walk"; }     // 引诱结束，回原航线
-      target = p.wps[p.wp];
-    }
-    var dx = target.x - p.x, dy = target.y - p.y;
-    var dist = Math.sqrt(dx * dx + dy * dy);
-    var arrive = isLure ? T * 1.2 : T * 0.5;
-
-    if (dist > arrive) {
-      /* 走：朝目标移动，同时把朝向平滑转过去 */
-      p.mode = "walk";
-      var want = Math.atan2(dy, dx);
-      var turn = deg2rad(TUNE.PATROL_TURN) * dt;
-      var d = normAngle(want - p.angle);
-      p.angle = normAngle(p.angle + limit(d, -turn, turn));
-      var step = Math.min(dist, p.speed * dt);
-      var nx = p.x + (dx / dist) * step, ny = p.y + (dy / dist) * step;
-      /* 轴向分离：不让人卡在墙角 */
-      if (!isSolidW(lv, nx, p.y)) p.x = nx;
-      if (!isSolidW(lv, p.x, ny)) p.y = ny;
-    } else {
-      /* 到了：停下扫视（紧张感的全部来源 —— 玩家必须读出他什么时候会转过来） */
-      if (p.mode !== "scan") { p.mode = "scan"; p.timer = 0; p.scanFrom = p.angle; }
-      p.timer += dt;
-      var sweep = deg2rad(TUNE.SCAN_SWEEP_DEG);
-      var turn2 = deg2rad(TUNE.SCAN_TURN) * dt * p.scanDir;
-      p.angle = normAngle(p.angle + turn2);
-      if (Math.abs(normAngle(p.angle - p.scanFrom)) > sweep) p.scanDir = -p.scanDir;
-      if (p.timer >= TUNE.SCAN_HOLD && !isLure) {
-        p.mode = "walk"; p.wp = (p.wp + 1) % p.wps.length;
-        p.scanDir = (p.timer % 2 < 1) ? -p.scanDir : p.scanDir;
-      }
-    }
-    return p;
+  /* 巡逻者工厂（规格 §4）：i=0 主管 / 1 老板 / 2 同事 / ≥3 保安。
+     差异只有三处（都在 createGame 里传）：同事速度固定 80、视距固定 100、fov 1.5；
+     其余角色速度=关卡基础速度、视距=关卡基础视距、fov 1.1。 */
+  function npc(id, x, y, route, speed, range, fov) {
+    return { id:id, x:x, y:y, route:route || [], target:1, speed:speed,
+             range:range, range0:range, fov:fov, angle:Math.PI / 2, pause:0, sees:false,
+             lure:false };
   }
+  function npcCount(difficulty) { return 3 + difficulty.extra; }
 
-  /* ── 关卡自检：出口和文件夹都必须可达 ──
-     关卡不可能通关是潜行游戏最恶心的 bug（画面上完全看不出来，只能玩到才发现），
-     所以让它在单测里直接红。同时顺手查"外墙封闭"与"唯一的出生点"。 */
-  function validateLevel(lv) {
-    var problems = [];
-    if (!lv.spawn) problems.push("没有出生点 @");
-    if (!lv.exit.length) problems.push("没有出口 E");
-    if (!lv.folders.length) problems.push("没有文件夹 F");
-    var i, x, y;
-    for (y = 0; y < lv.h; y++) {
-      if (lv.grid[y].length !== lv.w) problems.push("第 " + y + " 行宽度 " + lv.grid[y].length + " ≠ " + lv.w);
-    }
-    for (x = 0; x < lv.w; x++) {
-      if (lv.grid[0][x] !== "#") problems.push("顶边第 " + x + " 格不是墙：" + lv.grid[0][x]);
-      if (lv.grid[lv.h - 1][x] !== "#") problems.push("底边第 " + x + " 格不是墙：" + lv.grid[lv.h - 1][x]);
-    }
-    for (y = 0; y < lv.h; y++) {
-      if (lv.grid[y][0] !== "#") problems.push("左边第 " + y + " 行不是墙");
-      if (lv.grid[y][lv.w - 1] !== "#") problems.push("右边第 " + y + " 行不是墙");
-    }
-    if (!lv.spawn) return problems;
-    /* 从出生点 BFS（只走非 solid），看出口与文件夹是否都在可达集合里 */
-    var seen = {}, q = [[lv.spawn.x, lv.spawn.y]];
-    seen[lv.spawn.x + "," + lv.spawn.y] = 1;
-    while (q.length) {
-      var cur = q.shift();
-      var dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-      for (i = 0; i < 4; i++) {
-        var nx = cur[0] + dirs[i][0], ny = cur[1] + dirs[i][1];
-        if (nx < 0 || ny < 0 || nx >= lv.w || ny >= lv.h) continue;
-        if (lv.solid[ny][nx]) continue;
-        var k = nx + "," + ny;
-        if (seen[k]) continue;
-        seen[k] = 1; q.push([nx, ny]);
-      }
-    }
-    for (i = 0; i < lv.exit.length; i++) {
-      if (!seen[lv.exit[i].x + "," + lv.exit[i].y]) problems.push("出口 (" + lv.exit[i].x + "," + lv.exit[i].y + ") 从出生点走不到");
-    }
-    for (i = 0; i < lv.folders.length; i++) {
-      if (!seen[lv.folders[i].x + "," + lv.folders[i].y]) problems.push("文件夹 (" + lv.folders[i].x + "," + lv.folders[i].y + ") 从出生点走不到");
-    }
-    for (i = 0; i < lv.patrolRoutes.length; i++) {
-      var route = lv.patrolRoutes[i];
-      for (var j = 0; j < route.length; j++) {
-        var wx = route[j][0], wy = route[j][1];
-        if (wx < 0 || wy < 0 || wx >= lv.w || wy >= lv.h) { problems.push("巡逻航点越界 " + wx + "," + wy); continue; }
-        if (lv.solid[wy][wx]) problems.push("巡逻航点 (" + wx + "," + wy + ") 落在实心格里");
-        if (!seen[wx + "," + wy]) problems.push("巡逻航点 (" + wx + "," + wy + ") 不在可达区");
-        /* ⚠ 还要检查**相邻航点之间的直线**：巡逻者是直线走向下一个航点的，不做寻路。
-           如果两点之间有墙，它会一头顶在墙上原地卡死 —— 画面上只是"这个保安站着不动"，
-           非常难联想到是关卡数据的问题。 */
-        var nx2 = route[(j + 1) % route.length], steps2, k2;
-        var segLen = Math.sqrt(Math.pow(nx2[0] - wx, 2) + Math.pow(nx2[1] - wy, 2));
-        steps2 = Math.max(2, Math.ceil(segLen / 0.25));
-        for (k2 = 1; k2 < steps2; k2++) {
-          var tt = k2 / steps2;
-          var sx = Math.floor(wx + (nx2[0] - wx) * tt), sy = Math.floor(wy + (nx2[1] - wy) * tt);
-          if (sy >= 0 && sy < lv.h && sx >= 0 && sx < lv.w && lv.solid[sy][sx]) {
-            problems.push("巡逻航线 (" + wx + "," + wy + ")→(" + nx2[0] + "," + nx2[1] + ") 中间被实心格 (" + sx + "," + sy + ") 挡住，巡逻者会卡死");
-            break;
-          }
+  /* ═════════════════ 6. 寻路与巡逻（规格 §5） ═════════════════ */
+
+  /* 25px 网格 4 邻域 BFS（规格 §5.3）。
+     cell() 会把落点吸附到 3×3 邻域里"合法且直线可走"的最近格子 —— 少了这一步，
+     站在墙边的 NPC 因为自己不在网格中心，永远规划不出路线（表现为站着不动）。 */
+  function pathTo(map, a, b) {
+    map = map || MAPS[0];
+    var step = GRID_STEP;
+    function key(x, y) { return x + "," + y; }
+    function cell(p) {
+      var best = null, bestD = Infinity;
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          var x = Math.round(p.x / step) + dx, y = Math.round(p.y / step) + dy;
+          var q = { x:x * step, y:y * step };
+          if (!walkable(q.x, q.y, 20, map)) continue;
+          if (!segmentWalkable(p, q, map)) continue;
+          var d = dist(p, q);
+          if (d < bestD) { bestD = d; best = [x, y]; }
         }
       }
+      return best || [NaN, NaN];
     }
-    return problems;
+    var sc = cell(a), tc = cell(b);
+    var sx = sc[0], sy = sc[1], tx = tc[0], ty = tc[1];
+    if (!isFinite(sx) || !isFinite(tx)) return [];
+    if (!walkable(tx * step, ty * step, 20, map) || !walkable(sx * step, sy * step, 20, map)) return [];
+    var first = key(sx, sy), end = key(tx, ty);
+    var queue = [[sx, sy]], prev = {}, head = 0, dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    prev[first] = null;
+    while (head < queue.length) {
+      var cur = queue[head++], x0 = cur[0], y0 = cur[1];
+      if (key(x0, y0) === end) break;
+      for (var i = 0; i < 4; i++) {
+        var nx = x0 + dirs[i][0], ny = y0 + dirs[i][1], nk = key(nx, ny);
+        if (prev[nk] !== undefined) continue;
+        if (!walkable(nx * step, ny * step, 20, map)) continue;
+        if (!segmentWalkable({ x:x0 * step, y:y0 * step }, { x:nx * step, y:ny * step }, map)) continue;
+        prev[nk] = key(x0, y0); queue.push([nx, ny]);
+      }
+    }
+    if (prev[end] === undefined) return [];
+    var route = [], k = end;
+    while (k !== null && k !== undefined) {
+      var parts = k.split(",");
+      route.push([(+parts[0]) * step, (+parts[1]) * step]);
+      k = prev[k];
+    }
+    return route.reverse();
+  }
+
+  /* 随机挑一个远端目标（规格 §5.2）：候选网格 x=150+50*floor(r*54)、y=150+50*floor(r*34)，
+     距自己 <250 直接丢弃，最多试 40 次；40 次全废 → 空路线（下一帧会重抽，不致命）。
+     ⚠ 每次尝试消耗**两个**随机数（x 一个、y 一个），顺序不能反。 */
+  function chooseRoute(n, g) {
+    for (var i = 0; i < 40; i++) {
+      var p = { x:150 + Math.floor(random(g) * 54) * 50, y:150 + Math.floor(random(g) * 34) * 50 };
+      if (dist(n, p) < 250) continue;
+      var route = pathTo(g.map, n, p);
+      if (route.length > 1) { n.route = route; n.target = 0; return; }
+    }
+    n.route = []; n.target = 0;
+  }
+
+  /* 巡逻状态机（规格 §5.4），顺序不能改：
+     ① 老板未到场：完全静止（连 pause 都不动）② 主管被咖啡机引诱：只转头、不移动、
+     **pause 也不递减**（否则引诱结束的时间会漂）③ 停顿 ④ 需要新路线 → 重抽 + 一次停顿
+     ⑤ 到达路点（容差 step+0.1）⑥ 朝向 = 移动方向（**瞬时**，没有转身速度）
+     ⑦ 整步判定而不是轴分离 ⑧ 撞墙：清空路线 + pause=0.1（不受 pause 倍率影响）。 */
+  function patrol(n, dt, g) {
+    if (n.id === "boss" && !bossAwake(g)) return;
+    n.lure = !!(n.id === "supervisor" && g.lure > 0);
+    if (n.id === "supervisor" && g.lure > 0) {
+      n.angle = Math.atan2(g.map.points.distraction.y - n.y, g.map.points.distraction.x - n.x);
+      return;
+    }
+    if (n.pause > 0) { n.pause -= dt; return; }
+    if (!n.route || !n.route.length || n.target >= n.route.length) {
+      chooseRoute(n, g);
+      n.pause = (0.3 + random(g) * 1.6) * g.difficulty.pause;
+      return;
+    }
+    var q = n.route[n.target], dx = q[0] - n.x, dy = q[1] - n.y, d = hyp(dx, dy), step = n.speed * dt;
+    if (d <= step + 0.1) {
+      n.x = q[0]; n.y = q[1]; n.target++;
+      if (n.target >= n.route.length) n.pause = (0.4 + random(g) * 1.5) * g.difficulty.pause;
+      return;
+    }
+    n.angle = Math.atan2(dy, dx);
+    var x = n.x + dx / d * step, y = n.y + dy / d * step;
+    if (walkable(x, y, PLAYER_R, g.map)) { n.x = x; n.y = y; }
+    else { n.route = []; n.pause = 0.1; }
+  }
+
+  /* ═════════════════ 7. 对局核心（规格 §2 / §3.4 / §7 逐条实现） ═════════════════ */
+
+  function notify(g, text) { g.toast = text; g.toastTimer = 3.8; }
+
+  /* 建局（规格 §2.2 的 createGame）。第 4 个参数是 seed、第 5 个是 floor：
+       map = MAPS[(level+floor-2) % 3] —— **地狱第二层换的是下一张图**。 */
+  function createGame(level, clearedTimes, mode, seed, floor) {
+    level = level === undefined ? 1 : level;
+    clearedTimes = clearedTimes || [];
+    mode = mode === undefined ? "normal" : mode;
+    seed = seed === undefined ? Math.floor(Math.random() * 4294967296) : seed;
+    floor = floor === undefined ? 1 : floor;
+    if (!LEVELS[level - 1] || !MODES[mode]) throw new RangeError("Unknown level or mode");
+    var map = MAPS[(level + floor - 2) % MAPS.length];
+    var difficulty = MODES[mode], base = LEVELS[level - 1], k;
+    var config = {};
+    for (k in base) if (Object.prototype.hasOwnProperty.call(base, k)) config[k] = base[k];
+    config.time = Math.round(base.time * difficulty.time);
+    config.liftWait = base.liftWait + difficulty.wait;
+    config.bossDelay = mode === "normal" ? base.bossDelay : 0;   /* 变态/地狱一律 0 */
+    config.coverDuration = difficulty.cover;
+
+    var g = {
+      level: level, floor: floor, floors: difficulty.floors, map: map, mapId: map.id,
+      mode: mode, difficulty: difficulty, seed: seed >>> 0, seed0: seed >>> 0, config: config,
+      clearedTimes: clearedTimes.slice(0), phase: "intro", time: config.time, elapsed: 0,
+      player: { x:map.points.start.x, y:map.points.start.y, face:1, angle:-Math.PI / 2, step:0, moving:false },
+      suspicion: 0, hidden: false, file: false, fileTaken: false, cover: 0,
+      lift: "idle", liftTimer: 0, interacted: 0, lure: 0, lureUsed: false, shoutCooldown: 8,
+      eventAt: config.bossDelay, eventText: "", eventTimer: 0,
+      toast: "", toastTimer: 0, message: "", caughtBy: "", moves: 0, npcs: []
+    };
+
+    /* ── 造人（规格 §4）：数量 = 3 + extra（普通 3 / 变态 4 / 地狱 7）── */
+    var total = npcCount(difficulty), i, j;
+    for (i = 0; i < total; i++) {
+      var id = i === 0 ? "supervisor" : i === 1 ? "boss" : i === 2 ? "coworker" : "guard" + i;
+      var spawn = map.spawns[i];
+      /* 出生点合法性（规格 §1.2）：不可走、或（保安 i>2）离玩家 <600px → 重选。
+         重选网格 x=250..2750、y=350..1650，要求离玩家 >650、离其他 NPC >150 且有路。 */
+      if (!spawn || !walkable(spawn[0], spawn[1], 24, map) ||
+          (i > 2 && dist({ x:spawn[0], y:spawn[1] }, g.player) < 600)) {
+        var cands = [];
+        for (var cx = 250; cx < 2800; cx += 100) {
+          for (var cy = 350; cy < 1750; cy += 100) {
+            var cp = { x:cx, y:cy };
+            if (dist(cp, g.player) <= 650) continue;
+            if (!walkable(cx, cy, 24, map)) continue;
+            var tooNear = false;
+            for (j = 0; j < g.npcs.length; j++) if (dist(g.npcs[j], cp) <= 150) tooNear = true;
+            if (!tooNear) cands.push([cx, cy]);
+          }
+        }
+        spawn = null;
+        while (cands.length) {
+          var pick = cands.splice(Math.floor(random(g) * cands.length), 1)[0];
+          if (pathTo(map, g.player, { x:pick[0], y:pick[1] }).length) { spawn = pick; break; }
+        }
+        if (!spawn) throw new Error("No safe patrol spawn");
+      }
+      /* 速度/视距的差别只有三处：同事固定 80、固定 100；其余 = 关卡基础表 × 模式倍率 */
+      g.npcs.push(npc(id, spawn[0], spawn[1], [],
+        (i === 2 ? 80 : i === 1 ? base.bossSpeed : base.speed) * difficulty.speed,
+        (i === 2 ? 100 : base.range) * difficulty.range,
+        i === 2 ? FOV_COWORKER : FOV_NPC));
+      g.npcs[g.npcs.length - 1].angle = 0;
+    }
+    for (i = 0; i < g.npcs.length; i++) chooseRoute(g.npcs[i], g);
+    /* ⚠ 数组顺序：引擎按规格以 i 造人（0 主管 / 1 老板 / 2 同事 / ≥3 保安），
+       但**存进 g.npcs 时把同事挪到最后**。抓人判定与绘制本来就是"跳过 coworker"，
+       所以顺序不影响规格；好处是 debug.placePatrol(0..N-1) 摆的都是看得见、抓得到人的
+       巡查（同事摆在那儿既不绘制也不抓人，会让无头验收莫名其妙地"怎么都看不见我"）。 */
+    var mates = [], others = [];
+    for (i = 0; i < g.npcs.length; i++) (isCoworker(g.npcs[i]) ? mates : others).push(g.npcs[i]);
+    g.npcs = others.concat(mates);
+    return g;
+  }
+
+  /* 规格 §2.2 的 start(g)：只在 intro 上有效（在 lost 上调用无效 —— 测试契约 11）。 */
+  function beginPlay(g) {
+    if (g.phase !== "intro") return false;
+    g.phase = "playing";
+    notify(g, "第 " + g.level + " 关：" + g.config.hint);
+    return true;
+  }
+
+  /* 浮层上的"进入第二层"（规格 §2.3 enterFloor）：只在 floor-intro 上有效。 */
+  function enterFloor(g) {
+    if (g.phase !== "floor-intro") return false;
+    g.phase = "playing";
+    notify(g, "二层 · " + g.map.name + "：继续寻找绿色出口。");
+    return true;
+  }
+
+  /* 交互点判定（规格 §7.2）：hidden 最高（**无视距离**）> 电梯 88 > 工位 76 >
+     打印区 85 > 咖啡机 76；后四个都要 clearLine（隔着墙按不到）。 */
+  function near(g) {
+    var pts = g.map.points, p = g.player;
+    if (g.hidden) return { id:"seat", label:"离开工位", key:"E" };
+    if (dist(p, pts.lift) < REACH.lift && clearLine(p, pts.lift, g.map)) {
+      return { id:"lift", key:"E", label: g.lift === "open"
+        ? (g.floor < g.floors ? "搭电梯去二层" : "进入电梯")
+        : (g.lift === "calling" ? "电梯到达中 " + Math.ceil(g.liftTimer) + "s" : "呼叫电梯") };
+    }
+    if (dist(p, pts.seat) < REACH.seat && clearLine(p, pts.seat, g.map)) return { id:"seat", label:"坐下伪装", key:"E" };
+    if (!g.fileTaken && dist(p, pts.printer) < REACH.printer && clearLine(p, pts.printer, g.map)) return { id:"printer", label:"拿文件夹", key:"E" };
+    if (!g.lureUsed && dist(p, pts.distraction) < REACH.coffee && clearLine(p, pts.distraction, g.map)) return { id:"coffee", label:"启动咖啡机", key:"E" };
+    return null;
+  }
+  /* 给 HUD / debug.state() 用的富化版：带上交互点的**世界坐标**（老脚本读 kind/x/y）。 */
+  function nearInfo(g) {
+    var n = near(g);
+    if (!n) return null;
+    var pts = g.map.points;
+    var w = n.id === "printer" ? pts.printer : n.id === "coffee" ? pts.distraction
+          : n.id === "lift" ? pts.lift : pts.seat;
+    return { id:n.id, kind:n.id, label:n.label, key:n.key, x:w.x, y:w.y };
+  }
+
+  /* 按 E（规格 §7.3）。⚠ 入口先做一次 captureIfSeen：在"已经被看见"的那一帧按 E
+     也是先失败，而且**不消耗**任何东西（文件夹还在手上）。 */
+  function interactAt(g) {
+    if (g.phase !== "playing" || captureIfSeen(g)) return false;
+    var p = near(g);
+    if (!p) return false;
+    if (p.id === "seat") {
+      g.hidden = !g.hidden;
+      if (g.hidden) { g.player.x = g.map.points.seat.x; g.player.y = g.map.points.seat.y; }
+      g.player.moving = false;
+      notify(g, g.hidden ? "假装加班中。按 E 起身，或移动离开。" : "继续下班行动。");
+      return true;
+    }
+    if (p.id === "printer") {
+      g.file = true; g.fileTaken = true; g.interacted++;
+      notify(g, "已拿文件夹：进入视野前按空格，伪装 " + g.config.coverDuration + " 秒。");
+      return true;
+    }
+    if (p.id === "coffee") {
+      g.lure = g.config.lureDuration; g.lureUsed = true; g.interacted++;
+      notify(g, "咖啡机响了，主管转向茶水间。趁现在！");
+      return true;
+    }
+    if (p.id === "lift" && g.lift === "idle") {
+      g.lift = "calling"; g.liftTimer = g.config.liftWait;
+      notify(g, "电梯正在下行，留意身后！");
+      return true;
+    } else if (p.id === "lift" && g.lift === "open") {
+      if (g.floor < g.floors) { changeFloor(g); return true; }
+      g.phase = "won"; g.player.moving = false;
+      g.message = "电梯门关上的那一刻，世界安静了。";
+      return true;
+    }
+    return false;   /* lift==='calling' 时按 E：什么都不发生，也没有提示（规格 §7.3） */
+  }
+
+  /* 空格：用文件夹（规格 §7.4）。坐姿中也能用（没有 hidden 限制）。
+     ⚠ 没拿文件夹时只提示、不消耗；被看见的当帧先失败、folder 保持 true。 */
+  function useFile(g) {
+    if (g.phase !== "playing" || captureIfSeen(g)) return false;
+    if (!g.file) { notify(g, "先去打印区拿文件夹。"); return false; }
+    g.file = false; g.cover = g.config.coverDuration;
+    g.suspicion = Math.max(0, g.suspicion - 35);
+    g.interacted++;
+    notify(g, "“我去送份材料。” " + g.config.coverDuration + " 秒内不会引起怀疑。");
+    return true;
+  }
+
+  function fail(g, reason) {
+    g.phase = "lost"; g.message = reason; g.player.moving = false;
+  }
+
+  /* 应用层字段：引擎不认识它们，但换层 / 换关 / 重试时要跟着走（否则画布视图、
+     练手局标记、已通关记录会在换层时被 createGame 覆盖掉）。 */
+  var APP_FIELDS = ["practice", "frozen", "settled", "result", "clear", "clearedCount",
+                    "counted", "caughtCount", "ghost", "savedTime", "view", "retryCount"];
+
+  /* 换层（规格 §2.3 逐行）：**换下一张图**（MAPS[(level+floor-2)%3]）、剩余时间与
+     elapsed 整段继承、玩家瞬移到新图 start、file/fileTaken/cover/hidden 清空、
+     电梯回 idle、NPC 全重建、bossDelay 强制 0（二层老板立刻活动）。
+     phase='floor-intro' —— 计时暂停，必须点"进入第二层"才继续。 */
+  function changeFloor(g) {
+    var saved = {}, i;
+    for (i = 0; i < APP_FIELDS.length; i++) saved[APP_FIELDS[i]] = g[APP_FIELDS[i]];
+    var next = createGame(g.level, g.clearedTimes, g.mode, g.seed, 2);
+    next.time = g.time;
+    next.elapsed = g.elapsed;
+    next.eventAt = g.elapsed;                 /* 换层后第一个 playing 帧就弹老板横幅 */
+    next.config.bossDelay = 0;
+    next.phase = "floor-intro";
+    next.message = "已抵达第二层。六名巡查重新布防，找到本层电梯才能离开。";
+    for (var kk in next) if (Object.prototype.hasOwnProperty.call(next, kk)) g[kk] = next[kk];
+    for (i = 0; i < APP_FIELDS.length; i++) g[APP_FIELDS[i]] = saved[APP_FIELDS[i]];
+  }
+
+  /* 重试本关（规格 §2.2 retryLevel）：**不传 seed**（换新随机）、floor 回到 1、
+     保留 mode 与已通关记录、phase 回 'intro'（调用方随后 beginPlay）。 */
+  function retryLevel(g) { return createGame(g.level, g.clearedTimes, g.mode); }
+
+  /* 下一关（规格 §2.2 nextLevel）：只有 won 且还有下一关才有效；本关 elapsed 入账。 */
+  function nextLevel(g) {
+    if (g.phase !== "won" || g.level >= LEVELS.length) return null;
+    return createGame(g.level + 1, g.clearedTimes.concat([g.elapsed]), g.mode);
+  }
+
+  function totalTime(g) {
+    var sum = g.elapsed, i;
+    for (i = 0; i < g.clearedTimes.length; i++) sum += g.clearedTimes[i];
+    return sum;
+  }
+
+  /* 主循环（规格 §3.4 的 12 步，顺序不能动）。
+     ⚠ 第一行就是"非 playing 直接 return"：失败/暂停/换层期间整个 g **字节级冻结**。 */
+  function tick(g, dt, input) {
+    input = input || { x:0, y:0 };
+    if (g.phase !== "playing") return;
+    dt = Math.min(dt, DT_MAX);
+    g.time -= dt; g.elapsed += dt;
+    var decay = ["toastTimer", "cover", "eventTimer", "lure", "shoutCooldown"];
+    for (var i = 0; i < decay.length; i++) g[decay[i]] = Math.max(0, g[decay[i]] - dt);
+    if (g.time <= 0) { g.time = 0; fail(g, "下班太晚了，被拉进了“只开五分钟”的会议。"); return; }
+    if (captureIfSeen(g)) return;                    /* 判定 A：移动前 */
+    var p = g.player, m = hyp(input.x, input.y);
+    p.moving = m > 0.08;
+    if (p.moving) {
+      g.hidden = false;                              /* 一动就起身 */
+      var dx = input.x / Math.max(1, m) * PLAYER_SPEED * dt;
+      var dy = input.y / Math.max(1, m) * PLAYER_SPEED * dt;
+      if (walkable(p.x + dx, p.y, PLAYER_R, g.map)) p.x += dx;   /* 轴分离：不卡墙角 */
+      if (walkable(p.x, p.y + dy, PLAYER_R, g.map)) p.y += dy;
+      if (Math.abs(dx) > 0.01) p.face = dx > 0 ? 1 : -1;
+      p.angle = Math.atan2(dy, dx);
+      p.step += dt * 10;
+      g.moves += hyp(dx, dy);
+    }
+    for (i = 0; i < g.npcs.length; i++) patrol(g.npcs[i], dt, g);
+    if (g.elapsed >= g.eventAt) {                    /* 老板到场横幅（只影响横幅，不影响判定） */
+      g.eventAt = Infinity;
+      g.eventText = "老板出门了：“大家都还在吧？”";
+      g.eventTimer = 4;
+    }
+    if (captureIfSeen(g)) return;                    /* 判定 B：NPC 移动后 */
+    g.suspicion = 0;
+    var mate = coworkerOf(g);
+    if (mate && g.shoutCooldown <= 0 && dist(mate, p) < 75 && !g.hidden && g.cover <= 0) {
+      g.shoutCooldown = 16;
+      g.eventText = "同事：“你这么早就走啦？”";
+      g.eventTimer = 3.5;
+      var sup = supervisorOf(g);                     /* 同事只喊话：主管转向玩家并停 1.8s */
+      if (sup) { sup.angle = Math.atan2(p.y - sup.y, p.x - sup.x); sup.pause = 1.8; }
+    }
+    if (captureIfSeen(g)) return;                    /* 判定 C：主管被喊话转向后 */
+    if (g.lift === "calling") {
+      g.liftTimer = Math.max(0, g.liftTimer - dt);
+      if (g.liftTimer === 0) { g.lift = "open"; notify(g, "电梯到了！靠近门口，按 E 进入。"); }
+    }
+  }
+
+  /* 建一局并**立刻开打**：对外 API（Clockout.start）一贯是"建局即开打"，
+     所以第一帧起 phase 就是 playing（intro 只在 createGame 里短暂存在）。
+     练手局标记、视图、经济计数都在这里落地。 */
+  function startSession(opts) {
+    opts = opts || {};
+    var modeId = MODES[opts.mode] ? opts.mode : "normal";
+    var seed = (opts.seed >>> 0) || ((Date.now() ^ 0x9E3779B9) >>> 0);
+    var g = createGame(1, [], modeId, seed, 1);
+    g.practice = !!opts.practice;
+    g.frozen = false; g.settled = false; g.result = null; g.clear = null;
+    g.clearedCount = 0; g.counted = false; g.caughtCount = 0;
+    g.ghost = true; g.savedTime = 0; g.retryCount = 0;
+    g.view = { scale:1, x:0, y:0, w:1200, h:700 };
+    beginPlay(g);
+    NEAR = nearInfo(g);
+    return g;
+  }
+  /* 换关 / 重试时把应用层状态搬过去；每次新一局都重置 settled/result/clear。 */
+  function carryApp(from, to) {
+    var i;
+    for (i = 0; i < APP_FIELDS.length; i++) to[APP_FIELDS[i]] = from[APP_FIELDS[i]];
+    to.settled = false; to.result = null; to.clear = null;
+    to.counted = false;
+    to.retryCount = (from.retryCount || 0) + 1;
+    return to;
+  }
+
+  /* ═════════════════ 8. 地图自检 + V1 兼容壳 + 经济层 + 模块状态 ═════════════════ */
+
+  /* 地图自检：五个关键点都能站人、都从出生点走得到；每面墙的中心都挡得住人；
+     五个巡逻出生点都可走。**改任何坐标之后必须跑它** —— 这类错误在画面上只表现为
+     "这关好像过不去"，肉眼几乎看不出来（甚至可能只是拦不住人，完全看不出来）。 */
+  function validateLevel(map) {
+    map = mapOf(map);
+    var probs = [], ids = ["start", "printer", "seat", "distraction", "lift"], i;
+    for (i = 0; i < ids.length; i++) {
+      var p = map.points[ids[i]];
+      if (!p) { probs.push("[" + map.name + "] 缺关键点 " + ids[i]); continue; }
+      if (!walkable(p.x, p.y, PLAYER_R, map)) probs.push("[" + map.name + "] 关键点 " + ids[i] + " 落在墙里：" + p.x + "," + p.y);
+      else if (!pathTo(map, map.points.start, p).length) probs.push("[" + map.name + "] 关键点 " + ids[i] + " 从出生点走不到");
+    }
+    for (i = 0; i < map.walls.length; i++) {
+      var a = map.walls[i];
+      if (walkable(a[0] + a[2] / 2, a[1] + a[3] / 2, PLAYER_R, map)) {
+        probs.push("[" + map.name + "] 第 " + i + " 面墙的中心能站人（太薄，挡不住人）：" + JSON.stringify(a));
+      }
+    }
+    for (i = 0; i < map.spawns.length; i++) {
+      var s = map.spawns[i];
+      if (walkable(s[0], s[1], 24, map)) continue;
+      /* 规格 §1.2 的出生点校验用的是 r=24（比 NPC 实际的 18 更保守），所以出生点表里
+         本来就有"故意不可用"的点 —— 它们会被 createGame 从候选网格里重选掉。
+         这里只确认**重选有解**，否则建局会直接抛 No safe patrol spawn。 */
+      var solvable = false;
+      for (var gx = 250; gx < 2800 && !solvable; gx += 100) {
+        for (var gy = 350; gy < 1750; gy += 100) {
+          if (walkable(gx, gy, 24, map) && pathTo(map, map.points.start, { x:gx, y:gy }).length) { solvable = true; break; }
+        }
+      }
+      if (!solvable) probs.push("[" + map.name + "] 巡逻出生点 " + i + " 不可走且重选网格无解：" + s[0] + "," + s[1]);
+    }
+    return probs;
+  }
+
+  function mapOf(lv) {
+    if (!lv) return MAPS[0];
+    if (lv.map) return lv.map;
+    if (lv.bounds && lv.walls) return lv;
+    return MAPS[0];
+  }
+  /* ── V1 兼容壳：旧单测直接读这些名字，语义映射到世界像素（详见文件头注释）── */
+  function buildLevelCompat(def, seed, modeId) {
+    var idx = 0, i;
+    for (i = 0; i < LEVELS.length; i++) {
+      if (LEVELS[i] === def || LEVELS[i].id === def || LEVELS[i].name === def) idx = i;
+    }
+    var map = MAPS[idx];
+    return { id:def && def.id, name:map.name, sub:map.caption, hint:(def && def.hint) || "",
+             map:map, index:idx, w:Math.round(WORLD_W / GRID_STEP), h:Math.round(WORLD_H / GRID_STEP),
+             bounds:map.bounds, walls:map.walls, points:map.points, spawns:map.spawns,
+             spawn:{ x:map.points.start.x, y:map.points.start.y },
+             exit:[map.points.lift], folders:[map.points.printer],
+             patrols:[], patrolRoutes:[] };
+  }
+  function isSolidCompat(lv, x, y) { return !walkable(x, y, 0, mapOf(lv)); }
+  function losCompat(lv, x0, y0, x1, y1) {
+    return clearLine({ x:x0, y:y0 }, { x:x1, y:y1 }, mapOf(lv));
+  }
+  function canSeeCompat(lv, pat, px, py, opt) {
+    opt = opt || {};
+    if (opt.disguised) return false;
+    var n = { x:pat.x, y:pat.y, angle:pat.angle || 0, range:pat.range,
+              fov:(pat.halfFov === undefined ? (pat.fov || FOV_NPC) : pat.halfFov * 2) };
+    return sees(n, { x:px, y:py }, mapOf(lv));
+  }
+  function anySeesCompat(lv, pats, px, py, opt) {
+    for (var i = 0; i < pats.length; i++) if (canSeeCompat(lv, pats[i], px, py, opt)) return pats[i];
+    return null;
+  }
+  function buildPatrolsCompat(lv, seed, modeId) {
+    var map = mapOf(lv), out = [], i;
+    for (i = 0; i < map.spawns.length; i++) {
+      out.push(npc("guard" + i, map.spawns[i][0], map.spawns[i][1], [], 120, 280, FOV_NPC));
+    }
+    return out;
+  }
+  /* 旧签名 stepPatrol(lv, p, dt, now, opt) → 新 patrol(n, dt, g)（补一个假 g）。 */
+  function stepPatrolCompat(lv, p, dt, now, opt) {
+    var fake = { map:mapOf(lv), difficulty:{ pause:1 }, seed:12345, elapsed:1e9, lure:0,
+                 config:{ bossDelay:0 } };
+    patrol(p, dt, fake);
+    return p;
   }
 
   function scoreOf(kind, extra) {
@@ -563,119 +895,114 @@
     return pay;
   }
 
+  /* ── 省时分必须**按模式归一** ──
+     地狱每关时限本来就长（204/190/177，因为两层共用），不归一的话"同样的相对效率"
+     在地狱会白拿一大截省时分：实测普通 E[净]=3.4 而地狱 14.5，两档收益差 4 倍
+     —— 那就没人打普通了。归一之后三档在同等效率下拿一样的分，
+     真正的难度差回到"清零概率"上（这才是风险收益）。
+     基准 420 = 普通三关裸时限之和 150+140+130。 */
+  var TIME_BASELINE = 420;
+  function modeBudget(modeId) {
+    var m = MODES[modeId] || MODES.normal, sum = 0, i;
+    for (i = 0; i < LEVELS.length; i++) sum += Math.round(LEVELS[i].time * m.time);
+    return sum || TIME_BASELINE;
+  }
+  function timeScoreFor(modeId, saved, cleared) {
+    var scaled = (saved || 0) * (TIME_BASELINE / modeBudget(modeId));
+    return Math.round(Math.min(TUNE.SPEED_BONUS_MAX, scoreOf("time", scaled)) * (cleared / LEVELS.length));
+  }
+
   /* ── 蒙卡：纯函数整局自跑 ──
      用途只有两个：给赔付阶梯定数、让"经济不变量"能被断言。
-     关键纪律：得分必须走同一套 scoreOf，否则模拟与实机漂移。 */
-  function simulateRun(modeId, skill, seed, opt) {
-    opt = opt || {};
+     关键纪律：得分必须走同一套 scoreOf，否则模拟与实机漂移。
+     ⚠ V2 的时限是**每关独立**的（V1 是三关共用一个池子），所以模型跟着改了：
+       逐关判定、**被抓即整局失败**（与实机一致：被看见就 lost，本轮结束）。 */
+  function simulateRun(modeId, skill, seed) {
     var mode = MODES[modeId] || MODES.normal;
     var s = limit(+skill || 0, 0, 1);
     var rng = makeRng(((seed >>> 0) || 191) ^ 0x5BF03635);
     var st = {
-      cleared:0, caught:0, timeUsed:0, remaining:0, timeout:false,
+      cleared:0, caught:0, timeUsed:0, remaining:0, saved:0, timeout:false,
       score:0, ghost:true, levelTimes:[], net:0, pay:0
     };
-    var timeLeft = mode.time;
     for (var i = 0; i < mode.levels && i < LEVELS.length; i++) {
       var lv = LEVELS[i];
-      var attempts = 0, cleared = false;
-      /* ⚠ 通关概率必须**收敛到"技术满级几乎必过"**：
-         第一版写成 `base × (0.30 + 0.70×skill)`，skill=1.0 时也只等于 base
-         （0.86/0.75/0.64）—— 满级玩家仍有一半概率在第一关翻车、反复罚时，
-         实测 skill 1.0 的超时率还有 10%。现在线性插值到 0.985：
+      var budget = Math.round(lv.time * mode.time);          /* 本关真实时限（规格 §1.7） */
+      /* ⚠ 通关概率必须**收敛到"技术满级几乎必过"**：线性插值到 0.985，
          skill=0 时是基础难度，skill=1 时几乎必过，中间连续。 */
       var base = (0.20 - i * 0.04) * (modeId === "hell" ? 0.82 : 1);
-      while (!cleared) {
-        attempts++;
-        var pClear = limit(base + (0.985 - base) * s, 0.02, 0.985);
-        var cost = lv.parTime * (1.22 - 0.30 * s);
-        if (rng() < pClear) {
-          cleared = true; st.cleared++; st.levelTimes.push(+cost.toFixed(1));
-        } else {
-          st.caught++; st.ghost = false;
-          cost = lv.parTime * 0.34;                  // 被抓一次白跑一段
-        }
-        timeLeft -= cost; st.timeUsed += cost;
-        if (timeLeft <= 0) { st.timeout = true; timeLeft = 0; break; }
-        /* 防呆：技能极低时不无限循环。⚠ 这里必须**判定为超时并结束整轮**，
-           不能只是 break 出 while 就继续下一关 —— 那样"第一关没过"也会被算成过关，
-           实测会出现"0 关却拿到时间分"和"关卡跳着过"的假数据。 */
-        if (attempts > 24) { st.timeout = true; st.stuck = true; break; }
+      var pClear = limit(base + (0.985 - base) * s, 0.02, 0.985);
+      /* 用时系数按**本关时限**折算：技术满级约用掉 80%（省 20%），技术垫底 115%（必然超时）。
+         ⚠ V1 是拿 parTime 去比一个三关共用的池子，直接照搬会变成"skill<0.73 恒超时"，
+         实测 E[净] 恒等于 −入场费，整条难度曲线是死的。 */
+      var cost = budget * (1.15 - 0.35 * s);
+      if (cost >= budget) {                                   /* 技术太差：这一关必然超时 */
+        st.timeout = true; st.timeUsed += budget; break;
       }
-      if (st.timeout) break;
+      st.timeUsed += cost;
+      if (rng() < pClear) {
+        st.cleared++; st.levelTimes.push(+cost.toFixed(1));
+        st.saved += Math.max(0, budget - cost);
+        st.remaining = Math.max(0, budget - cost);
+      } else {
+        st.caught++; st.ghost = false; st.remaining = 0; break;   /* 被抓 = 整局结束 */
+      }
     }
-    st.remaining = Math.max(0, Math.round(timeLeft * 10) / 10);
-    st.score = st.cleared * scoreOf("level")
-      + Math.min(TUNE.SPEED_BONUS_MAX, scoreOf("time", st.remaining))
-      + (st.ghost && st.cleared === mode.levels ? scoreOf("ghost") : 0);
+    st.timeUsed = +st.timeUsed.toFixed(1);
+    st.remaining = +st.remaining.toFixed(1);
+    /* 时间分按通关进度打折（否则"一关不过、原地躲到时间结束"也能拿满额时间分） */
+    var timeScore = timeScoreFor(modeId, st.saved, st.cleared);
+    st.score = st.cleared * scoreOf("level") + timeScore
+      + ((st.ghost && st.cleared === mode.levels) ? scoreOf("ghost") : 0);
     st.pay = payoutOf(st.score, modeId);
     st.net = st.pay - TUNE.ENTRY;
     st.allClear = (st.cleared === mode.levels);
-    /* 评级必须与实机 endRun 用**同一套阈值**，否则统计出来的分布对不上实际体验 */
+    /* 评级必须与实机 endRun 用**同一套阈值**（本地约定），否则统计分布对不上实际体验 */
     st.grade = st.allClear ? (st.ghost ? "S" : "A")
       : (st.cleared === mode.levels - 1 ? "B" : (st.cleared > 0 ? "C" : "D"));
     return st;
   }
 
   var rules = {
-    makeRng: makeRng, buildLevel: buildLevel, tileAt: tileAt,
-    isSolidW: isSolidW, isOpaqueW: isOpaqueW, losClear: losClear,
-    canSee: canSee, anySees: anySees, buildPatrols: buildPatrols,
-    stepPatrol: stepPatrol, validateLevel: validateLevel,
-    simulateRun: simulateRun, payoutOf: payoutOf, scoreOf: scoreOf,
-    SCORE_TABLE: SCORE_TABLE, PAYOUT: PAYOUT, LEVELS: LEVELS,
-    TUNE: TUNE, MODES: MODES, TILE: TILE
+    /* ── V2 引擎（世界像素原语，规格 §1–§5）── */
+    WORLD_W:WORLD_W, WORLD_H:WORLD_H, MAPS:MAPS, MODES:MODES, LEVELS:LEVELS, TUNE:TUNE,
+    dist:dist, walkable:walkable, clearLine:clearLine, segmentWalkable:segmentWalkable,
+    sees:sees, captureIfSeen:captureIfSeen, pathTo:pathTo, chooseRoute:chooseRoute,
+    patrol:patrol, random:random, conePoly:conePoly, near:near, tick:tick,
+    createGame:createGame, start:beginPlay, enterFloor:enterFloor, changeFloor:changeFloor,
+    interact:interactAt, useFile:useFile, retryLevel:retryLevel, nextLevel:nextLevel,
+    totalTime:totalTime, validateLevel:validateLevel, npcCount:npcCount,
+    /* ── 经济层（结算口径：net = 赔付 − 入场 ¥20）── */
+    makeRng:makeRng, scoreOf:scoreOf, payoutOf:payoutOf, simulateRun:simulateRun,
+    SCORE_TABLE:SCORE_TABLE, PAYOUT:PAYOUT,
+    /* ── V1 兼容壳：旧单测读这些名字，语义已映射到世界像素 ── */
+    buildLevel:buildLevelCompat, isSolidW:isSolidCompat, isOpaqueW:isSolidCompat,
+    losClear:losCompat, canSee:canSeeCompat, anySees:anySeesCompat,
+    buildPatrols:buildPatrolsCompat, stepPatrol:stepPatrolCompat, TILE:TILE
   };
-
   /* ── 调试钩子容器：**必须在这里就建成对象**。
-     若写成 var debug = {…} 放在文件后半段，导出赋值会先执行、捕获到 undefined
+     若写成 `var debug = {…}` 放在文件后半段，导出赋值会先执行、捕获到 undefined
      —— var 只提升声明不提升赋值。（上一个玩法踩过这个坑。） ── */
   var debug = {};
   /* 模块级可变状态一律在这里声明：严格的 "use strict" 下，
      给未声明变量赋值会直接抛 ReferenceError，而且只有真跑起来才会发现。 */
   var G = null, hostEl = null, cv = null, ctx = null, W = 900, H = 560;
   var rafId = 0, lastTs = 0, running = false, opts0 = null;
-  var keys = {};
+  var keys = {}, NEAR = null;
 
-  /* ═════════════════ 5. 视野锥的多边形（纯几何，可单测） ═════════════════
-     从巡逻者往外打一把射线，每条射线在**第一个挡视线格**停下，把落点连成多边形。
-     为什么非要做真实裁剪：掩体挡视线是这个玩法的核心机制，
-     如果视野锥画成一个不裁剪的扇形，玩家就**看不出哪里是安全的** ——
-     机制还在，但读不出来，等于没有。 */
-  function conePoly(lv, pat, opt) {
-    opt = opt || {};
-    var rays = opt.rays || 30;
-    var range = pat.range * (opt.rangeMul || 1);
-    var step = TUNE.TILE * 0.34;
-    var pts = [{ x: pat.x, y: pat.y }];
-    var a0 = pat.angle - pat.halfFov, a1 = pat.angle + pat.halfFov;
-    for (var i = 0; i <= rays; i++) {
-      var a = a0 + (a1 - a0) * (i / rays);
-      var cx = Math.cos(a), cy = Math.sin(a);
-      var d = step;
-      while (d < range) {
-        if (isOpaqueW(lv, pat.x + cx * d, pat.y + cy * d)) break;
-        d += step;
-      }
-      d = Math.min(d, range);
-      pts.push({ x: pat.x + cx * d, y: pat.y + cy * d });
-    }
-    return pts;
-  }
-
-  /* ═════════════════ 6. 渲染 + 对局 ═════════════════ */
+  /* ═════════════════ 9. 渲染（世界像素 + 摄像机跟随 + 小地图） ═════════════════
+     坐标全部是**世界像素**：摄像机把世界平移到画布上（规格 §1.1 的夹取公式），
+     文字与标签单独画在屏幕空间，免得被缩放糊掉。 */
 
   var COL = {
-    floorA:"#1a1c26", floorB:"#171923", grid:"rgba(255,255,255,.028)",
-    wall:"#2c3040", wallTop:"#3a4056",
-    desk:"#3b3f52", deskTop:"#4a4f66",
-    part:"#5a5f78",
-    coffee:"#c96a2c", coffeeOn:"#ffb03c",
-    folder:"#e9e3d1", exit:"#5dffa0",
-    cone:"rgba(255,214,90,.21)", coneEdge:"rgba(255,214,90,.46)",
-    alert:"#ff4d6d",
-    player:"#e9e3d1", playerDark:"#23252f",
-    hud:"#0b0a13"
+    floorA:"#1a1c26", floorB:"#171923", grid:"rgba(255,255,255,.030)",
+    wall:"#2c3040", wallTop:"#3a4056", wallLine:"rgba(0,0,0,.35)", bound:"rgba(120,140,190,.28)",
+    cone:"rgba(252,185,58,.23)", coneEdge:"rgba(240,170,48,.5)",
+    coneHot:"rgba(226,88,65,.27)", coneHotEdge:"rgba(241,99,80,.7)",
+    marker:"#ebce8d", lift:"#75f1cf", player:"#fff5d0", playerDark:"#23252f",
+    shop:"#a14f42", boss:"#8f5a3c", guard:"#4a5a86", mate:"#3f5a4a",
+    folder:"#e9e3d1", coffee:"#c96a2c", coffeeOn:"#ffb03c",
+    alert:"#ff4d6d", hud:"#0b0a13", panel:"#f4efe2", ink:"#20222c"
   };
 
   function beep(f, d, t, g) { try { if (root.AudioSys && root.AudioSys.blip) root.AudioSys.blip(f, d, t, g); } catch (e) {} }
@@ -696,506 +1023,377 @@
     g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y);
     g.closePath();
   }
-
-  function newGame(opts) {
-    opts = opts || {};
-    var mode = MODES[opts.mode] || MODES.normal;
-    var seed = (opts.seed >>> 0) || ((Date.now() ^ 0x9E3779B9) >>> 0);
-    var g = {
-      mode: mode, modeId: mode.id, seed: seed,
-      runSeed: seed, retry: 0,
-      levelIndex: 0, lv: null, patrols: [],
-      player: { x:0, y:0, r: TUNE.P_R, face: -Math.PI / 2, moving:false, step:0 },
-      timeLeft: mode.time, timeUsed: 0,
-      cleared: 0, caught: 0, ghost: true,
-      hasFolder: false, folderTaken: false, disguiseUntil: -99,
-      coffeeCd: 0, coffeeUntil: 0, coffeeActive: false,
-      elev: { state: "idle", at: 0 },
-      phase: "play", frozen: false, paused: false,
-      revealUntil: 0, caughtBy: null,
-      near: null, seenBy: null,
-      practice: !!opts.practice,
-      toast: [], clear: null, result: null,
-      view: { scale: 1, ox: 0, oy: 0 }
-    };
-    loadLevel(g, 0, true);
-    return g;
+  /* 世界里的一个标签：屏幕空间画，字号不随缩放变（规格 §1.1 的 tag 尺寸）。 */
+  function tag(x, y, s, size) {
+    if (!s) return;
+    ctx.font = "bold " + (size || 14) + "px 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
+    var w = ctx.measureText(s).width + 16;
+    ctx.fillStyle = "rgba(11,10,19,.68)";
+    roundRect(ctx, x - w / 2, y - 13, w, 25, 9); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.10)"; ctx.lineWidth = 1;
+    roundRect(ctx, x - w / 2, y - 13, w, 25, 9); ctx.stroke();
+    ctx.fillStyle = COL.player; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(s, x, y);
   }
+  function dot(x, y, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
-  function loadLevel(g, idx, fresh) {
-    var def = LEVELS[idx];
-    var seed = (g.runSeed ^ ((idx + 1) * 0x85EBCA6B) ^ (g.retry * 0x27D4EB2F)) >>> 0;
-    g.lv = buildLevel(def, seed, g.modeId);
-    g.levelIndex = idx;
-    g.patrols = g.lv.patrols;
-    g.player.x = (g.lv.spawn.x + 0.5) * TUNE.TILE;
-    g.player.y = (g.lv.spawn.y + 0.5) * TUNE.TILE;
-    g.player.face = -Math.PI / 2;
-    g.hasFolder = false; g.folderTaken = false;
-    g.disguiseUntil = -99;
-    g.coffeeCd = 0; g.coffeeActive = false;
-    g.elev = { state: g.lv.elevator ? "idle" : "open", at: 0 };
-    g.phase = "play";
-    g.seenBy = null; g.near = null;
-    g.clear = null;
-    if (fresh) { g.timeLeft = g.mode.time; g.timeUsed = 0; g.cleared = 0; g.caught = 0; g.ghost = true; }
-  }
-
-  function pushToast(g, s, col) { g.toast.push({ s:s, col: col || COL.exit, t: 1.8 }); if (g.toast.length > 4) g.toast.shift(); }
-
-  /* ── 画布尺寸：按关卡宽高比铺满面板 ── */
+  /* 画布尺寸：宽度贴着面板，高度给一个 5:3 的横向取景框。
+     视野（view.w/h）是"画布里装得下多少世界像素"，相机再按规格夹在世界内。 */
   function fitCanvas() {
-    if (!cv || !hostEl || !G || !G.lv) return;
+    if (!cv || !hostEl) return;
+    if (!G || !G.view) return;
     var rect = hostEl.getBoundingClientRect ? hostEl.getBoundingClientRect() : null;
     var avail = Math.max(560, Math.round((rect && rect.width) || 900));
-    var lv = G.lv;
-    W = Math.min(avail, 980);
-    H = Math.round(W * lv.h / lv.w);
-    if (H > 640) { H = 640; W = Math.round(H * lv.w / lv.h); }
+    W = Math.min(avail, 1000);
+    H = Math.max(320, Math.round(W * 0.60));
     cv.width = W; cv.height = H;
     cv.style.width = "100%"; cv.style.height = H + "px";
-    var s = Math.min(W / (lv.w * TUNE.TILE), H / (lv.h * TUNE.TILE));
-    G.view.scale = s;
-    G.view.ox = (W - lv.w * TUNE.TILE * s) / 2;
-    G.view.oy = (H - lv.h * TUNE.TILE * s) / 2;
+    var vw = 1200;                       /* 一屏看到 1200 世界像素宽 */
+    G.view.w = vw; G.view.h = H / (W / vw); G.view.scale = W / vw;
+  }
+  /* 摄像机（规格 §1.1）：cx=clamp(0, 3000-vw, player.x-vw/2)。 */
+  function camFollow(g) {
+    g.view.x = clampCam(g.player.x - g.view.w / 2, WORLD_W, g.view.w);
+    g.view.y = clampCam(g.player.y - g.view.h / 2, WORLD_H, g.view.h);
+  }
+  function viewRect(g, pad) {
+    pad = pad || 0;
+    return { x0:g.view.x - pad, y0:g.view.y - pad,
+             x1:g.view.x + g.view.w + pad, y1:g.view.y + g.view.h + pad };
   }
 
   function render() {
-    if (!G || !ctx || !G.lv) return;
-    var g = G, lv = g.lv, T = TUNE.TILE, s = g.view.scale, ox = g.view.ox, oy = g.view.oy;
-    var i, x, y;
+    if (!G || !ctx) return;
+    var g = G, s = g.view.scale;
+    camFollow(g);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = COL.hud; ctx.fillRect(0, 0, W, H);
     ctx.save();
-    ctx.translate(ox, oy); ctx.scale(s, s);
+    ctx.translate(-g.view.x * s, -g.view.y * s);
+    ctx.scale(s, s);                         /* 之后一律用世界像素坐标画 */
+    drawFloor(g);
+    drawWalls(g);
+    drawMarkers(g);
+    drawCones(g);
+    drawNpcs(g);
+    drawPlayer(g);
+    ctx.restore();
+    drawLabels(g);
+    drawHud(g);
+  }
 
-    /* 地板 */
-    for (y = 0; y < lv.h; y++) {
-      for (x = 0; x < lv.w; x++) {
-        var ch = lv.grid[y][x];
-        if (ch === "#") continue;
-        ctx.fillStyle = ((x + y) % 2 === 0) ? COL.floorA : COL.floorB;
-        ctx.fillRect(x * T, y * T, T, T);
-      }
-    }
-    /* 出口：绿色出口的地面光 */
-    for (i = 0; i < lv.exit.length; i++) {
-      var ex = lv.exit[i];
-      var pulse = 0.25 + 0.18 * Math.sin(g.timeUsed * 3 + i);
-      ctx.fillStyle = "rgba(93,255,160," + pulse.toFixed(3) + ")";
-      ctx.fillRect(ex.x * T, ex.y * T, T, T);
-      if (g.elev.state === "arrived") {
-        ctx.strokeStyle = COL.exit; ctx.lineWidth = 2.5;
-        ctx.strokeRect(ex.x * T + 1, ex.y * T + 1, T - 2, T - 2);
-      }
-    }
-    /* 茶水间目标点 */
-    for (i = 0; i < lv.lounge.length; i++) {
-      var lg = lv.lounge[i];
-      ctx.fillStyle = "rgba(77,216,255,.10)";
-      ctx.fillRect(lg.x * T, lg.y * T, T, T);
-    }
-    /* 咖啡机 */
-    for (i = 0; i < lv.coffee.length; i++) {
-      var cf = lv.coffee[i];
-      ctx.fillStyle = g.coffeeActive ? COL.coffeeOn : COL.coffee;
-      roundRect(ctx, cf.x * T + T * 0.14, cf.y * T + T * 0.14, T * 0.72, T * 0.72, T * 0.12);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,.55)";
-      ctx.fillRect(cf.x * T + T * 0.3, cf.y * T + T * 0.24, T * 0.4, T * 0.16);
-      if (g.coffeeActive) {
-        ctx.fillStyle = "rgba(255,176,60,.16)";
-        ctx.beginPath(); ctx.arc(cf.x * T + T / 2, cf.y * T + T / 2, T * 1.5, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    /* 文件夹 */
-    for (i = 0; i < lv.folders.length; i++) {
-      var fd = lv.folders[i];
-      if (fd.taken) continue;
-      ctx.fillStyle = COL.folder;
-      ctx.save();
-      ctx.translate(fd.x * T + T / 2, fd.y * T + T / 2);
-      ctx.rotate(-0.18);
-      ctx.fillRect(-T * 0.26, -T * 0.32, T * 0.52, T * 0.64);
-      ctx.fillStyle = "#c9a24a";
-      ctx.fillRect(-T * 0.26, -T * 0.32, T * 0.52, T * 0.13);
-      ctx.restore();
-      ctx.fillStyle = "rgba(233,227,209,.10)";
-      ctx.beginPath(); ctx.arc(fd.x * T + T / 2, fd.y * T + T / 2, T * 0.9, 0, Math.PI * 2); ctx.fill();
-    }
-    /* 工位 / 隔板 / 墙 */
-    for (y = 0; y < lv.h; y++) {
-      for (x = 0; x < lv.w; x++) {
-        var c2 = lv.grid[y][x];
-        if (c2 === "D") {
-          ctx.fillStyle = COL.desk; ctx.fillRect(x * T + 2, y * T + 2, T - 4, T - 4);
-          ctx.fillStyle = COL.deskTop; ctx.fillRect(x * T + 4, y * T + 4, T - 8, T * 0.34);
-          ctx.fillStyle = "rgba(0,0,0,.30)"; ctx.fillRect(x * T + 4, y * T + T * 0.62, T - 8, T * 0.24);
-        } else if (c2 === "p") {
-          /* 半高隔板：画成一条带阴影的窄条，视觉上就"能看过去但挡住视线" */
-          ctx.fillStyle = COL.part; ctx.fillRect(x * T + 1, y * T + T * 0.3, T - 2, T * 0.28);
-          ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(x * T + 1, y * T + T * 0.58, T - 2, T * 0.1);
-        } else if (c2 === "#") {
-          ctx.fillStyle = COL.wall; ctx.fillRect(x * T, y * T, T, T);
-          ctx.fillStyle = COL.wallTop; ctx.fillRect(x * T, y * T, T, T * 0.16);
+  function drawFloor(g) {
+    var b = g.map.bounds, v = viewRect(g, 80), x, y;
+    ctx.fillStyle = COL.floorA;
+    ctx.fillRect(b[0] - 200, b[1] - 200, (b[2] - b[0]) + 400, (b[3] - b[1]) + 400);
+    ctx.fillStyle = COL.floorB;
+    var x0 = Math.max(b[0], Math.floor(v.x0 / 100) * 100), x1 = Math.min(b[2], v.x1);
+    var y0 = Math.max(b[1], Math.floor(v.y0 / 100) * 100), y1 = Math.min(b[3], v.y1);
+    for (y = y0; y < y1; y += 100) {
+      for (x = x0; x < x1; x += 100) {
+        if ((Math.round(x / 100) + Math.round(y / 100)) % 2 === 0) {
+          ctx.fillRect(x, y, Math.min(100, b[2] - x), Math.min(100, b[3] - y));
         }
       }
     }
+    ctx.strokeStyle = COL.grid; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (x = Math.max(b[0], Math.floor(v.x0 / 200) * 200); x < Math.min(b[2], v.x1); x += 200) {
+      ctx.moveTo(x, Math.max(b[1], v.y0)); ctx.lineTo(x, Math.min(b[3], v.y1));
+    }
+    for (y = Math.max(b[1], Math.floor(v.y0 / 200) * 200); y < Math.min(b[3], v.y1); y += 200) {
+      ctx.moveTo(Math.max(b[0], v.x0), y); ctx.lineTo(Math.min(b[2], v.x1), y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = COL.bound; ctx.lineWidth = 3;
+    ctx.strokeRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+  }
 
-    /* 视野锥：**按掩体真实裁剪**（见 conePoly 的注释） */
-    for (i = 0; i < g.patrols.length; i++) {
-      var p = g.patrols[i];
-      var pts = conePoly(lv, p);
-      var hot = !!p.sees;
+  function drawWalls(g) {
+    var w = g.map.walls, v = viewRect(g, 100), i;
+    for (i = 0; i < w.length; i++) {
+      var a = w[i];
+      if (a[0] > v.x1 || a[0] + a[2] < v.x0 || a[1] > v.y1 || a[1] + a[3] < v.y0) continue;
+      ctx.fillStyle = COL.wall; ctx.fillRect(a[0], a[1], a[2], a[3]);
+      ctx.fillStyle = COL.wallTop; ctx.fillRect(a[0], a[1], a[2], Math.min(12, a[3] * 0.18));
+      ctx.strokeStyle = COL.wallLine; ctx.lineWidth = 2;
+      ctx.strokeRect(a[0] + 1, a[1] + 1, a[2] - 2, a[3] - 2);
+    }
+  }
+
+  /* 五个关键点（规格 §6.5）：它们就是玩法全部的可交互物。 */
+  function drawMarkers(g) {
+    var p = g.map.points;
+    /* 出生点：地面标记环 */
+    ctx.strokeStyle = "rgba(99,213,195,.75)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(p.start.x, p.start.y, 23, 9, 0, 0, Math.PI * 2); ctx.stroke();
+    /* 打印区 */
+    ctx.fillStyle = g.fileTaken ? "#4a4f66" : COL.folder;
+    roundRect(ctx, p.printer.x - 30, p.printer.y - 20, 60, 40, 6); ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,.28)"; ctx.fillRect(p.printer.x - 30, p.printer.y - 6, 60, 6);
+    /* 工位 */
+    ctx.fillStyle = g.hidden ? "#7fd6ba" : "#3b3f52";
+    roundRect(ctx, p.seat.x - 30, p.seat.y - 20, 60, 40, 6); ctx.fill();
+    ctx.fillStyle = g.hidden ? "rgba(255,255,255,.35)" : "#4a4f66";
+    ctx.fillRect(p.seat.x - 24, p.seat.y - 14, 48, 12);
+    /* 咖啡机 */
+    ctx.fillStyle = g.lure > 0 ? COL.coffeeOn : COL.coffee;
+    roundRect(ctx, p.distraction.x - 26, p.distraction.y - 22, 52, 44, 8); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.fillRect(p.distraction.x - 16, p.distraction.y - 14, 32, 10);
+    if (g.lure > 0) {
+      ctx.fillStyle = "rgba(255,176,60,.16)";
+      ctx.beginPath(); ctx.arc(p.distraction.x, p.distraction.y, 95, 0, Math.PI * 2); ctx.fill();
+    }
+    /* 电梯：open 时按规格画门口高亮 */
+    var L = p.lift, open = g.lift === "open";
+    if (open) { ctx.fillStyle = "rgba(63,243,211,.13)"; ctx.fillRect(L.x - 40, L.y - 90, 80, 110); }
+    ctx.fillStyle = open ? "rgba(117,241,207,.34)" : "rgba(117,241,207,.12)";
+    ctx.fillRect(L.x - 38, L.y - 38, 76, 76);
+    ctx.strokeStyle = open ? COL.lift : "rgba(117,241,207,.55)"; ctx.lineWidth = 3;
+    ctx.strokeRect(L.x - 38, L.y - 38, 76, 76);
+  }
+
+  /* 视野锥：按墙真实裁剪（conePoly 在几何层）。颜色按威胁切换（规格 §1.1）。 */
+  function drawCones(g) {
+    for (var i = 0; i < g.npcs.length; i++) {
+      var n = g.npcs[i];
+      if (!isDrawable(g, n)) continue;
+      var pts = conePoly(n, g.map), k;
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
-      for (var k = 1; k < pts.length; k++) ctx.lineTo(pts[k].x, pts[k].y);
+      for (k = 1; k < pts.length; k++) ctx.lineTo(pts[k].x, pts[k].y);
       ctx.closePath();
-      ctx.fillStyle = hot ? "rgba(255,77,109,.30)" : COL.cone;
+      var hot = !!n.sees || g.suspicion > 60;
+      ctx.fillStyle = hot ? COL.coneHot : COL.cone;
       ctx.fill();
-      ctx.strokeStyle = hot ? "rgba(255,77,109,.6)" : COL.coneEdge;
-      ctx.lineWidth = 1.6; ctx.stroke();
+      ctx.strokeStyle = hot ? COL.coneHotEdge : COL.coneEdge;
+      ctx.lineWidth = 2; ctx.stroke();
     }
-
-    /* 巡逻者 */
-    for (i = 0; i < g.patrols.length; i++) {
-      var q = g.patrols[i];
-      var r = T * 0.30;
-      ctx.fillStyle = "rgba(0,0,0,.35)";
-      ctx.beginPath(); ctx.ellipse(q.x, q.y + r * 0.5, r * 1.05, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = q.sees ? COL.alert : "#8a3b4a";
-      ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#f0d8c0";
-      ctx.beginPath(); ctx.arc(q.x, q.y, r * 0.52, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(q.x + Math.cos(q.angle) * r * 0.7, q.y + Math.sin(q.angle) * r * 0.7);
-      ctx.lineTo(q.x + Math.cos(q.angle) * r * 1.5, q.y + Math.sin(q.angle) * r * 1.5);
-      ctx.stroke();
-    }
-
-    /* 玩家 */
-    var pl = g.player;
-    var pr = T * 0.32;
-    var disg = g.timeUsed < g.disguiseUntil;
-    ctx.fillStyle = "rgba(0,0,0,.4)";
-    ctx.beginPath(); ctx.ellipse(pl.x, pl.y + pr * 0.5, pr * 1.05, pr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-    /* 走路的上下摆动：一眼能看出"在动" */
-    var bob = pl.moving ? Math.sin(pl.step * 11) * pr * 0.10 : 0;
-    ctx.save();
-    ctx.translate(pl.x, pl.y + bob);
-    ctx.rotate(pl.face + Math.PI / 2);
-    ctx.fillStyle = disg ? "#4dd8ff" : COL.playerDark;
-    roundRect(ctx, -pr * 0.62, -pr * 0.5, pr * 1.24, pr * 1.5, pr * 0.4); ctx.fill();
-    ctx.fillStyle = disg ? "#bff0ff" : COL.player;
-    ctx.beginPath(); ctx.arc(0, -pr * 0.62, pr * 0.52, 0, Math.PI * 2); ctx.fill();
-    if (disg) {
-      /* 伪装中：手里举着文件夹挡脸 */
-      ctx.fillStyle = COL.folder;
-      ctx.fillRect(-pr * 0.62, -pr * 1.35, pr * 1.24, pr * 0.72);
-      ctx.fillStyle = "#c9a24a";
-      ctx.fillRect(-pr * 0.62, -pr * 1.35, pr * 1.24, pr * 0.16);
-    }
-    ctx.restore();
-    if (disg) {
-      ctx.strokeStyle = "rgba(77,216,255,.55)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(pl.x, pl.y, pr * 1.9, 0, Math.PI * 2); ctx.stroke();
-    }
-
-    /* 可交互高亮 */
-    if (g.near) {
-      ctx.strokeStyle = "rgba(255,215,110,.9)"; ctx.lineWidth = 2;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeRect(g.near.x * T + 1, g.near.y * T + 1, T - 2, T - 2);
-      ctx.setLineDash([]);
-    }
-    ctx.restore();
-
-    drawHud();
   }
 
-  /* ── HUD + 小地图 ── */
-  function drawHud() {
-    var g = G, lv = g.lv, pad = 10;
-    /* 时间条：三关共用，倒计时 */
-    var frac = limit(g.timeLeft / g.mode.time, 0, 1);
-    var bw = Math.round(W * 0.46), bx = Math.round((W - bw) / 2), by = pad;
-    ctx.fillStyle = "rgba(255,255,255,.10)"; roundRect(ctx, bx, by, bw, 9, 4); ctx.fill();
-    ctx.fillStyle = frac > 0.35 ? COL.exit : COL.alert;
-    roundRect(ctx, bx, by, Math.max(2, bw * frac), 9, 4); ctx.fill();
-    txt("剩余 " + Math.ceil(g.timeLeft) + " 秒 · 三关共用", W / 2, by + 22, 12.5,
-        frac > 0.35 ? "rgba(233,227,209,.85)" : COL.alert, "center", "normal");
+  function npcColor(id) { return id === "supervisor" ? COL.shop : id === "boss" ? COL.boss : COL.guard; }
+  function npcLabel(id) { return id === "supervisor" ? "主管" : id === "boss" ? "老板" : id === "coworker" ? "" : "巡查员"; }
 
-    txt("第 " + (g.levelIndex + 1) + " / " + LEVELS.length + " 关 · " + lv.name, pad, pad + 10, 14, COL.exit);
-    txt("已过 " + g.cleared + " 关" + (g.caught ? " · 被抓 " + g.caught + " 次" : " · 还没被发现"), pad, pad + 30, 12, "rgba(233,227,209,.62)", "left", "normal");
-
-    var disg = g.timeUsed < g.disguiseUntil;
-    var st = disg ? ("伪装中 " + (g.disguiseUntil - g.timeUsed).toFixed(1) + "s")
-      : (g.hasFolder ? "空格 使用文件夹" : (g.folderTaken ? "文件夹已用完" : "去打印区拿文件夹"));
-    txt(st, W - pad, pad + 10, 13, disg ? "#4dd8ff" : (g.hasFolder ? COL.folder : "rgba(233,227,209,.55)"), "right");
-
-    /* 电梯状态 */
-    var el = lv.elevator ? {
-      idle: "E 呼叫电梯", calling: "电梯到达中… " + Math.max(0, TUNE.ELEV_WAIT - (g.timeUsed - g.elev.at)).toFixed(1) + "s",
-      arrived: "电梯到了！靠近门口按 E", open: "E 进入电梯"
-    }[g.elev.state] : "走到绿色出口即下班";
-    txt(el, W - pad, pad + 30, 12.5, g.elev.state === "arrived" ? COL.exit : "rgba(233,227,209,.62)", "right", "normal");
-
-    /* 小地图（原作 `绿色标记为本层出口`）*/
-    var mw = 118, mh = Math.round(mw * lv.h / lv.w), mx = W - mw - pad, my = H - mh - pad - 22;
-    ctx.fillStyle = "rgba(11,10,19,.72)"; roundRect(ctx, mx - 4, my - 4, mw + 8, mh + 8, 4); ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.lineWidth = 1;
-    roundRect(ctx, mx - 4, my - 4, mw + 8, mh + 8, 4); ctx.stroke();
-    var cs = mw / lv.w;
-    for (var y = 0; y < lv.h; y++) {
-      for (var x = 0; x < lv.w; x++) {
-        var ch = lv.grid[y][x];
-        if (ch === "." || ch === "@" || ch === "F" || ch === "L") continue;
-        ctx.fillStyle = (ch === "#" || ch === "D") ? "rgba(200,210,240,.22)" : "rgba(200,210,240,.12)";
-        ctx.fillRect(mx + x * cs, my + y * cs, Math.ceil(cs), Math.ceil(cs));
+  function drawNpcs(g) {
+    for (var i = 0; i < g.npcs.length; i++) {
+      var n = g.npcs[i];
+      if (!isDrawable(g, n)) continue;
+      var r = n.id === "boss" ? 20 : 18;
+      ctx.fillStyle = "rgba(0,0,0,.35)";
+      ctx.beginPath(); ctx.ellipse(n.x, n.y + 7, r * 1.05, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = n.sees ? COL.alert : npcColor(n.id);
+      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#f0d8c0";
+      ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(n.x + Math.cos(n.angle) * r * 0.7, n.y + Math.sin(n.angle) * r * 0.7);
+      ctx.lineTo(n.x + Math.cos(n.angle) * r * 1.5, n.y + Math.sin(n.angle) * r * 1.5);
+      ctx.stroke();
+      if (n.lure) {                                   /* 被咖啡机钉住：给个"分心"气泡 */
+        ctx.strokeStyle = COL.coffeeOn; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(n.x, n.y - r - 12, 7, 0, Math.PI * 2); ctx.stroke();
       }
     }
-    for (var i = 0; i < lv.exit.length; i++) {
-      ctx.fillStyle = COL.exit;
-      ctx.fillRect(mx + lv.exit[i].x * cs, my + lv.exit[i].y * cs, Math.ceil(cs) + 1, Math.ceil(cs) + 1);
-    }
-    for (i = 0; i < g.patrols.length; i++) {
-      ctx.fillStyle = "rgba(255,214,90,.9)";
-      ctx.fillRect(mx + (g.patrols[i].x / TUNE.TILE) * cs - 1, my + (g.patrols[i].y / TUNE.TILE) * cs - 1, 3, 3);
-    }
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(mx + (g.player.x / TUNE.TILE) * cs - 1.5, my + (g.player.y / TUNE.TILE) * cs - 1.5, 4, 4);
+  }
 
-    /* 提示行 */
-    var hint = null;
-    if (g.near && g.near.kind === "coffee") hint = "【E】启动咖啡机 —— 把巡逻引去茶水间";
-    else if (g.near && g.near.kind === "folder") hint = "【E】拿文件夹";
-    else if (g.near && g.near.kind === "exit") hint = lv.elevator
-      ? (g.elev.state === "idle" ? "【E】呼叫电梯" : (g.elev.state === "arrived" ? "【E】进电梯" : "电梯还在下来…"))
-      : "【E】下班！";
-    else if (g.phase === "play") hint = lv.hint;
-    if (hint) txt(hint, W / 2, H - 12, 13, COL.exit, "center");
-
-    /* 弹出提示 */
-    for (i = 0; i < g.toast.length; i++) {
-      ctx.globalAlpha = Math.min(1, g.toast[i].t * 1.5);
-      txt(g.toast[i].s, W / 2, H * 0.24 + i * 22, 16, g.toast[i].col, "center");
-      ctx.globalAlpha = 1;
+  function drawPlayer(g) {
+    var p = g.player, R0 = PLAYER_R;
+    if (!g.hidden) {
+      ctx.fillStyle = "rgba(26,35,41,.19)";
+      ctx.beginPath(); ctx.ellipse(p.x, p.y + 6, 17, 6, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = g.cover > 0 ? "#8ef0e1" : (g.hidden ? "#85cb9e" : "#ffda84");
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, 22, 8, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = g.cover > 0 ? "#bff0ff" : COL.player;
+    ctx.beginPath(); ctx.arc(p.x, p.y - 4, R0 * 0.78, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = COL.playerDark;
+    ctx.beginPath(); ctx.arc(p.x, p.y - 4, R0 * 0.42, 0, Math.PI * 2); ctx.fill();
+    var a = p.angle === undefined ? 0 : p.angle;
+    ctx.strokeStyle = "#20222c"; ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y - 4);
+    ctx.lineTo(p.x + Math.cos(a) * R0, p.y - 4 + Math.sin(a) * R0);
+    ctx.stroke();
+    if (g.hidden) {                                  /* 坐姿：椅子 */
+      ctx.fillStyle = "rgba(127,214,186,.55)";
+      roundRect(ctx, p.x - 26, p.y + 8, 52, 16, 6); ctx.fill();
     }
   }
 
-  /* ═════════════════ 7. 对局逻辑 ═════════════════ */
-
-  /* 玩家碰撞：轴分离 + 四角检测。轴分离是为了不卡在墙角（贴墙滑行是潜行的基本手感）。 */
-  function canStand(lv, x, y, r) {
-    return !isSolidW(lv, x - r, y - r) && !isSolidW(lv, x + r, y - r) &&
-           !isSolidW(lv, x - r, y + r) && !isSolidW(lv, x + r, y + r);
-  }
-
-  function updateNear(g) {
-    var lv = g.lv, pl = g.player, T = TUNE.TILE;
-    var best = null, bestD = 1e9;
-    function consider(tx, ty, kind, extra) {
-      var d = Math.sqrt(Math.pow(pl.x - (tx + 0.5) * T, 2) + Math.pow(pl.y - (ty + 0.5) * T, 2)) / T;
-      if (d > (extra || TUNE.COFFEE_REACH)) return;
-      if (d < bestD) { bestD = d; best = { x:tx, y:ty, kind:kind }; }
+  /* 文字标签：屏幕空间（字号不随摄像机缩放变），文案用规格 §7.6 原文。 */
+  function drawLabels(g) {
+    var v = g.view, s = v.scale, p = g.map.points, i, n;
+    function X(wx) { return (wx - v.x) * s; }
+    function Y(wy) { return (wy - v.y) * s; }
+    tag(X(p.printer.x), Y(p.printer.y - 42), g.fileTaken ? "已取文件" : "文件夹");
+    tag(X(p.seat.x), Y(p.seat.y - 42), g.hidden ? "伪装中" : "空工位");
+    tag(X(p.distraction.x), Y(p.distraction.y - 42), "咖啡机");
+    tag(X(p.lift.x), Y(p.lift.y - 52),
+      g.lift === "open" ? (g.floor < g.floors ? "前往二层" : "电梯已到")
+        : g.lift === "calling" ? Math.ceil(g.liftTimer) + " 秒" : "换层电梯");
+    for (i = 0; i < g.npcs.length; i++) {
+      n = g.npcs[i];
+      if (!isDrawable(g, n)) continue;
+      tag(X(n.x), Y(n.y - 40), npcLabel(n.id), 13);
     }
-    var i;
-    for (i = 0; i < lv.coffee.length; i++) consider(lv.coffee[i].x, lv.coffee[i].y, "coffee");
-    for (i = 0; i < lv.folders.length; i++) if (!lv.folders[i].taken) consider(lv.folders[i].x, lv.folders[i].y, "folder", 1.5);
-    for (i = 0; i < lv.exit.length; i++) consider(lv.exit[i].x, lv.exit[i].y, "exit", TUNE.ELEV_REACH);
-    g.near = best;
+    var pl = g.player;
+    tag(X(pl.x), Y(pl.y - 46),
+      g.hidden ? "正在假装工作" : (g.cover > 0 ? "送材料 " + Math.ceil(g.cover) + "s" : "你"), 13);
+    if (NEAR) tag(X(NEAR.x), Y(NEAR.y + 66), "E  " + NEAR.label, 15);
   }
 
+  /* ── HUD（规格 §7.6 的原文）＋ 小地图（规格 §1.1 的尺寸与配色）── */
+  function drawHud(g) {
+    var pad = 14, coverDur = g.config.coverDuration || 1;
+    txt(g.difficulty.name + "模式 / 第 " + g.level + " 关 · " + g.map.name +
+        (g.floors > 1 ? "  F" + g.floor + "/2" : ""), pad, 22, 14, COL.lift);
+    var obj;
+    if (g.lift === "open") obj = g.floor < g.floors ? "换层电梯到了，前往二层" : "电梯到了，快进去！";
+    else if (g.lift === "calling") obj = "等待电梯，留意身后";
+    else obj = "第 " + g.level + " / " + LEVELS.length + " 关 · " + g.map.name + (g.floors > 1 ? " · " + g.floor + "/2 层" : "");
+    txt(obj, pad, 46, 15, COL.marker);
+    txt(g.lift === "idle"
+      ? ((g.floor < g.floors ? "先找到电梯前往二层" : "绿色标记为本层出口") + " · 等待 " + g.config.liftWait + " 秒")
+      : "靠近电梯门，按 E 进入", pad, 68, 12.5, "rgba(233,227,209,.62)", "left", "normal");
+
+    /* 怀疑度条（规格 §7.6）：danger=被发现的当帧，hidden/cover 各自一种颜色 */
+    var danger = g.suspicion > 60, left, right, frac;
+    if (danger) { left = "已被发现"; right = "暴露"; frac = 1; }
+    else if (g.hidden) { left = "伪装中"; right = "安全"; frac = 1; }
+    else if (g.cover > 0) { left = "送材料中"; right = "伪装"; frac = limit(g.cover / coverDur, 0, 1); }
+    else { left = "巡逻视线"; right = "安全"; frac = 0; }
+    var bw = Math.min(240, W * 0.26), bx = pad, by = H - 74;
+    ctx.fillStyle = "rgba(255,255,255,.10)"; roundRect(ctx, bx, by, bw, 8, 4); ctx.fill();
+    ctx.fillStyle = danger ? "#ed7964" : "#80d6ba";
+    roundRect(ctx, bx, by, Math.max(0, bw * frac), 8, 4); ctx.fill();
+    txt(left, bx, by - 13, 12, danger ? "#ed7964" : "rgba(233,227,209,.75)", "left", "normal");
+    txt(right, bx + bw, by - 13, 12, danger ? "#ed7964" : "#80d6ba", "right");
+
+    /* 倒计时 */
+    var tleft = Math.ceil(g.time), urgent = g.time <= 20;
+    txt("剩余", pad, H - 40, 12.5, "rgba(233,227,209,.6)", "left", "normal");
+    txt((tleft < 10 ? "0" : "") + tleft + " s", pad + 36, H - 40, 21, urgent ? COL.alert : COL.player);
+
+    /* 底部按键提示 + 脚注 */
+    txt("W A S D 移动 · E 互动 · 空格 使用文件", W / 2, H - 40, 12.5, "rgba(233,227,209,.72)", "center", "normal");
+    txt("工作已完成，下班理直气壮。 躲开视线 · 临场应变 · 准点回家", W / 2, H - 16, 11.5, "rgba(233,227,209,.38)", "center", "normal");
+
+    drawMinimap(g);
+
+    /* toast（3.8s）与事件横幅（4s / 3.5s）—— 只在 playing 且还有时间时显示 */
+    if (g.phase === "playing" && g.time > 0) {
+      if (g.toastTimer > 0 && g.toast) {
+        ctx.globalAlpha = Math.min(1, g.toastTimer * 1.4);
+        tag(W / 2, H * 0.20, g.toast, 15);
+        ctx.globalAlpha = 1;
+      }
+      if (g.eventTimer > 0 && g.eventText) {
+        ctx.globalAlpha = Math.min(1, g.eventTimer);
+        tag(W / 2, H * 0.29, g.eventText, 16);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  function drawMinimap(g) {
+    var mw = Math.min(230, W * 0.25), mh = mw * 2 / 3;
+    var mx = W - mw - 16, my = 16, k = mw / WORLD_W, i, p = g.map.points;
+    ctx.fillStyle = "rgba(11,10,19,.72)";
+    roundRect(ctx, mx - 8, my - 8, mw + 16, mh + 38, 10); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.16)"; ctx.lineWidth = 1;
+    roundRect(ctx, mx - 8, my - 8, mw + 16, mh + 38, 10); ctx.stroke();
+    ctx.fillStyle = "rgba(200,210,240,.30)";
+    for (i = 0; i < g.map.walls.length; i++) {
+      var a = g.map.walls[i];
+      ctx.fillRect(mx + a[0] * k, my + a[1] * k, Math.max(1, a[2] * k), Math.max(1, a[3] * k));
+    }
+    var ids = ["start", "printer", "seat", "distraction"];
+    for (i = 0; i < ids.length; i++) dot(mx + p[ids[i]].x * k, my + p[ids[i]].y * k, 2.5, COL.marker);
+    dot(mx + p.lift.x * k, my + p.lift.y * k, 4, COL.lift);
+    for (i = 0; i < g.npcs.length; i++) {
+      var n = g.npcs[i];
+      if (!isDrawable(g, n)) continue;
+      dot(mx + n.x * k, my + n.y * k, 2.5, "rgba(255,214,90,.9)");
+    }
+    dot(mx + g.player.x * k, my + g.player.y * k, 4, COL.player);
+    txt("F" + g.floor + "/" + g.floors + " · 白点你 / 绿点电梯", mx + mw / 2, my + mh + 16, 11, "rgba(233,227,209,.55)", "center", "normal");
+  }
+
+  /* ═════════════════ 10. 对局逻辑（应用层：会话控制 + 结算） ═════════════════ */
+
+  /* 应用层的一步：读输入 → 引擎 tick → 过关/失败判定。
+     ⚠ 失败之后这里什么都不做：引擎 tick 会因为 phase!=='playing' 直接短路，
+       本函数也不能再碰 g（规格契约：失败后整个 g 字节级不变）。 */
   function step(dt) {
     var g = G;
-    if (!g || !g.lv) return;
+    if (!g) return;
     if (dt > 0.1) dt = 0.1;
-    var i, lv = g.lv;
-
-    /* 被发现后的定格：什么都不动，只等定格结束再重开本关 */
-    if (g.phase === "caught") {
-      g.timeUsed += dt;
-      if (g.timeUsed >= g.revealUntil) {
-        g.retry++;
-        loadLevel(g, g.levelIndex, false);      // 本关重来，**时限不重置**，已过关保留
-        pushToast(g, "本关重来（时限继续走）", COL.alert);
-      }
-      return;
-    }
-    if (g.phase !== "play") return;
-
-    /* ── 玩家移动 ── */
-    var ax = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-    var ay = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
-    var len = Math.sqrt(ax * ax + ay * ay);
-    var pl = g.player;
-    pl.moving = len > 0;
-    if (pl.moving) {
-      ax /= len; ay /= len;
-      pl.face = Math.atan2(ay, ax);
-      pl.step += dt;
-      var sp = TUNE.SPEED * dt;
-      var nx = pl.x + ax * sp, ny = pl.y + ay * sp;
-      if (canStand(lv, nx, pl.y, pl.r)) pl.x = nx;
-      if (canStand(lv, pl.x, ny, pl.r)) pl.y = ny;
-      pl.x = limit(pl.x, pl.r, lv.w * TUNE.TILE - pl.r);
-      pl.y = limit(pl.y, pl.r, lv.h * TUNE.TILE - pl.r);
-    }
-
-    /* ── 时间：三关共用，不会因为被抓而重置 ── */
-    g.timeUsed += dt;
-    g.timeLeft -= dt;
-    if (g.coffeeCd > 0) g.coffeeCd = Math.max(0, g.coffeeCd - dt);
-    if (g.coffeeActive && g.timeUsed > g.coffeeUntil) {
-      g.coffeeActive = false;
-      for (i = 0; i < g.patrols.length; i++) if (g.patrols[i].lure) g.patrols[i].lure = null;
-    }
-
-    /* ── 巡逻 ── */
-    for (i = 0; i < g.patrols.length; i++) stepPatrol(lv, g.patrols[i], dt, g.timeUsed, {});
-
-    /* ── 电梯计时 ── */
-    if (g.elev.state === "calling" && g.timeUsed - g.elev.at >= TUNE.ELEV_WAIT) {
-      g.elev.state = "arrived";
-      pushToast(g, "电梯到了！靠近门口按 E", COL.exit);
-      beep(880, 0.16, "triangle", 0.09);
-    }
-
-    /* ── 看见判定 ── */
-    var disguised = g.timeUsed < g.disguiseUntil;
-    var seen = anySees(lv, g.patrols, pl.x, pl.y, { disguised: disguised });
-    for (i = 0; i < g.patrols.length; i++) g.patrols[i].sees = (g.patrols[i] === seen);
-    g.seenBy = seen;
-    if (seen) {
-      /* 被发现：**立即失败**（原作就是即时失败，这是紧张感的全部来源） */
-      g.phase = "caught";
-      g.caught++; g.ghost = false;
-      g.revealUntil = g.timeUsed + TUNE.REVEAL_SEC;
-      beep(140, 0.32, "square", 0.10);
-      return;
-    }
-
-    if (g.timeLeft <= 0) { g.timeLeft = 0; endRun(g, "timeout"); return; }
-
-    updateNear(g);
-
-    /* 弹出提示寿命 */
-    for (i = g.toast.length - 1; i >= 0; i--) {
-      g.toast[i].t -= dt;
-      if (g.toast[i].t <= 0) g.toast.splice(i, 1);
-    }
-  }
-
-  /* ── E 互动 ── */
-  function interact(g) {
-    /* ⚠ 这里**不能**判 g.frozen：freeze 是只给调试钩子的"停住时间"，
-       不是暂停。把互动一起挡掉会让无头验收完全没法用（点不动 E/空格），
-       而且和玩家按 P 的语义混在一起了。 */
-    if (!g || g.phase !== "play" || g.paused) return false;
-    var n = g.near;
-    if (!n) return false;
-    if (n.kind === "folder") {
-      var i;
-      for (i = 0; i < g.lv.folders.length; i++) {
-        if (g.lv.folders[i].x === n.x && g.lv.folders[i].y === n.y && !g.lv.folders[i].taken) {
-          g.lv.folders[i].taken = true; g.hasFolder = true; g.folderTaken = true;
-          pushToast(g, "拿到文件夹 —— 进入视野前按空格伪装", COL.folder);
-          beep(660, 0.12, "triangle", 0.08);
-          updateNear(g);
-          return true;
+    if (!(dt > 0)) dt = 0;                 /* rAF 时间戳回绕/切后台回来时别把时间倒着走 */
+    if (g.phase === "playing") {
+      var ax = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+      var ay = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+      var was = g.phase;
+      tick(g, dt, { x:ax, y:ay });
+      if (g.phase === "playing") {
+        NEAR = nearInfo(g);
+        /* 视野锥染色：只在还在 playing 时更新（失败后不许再改 g 的任何字段） */
+        for (var i = 0; i < g.npcs.length; i++) {
+          var n = g.npcs[i];
+          n.sees = !g.hidden && g.cover <= 0 && !isCoworker(n) && sees(n, g.player, g.map);
         }
       }
-      return false;
-    }
-    if (n.kind === "coffee") {
-      if (g.coffeeCd > 0) { pushToast(g, "咖啡机还在响，等它凉一下", COL.alert); return false; }
-      /* 调虎离山：把巡逻引到茶水间（这是唯一能改变棋盘的动作） */
-      var lg = g.lv.lounge[0];
-      if (!lg) return false;
-      g.coffeeActive = true; g.coffeeUntil = g.timeUsed + TUNE.COFFEE_LURE_SEC;
-      g.coffeeCd = TUNE.COFFEE_LURE_SEC + TUNE.COFFEE_COOLDOWN;
-      var lured = 0;
-      for (var j = 0; j < g.patrols.length; j++) {
-        g.patrols[j].lure = { x: (lg.x + 0.5) * TUNE.TILE, y: (lg.y + 0.5) * TUNE.TILE };
-        g.patrols[j].lureUntil = g.coffeeUntil;
-        lured++;
+      if (was === "playing" && g.phase === "lost" && !g.settled) {
+        if (g.caughtBy) { g.caughtCount = (g.caughtCount || 0) + 1; g.ghost = false; }
+        endRun(g, g.caughtBy ? "caught" : "timeout");
       }
-      pushToast(g, "咖啡机响了，主管转向茶水间。趁现在！", COL.coffeeOn);
-      beep(520, 0.18, "sine", 0.08);
-      return true;
     }
-    if (n.kind === "exit") {
-      if (g.lv.elevator) {
-        if (g.elev.state === "idle") {
-          g.elev.state = "calling"; g.elev.at = g.timeUsed;
-          pushToast(g, "呼叫电梯 —— 等 " + TUNE.ELEV_WAIT + " 秒，留意身后", COL.exit);
-          beep(440, 0.16, "triangle", 0.08);
-          return true;
-        }
-        if (g.elev.state === "arrived") { finishLevel(g); return true; }
-        pushToast(g, "电梯还在下来…", COL.alert);
-        return false;
-      }
-      finishLevel(g);
-      return true;
-    }
-    return false;
+    syncWin(g);
   }
 
-  /* ── 空格：用文件夹伪装（限时免疫，不是隐身）── */
-  function useFolder(g) {
-    if (!g || g.phase !== "play" || g.paused) return false;   // 同样不判 frozen
-    if (!g.hasFolder) { pushToast(g, "还没有文件夹（打印区可拾取）", COL.alert); return false; }
-    if (g.timeUsed < g.disguiseUntil) return false;
-    g.hasFolder = false;
-    g.disguiseUntil = g.timeUsed + g.mode.disguise;
-    pushToast(g, "伪装中 " + g.mode.disguise.toFixed(1) + " 秒 —— 主管不会起疑", "#4dd8ff");
-    beep(760, 0.16, "triangle", 0.09);
-    return true;
-  }
-
-  function finishLevel(g) {
-    g.cleared++;
-    var last = (g.levelIndex >= LEVELS.length - 1);
-    g.phase = "levelclear";
-    g.clear = {
-      level: g.levelIndex + 1, last: last, name: g.lv.name,
-      used: g.timeUsed, left: g.timeLeft, caught: g.caught, ghost: g.ghost
-    };
+  /* 走进电梯那一刻（phase 变 won）只结账一次：记进度、决定"过关"还是"整轮通关"。
+     ⚠ 本关 elapsed 的入账是**规格 nextLevel 的职责**，这里不写 clearedTimes，
+       只维护应用层的 clearedCount（评级用），免得同一关被记两次。 */
+  function syncWin(g) {
+    if (g.phase !== "won" || g.counted) return;
+    g.counted = true;
+    g.clearedCount = (g.clearedCount || 0) + 1;
+    if (g.level >= LEVELS.length) { endRun(g, "allclear"); return; }
+    g.clear = { level:g.level, last:false, name:g.map.name, used:totalTime(g),
+                left:g.time, caught:g.caughtCount || 0, ghost:!!g.ghost };
+    /* 省时奖励按**每关独立时限**累计（V1 是三关共用一个池子，口径已变） */
+    g.savedTime = (g.savedTime || 0) + Math.max(0, g.config.time - g.elapsed);
+    NEAR = null;
     beep(990, 0.22, "triangle", 0.09);
-    if (last) endRun(g, "allclear");
   }
 
-  function nextLevel() {
-    var g = G;
-    if (!g || g.phase !== "levelclear" || !g.clear || g.clear.last) return;
-    loadLevel(g, g.levelIndex + 1, false);
-    pushToast(g, "第 " + (g.levelIndex + 1) + " 关 · " + g.lv.name, COL.exit);
-  }
-
+  /* 结算 —— **唯一**调用 onSettle 的地方。
+     口径不变：net = 赔付 − 入场（¥20）；练手局不调用、不收费。
+     评级（本地约定，上游没有）：三关全通且零被发现 = S、三关全通 = A、
+     过 2 关 = B、过 1 关 = C、0 关 = D。 */
   function endRun(g, why) {
-    var mode = g.mode;
-    /* ⚠ 时间分必须**按通关进度打折**：全额给的话，"一关不过、在原地躲到时间结束"
-       也能拿到满额时间分（实测 0 关却有 900 分），那就成了一个不动就赚钱的漏洞。 */
-    var progress = g.cleared / LEVELS.length;
-    var timeScore = Math.round(Math.min(TUNE.SPEED_BONUS_MAX, scoreOf("time", g.timeLeft)) * progress);
-    var ghost = (g.ghost && g.cleared === LEVELS.length);
-    var score = g.cleared * scoreOf("level") + timeScore + (ghost ? scoreOf("ghost") : 0);
-    var pay = payoutOf(score, g.modeId);
+    if (g.settled) return g.result;
+    var cleared = g.clearedCount || 0;
+    var ghostRun = !!g.ghost && !(g.caughtCount > 0);          /* 一次都没被发现 */
+    var timeScore = timeScoreFor(g.mode, g.savedTime || 0, cleared);
+    var ghost = ghostRun && cleared === LEVELS.length;
+    var score = cleared * scoreOf("level") + timeScore + (ghost ? scoreOf("ghost") : 0);
+    var pay = payoutOf(score, g.mode);
     var entry = g.practice ? 0 : TUNE.ENTRY;
     var net = pay - entry;
-    var grade = (g.cleared === LEVELS.length) ? (ghost ? "S" : "A")
-      : (g.cleared === LEVELS.length - 1 ? "B" : (g.cleared > 0 ? "C" : "D"));
+    var grade = (cleared === LEVELS.length) ? (ghost ? "S" : "A")
+      : (cleared === LEVELS.length - 1 ? "B" : (cleared > 0 ? "C" : "D"));
     g.result = {
-      why: why, mode: g.modeId, grade: grade,
-      cleared: g.cleared, levels: LEVELS.length, caught: g.caught, ghost: ghost,
-      timeUsed: Math.round(g.timeUsed), timeLeft: Math.round(g.timeLeft),
-      levelScore: g.cleared * scoreOf("level"), timeScore: timeScore,
-      ghostScore: ghost ? scoreOf("ghost") : 0,
-      score: score, pay: pay, entry: entry, net: net,
-      practice: g.practice
+      why: why, mode: g.mode, grade: grade, cleared: cleared, levels: LEVELS.length,
+      caught: g.caughtCount || 0, ghost: ghost,
+      timeUsed: Math.round(totalTime(g)), timeLeft: Math.round(g.time),
+      levelScore: cleared * scoreOf("level"), timeScore: timeScore,
+      ghostScore: ghost ? scoreOf("ghost") : 0, score: score,
+      pay: pay, entry: entry, net: net, practice: !!g.practice, message: g.message
     };
-    g.phase = "result";
+    g.settled = true;
     if (!g.practice && opts0 && typeof opts0.onSettle === "function") {
       try { opts0.onSettle(net, g.result); } catch (e) {}
     }
@@ -1203,67 +1401,172 @@
       try { opts0.onFinish(g.result); } catch (e) {}
     }
     beep(ghost ? 1180 : 620, 0.3, "triangle", 0.09);
+    return g.result;
   }
 
-  /* ── 结算面板 ── */
+  /* ── 会话控制：过一关 / 重试本关 / 重开整轮 ── */
+  function advanceLevel() {
+    var g = G;
+    if (!g) return false;
+    var next = nextLevel(g);                    /* 规格：只有 won 且有下一关才有效 */
+    if (!next) return false;
+    carryApp(g, next);
+    G = next;
+    beginPlay(next);
+    NEAR = nearInfo(next);
+    fitCanvas();
+    return true;
+  }
+  function retryRun() {
+    var g = G;
+    if (!g) return false;
+    var next = retryLevel(g);                    /* 回本关第一层 + 保留已通关 + 换新 seed */
+    carryApp(g, next);
+    G = next;
+    beginPlay(next);
+    NEAR = nearInfo(next);
+    fitCanvas();
+    return true;
+  }
+  function restartRun() {
+    G = startSession(opts0);
+    fitCanvas();
+    return true;
+  }
+  function resumeRun() {
+    if (G && G.phase === "paused") { G.phase = "playing"; NEAR = nearInfo(G); }
+    return true;
+  }
+
+  /* E：上下文互动（换层浮层 / 过关继续）。
+     ⚠ **失败后（phase==='lost'）E 与空格一律无效** —— 规格契约：被看见之后整个
+       g 对象字节级冻结，输入 / E / 空格都不能再改变任何字段。重试请用浮层上的
+       鼠标点击、或 debug.retry() / debug.restart()。 */
+  function actInteract() {
+    var g = G;
+    if (!g) return false;
+    if (g.phase === "floor-intro") return enterFloor(g);
+    if (g.phase === "won") return g.settled ? false : advanceLevel();
+    if (g.phase === "lost") return false;
+    if (g.phase === "paused") return resumeRun();
+    var r = interactAt(g);
+    if (g.phase === "playing") { NEAR = nearInfo(g); }
+    else { NEAR = null; syncWin(g); }
+    return r;
+  }
+  /* 空格：用文件夹（过关浮层上是"继续下一关"；失败后同样无效，见上） */
+  function actSpace() {
+    var g = G;
+    if (!g) return false;
+    if (g.phase === "floor-intro") return enterFloor(g);
+    if (g.phase === "won") return g.settled ? false : advanceLevel();
+    if (g.phase === "lost") return false;
+    if (g.phase === "paused") return resumeRun();
+    var r = useFile(g);
+    if (g.phase === "playing") NEAR = nearInfo(g);
+    return r;
+  }
+  /* P / Esc：暂停 ⇄ 继续（规格 §7.1；失焦也会走这里）。失败/通关后无效。 */
+  function actPause() {
+    var g = G;
+    if (!g) return false;
+    if (g.phase === "playing") { g.phase = "paused"; g.player.moving = false; return true; }
+    if (g.phase === "paused") return resumeRun();
+    return false;
+  }
+  /* 鼠标：失败后点画面 = 重试本关；过关浮层上点画面 = 继续下一关。
+     加这一条是因为"失败后 E/空格全无效"是规格契约，键盘就不能再当重试键了。 */
+  function onClick() {
+    var g = G;
+    if (!g) return;
+    if (g.phase === "lost") retryRun();
+    else if (g.phase === "won" && !g.settled) advanceLevel();
+    else if (g.phase === "floor-intro") enterFloor(g);
+  }
+
+  /* ── 浮层（规格 §7.7 的文案原文 + 本地结算数字）── */
+  function panel(pw, ph) {
+    var px = (W - pw) / 2, py = (H - ph) / 2;
+    ctx.fillStyle = "rgba(11,10,19,.78)"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = COL.panel; roundRect(ctx, px, py, pw, ph, 8); ctx.fill();
+    ctx.strokeStyle = "#c9a24a"; ctx.lineWidth = 2; roundRect(ctx, px, py, pw, ph, 8); ctx.stroke();
+    return py;
+  }
+  function row(k, v, y, pw) {
+    txt(k, W / 2 - pw / 2 + 22, y, 13, "#5b5646", "left", "normal");
+    txt(v, W / 2 + pw / 2 - 22, y, 13.5, COL.ink, "right");
+  }
+  function divider(y, pw) {
+    ctx.strokeStyle = "rgba(32,34,44,.22)"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - pw / 2 + 22, y); ctx.lineTo(W / 2 + pw / 2 - 22, y);
+    ctx.stroke();
+  }
+  function money(net) {
+    return (net > 0 ? "+" : "") + "¥" + net;
+  }
+  function moneyColor(net) { return net > 0 ? "#1c7a4a" : (net < 0 ? "#b03a4a" : COL.ink); }
+
   function drawOverlay() {
     var g = G;
     if (!g) return;
-    if (g.phase === "caught") {
-      ctx.fillStyle = "rgba(180,20,50,.30)"; ctx.fillRect(0, 0, W, H);
-      txt("被 发 现 了", W / 2, H / 2 - 14, 34, "#ff8fa3", "center");
-      txt("下班行动失败 —— 本关重来，时限继续走", W / 2, H / 2 + 26, 15, "rgba(255,255,255,.8)", "center", "normal");
+    var i, y, pw;
+
+    if (g.phase === "floor-intro") {
+      pw = 460; y = panel(pw, 260);
+      txt("地狱模式 · 第 " + g.level + " 关 · 二层", W / 2, y + 34, 12.5, "#8a836f", "center", "normal");
+      txt(g.map.name, W / 2, y + 66, 24, COL.ink, "center");
+      txt(g.message, W / 2, y + 108, 12.5, "#5b5646", "center", "normal");
+      row("剩余时间", Math.ceil(g.time) + " 秒（两层共用）", y + 142, pw);
+      row("本层巡查", (g.npcs.length - 1) + " 人", y + 166, pw);
+      txt("【空格 / E】进入第二层 →", W / 2, y + 218, 15, "#1c7a4a", "center");
       return;
     }
-    if (g.phase === "levelclear" && g.clear && !g.clear.last) {
-      panel(W, H, 380, 190);
-      var c = g.clear, y = H / 2 - 52;
-      txt("第 " + c.level + " 关 通过", W / 2, y, 20, "#5dffa0", "center");
-      row("关卡", c.name, W, y + 34);
-      row("累计用时", Math.round(c.used) + " 秒", W, y + 58);
-      row("剩余时间", Math.round(c.left) + " 秒", W, y + 82);
-      txt("【空格 / E】继续下一关", W / 2, y + 122, 14, "#20222c", "center");
+    if (g.phase === "paused") {
+      pw = 420; y = panel(pw, 180);
+      txt("深呼吸，先观察一下。", W / 2, y + 40, 13, "#8a836f", "center", "normal");
+      txt("行动暂停", W / 2, y + 76, 24, COL.ink, "center");
+      txt("老板也暂时按下了暂停键。", W / 2, y + 110, 13, "#5b5646", "center", "normal");
+      txt("【P / Esc】继续下班", W / 2, y + 146, 14, "#1c7a4a", "center");
       return;
     }
-    if (g.phase === "result" && g.result) {
-      var r = g.result;
-      panel(W, H, 420, 300);
-      var yy = H / 2 - 118;
-      txt("下 班 结 算", W / 2, yy, 20, "#20222c", "center");
-      yy += 30;
-      line(W, yy);
-      yy += 22;
-      row("通关", r.cleared + " / " + r.levels + " 关", W, yy); yy += 24;
-      row("被抓次数", String(r.caught), W, yy); yy += 24;
-      row("总用时", r.timeUsed + " 秒", W, yy); yy += 24;
-      row("剩余时间", r.timeLeft + " 秒", W, yy); yy += 24;
-      row("关卡分 + 时间分", r.levelScore + " + " + r.timeScore, W, yy); yy += 24;
-      if (r.ghostScore) { row("全程零被发现", "+" + r.ghostScore, W, yy); yy += 24; }
-      line(W, yy); yy += 22;
-      row("总分 / 评级", r.score + " · " + r.grade, W, yy); yy += 24;
-      row("赔付 − 入场", "¥" + r.pay + " − ¥" + r.entry, W, yy); yy += 30;
-      txt("净收益  " + (r.net > 0 ? "+" : "") + "¥" + r.net, W / 2, yy + 4, 20,
-          r.net > 0 ? "#1c7a4a" : (r.net < 0 ? "#b03a4a" : "#20222c"), "center");
-      txt(r.practice ? "练手局 · 不结算财富" : "【空格】再来一次 · Esc 关闭",
-          W / 2, H / 2 + 128, 13, "#8a836f", "center", "normal");
+    if (g.settled && g.result) {                    /* 结算：被抓 / 超时 / 三关全通 / 调试 */
+      var r = g.result, last_ = r.cleared === r.levels;
+      pw = 460; y = panel(pw, 344);
+      txt(last_ ? "三关全通 · 下班成功" : "第 " + g.level + " 关 · 下班任务失败",
+          W / 2, y + 28, 12.5, "#8a836f", "center", "normal");
+      txt(last_ ? "终于，自由了。" : (g.caughtBy ? "被发现了，下班失败。" : "这会，真不止五分钟。"),
+          W / 2, y + 58, 21, COL.ink, "center");
+      txt(g.message, W / 2, y + 88, 12, "#5b5646", "center", "normal");
+      if (!last_ && g.floors > 1) txt("本关将从第一层重试，已通关的关卡保留。", W / 2, y + 108, 12, "#8a836f", "center", "normal");
+      i = y + 136;
+      divider(i, pw); i += 20;
+      row("通关", r.cleared + " / " + r.levels + " 关", i, pw); i += 22;
+      row("被抓次数", String(r.caught), i, pw); i += 22;
+      row("三关总用时", r.timeUsed + " 秒", i, pw); i += 22;
+      row("剩余时间", r.timeLeft + " 秒", i, pw); i += 22;
+      row("关卡分 + 省时分", r.levelScore + " + " + r.timeScore, i, pw); i += 22;
+      if (r.ghostScore) { row("全程零被发现", "+" + r.ghostScore, i, pw); i += 22; }
+      divider(i, pw); i += 20;
+      row("总分 / 评级", r.score + " · " + r.grade, i, pw); i += 22;
+      row("赔付 − 入场", "¥" + r.pay + " − ¥" + r.entry, i, pw); i += 26;
+      txt("净收益  " + money(r.net), W / 2, i, 20, moneyColor(r.net), "center");
+      txt(r.practice ? "练手局 · 不结算财富 · 点击画面重试第 " + g.level + " 关"
+                     : "点击画面重试第 " + g.level + " 关",
+          W / 2, y + 322, 12.5, "#8a836f", "center", "normal");
+      return;
     }
-  }
-  function panel(w, h, pw, ph) {
-    var px = (w - pw) / 2, py = (h - ph) / 2;
-    ctx.fillStyle = "rgba(11,10,19,.78)"; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = "#f4efe2"; roundRect(ctx, px, py, pw, ph, 6); ctx.fill();
-    ctx.strokeStyle = "#c9a24a"; ctx.lineWidth = 2; roundRect(ctx, px, py, pw, ph, 6); ctx.stroke();
-  }
-  function row(k, v, w, y) {
-    txt(k, w / 2 - 150, y, 13, "#5b5646", "left", "normal");
-    txt(v, w / 2 + 150, y, 13.5, "#20222c", "right");
-  }
-  function line(w, y) {
-    ctx.strokeStyle = "rgba(32,34,44,.22)"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(w / 2 - 160, y); ctx.lineTo(w / 2 + 160, y); ctx.stroke();
+    if (g.phase === "won" || g.phase === "lost") {  /* 过关（还有下一关） */
+      pw = 420; y = panel(pw, 200);
+      txt("第 " + g.level + " 关完成 · " + g.map.name, W / 2, y + 34, 12.5, "#8a836f", "center", "normal");
+      txt("这一关，顺利脱身。", W / 2, y + 66, 21, COL.ink, "center");
+      row("本关用时", Math.round(g.elapsed) + " 秒", y + 108, pw);
+      row("剩余时间", Math.round(g.time) + " 秒", y + 132, pw);
+      txt("【空格 / E】继续第 " + (g.level + 1) + " 关 →", W / 2, y + 168, 14, "#1c7a4a", "center");
+    }
   }
 
-  /* ═════════════════ 8. 输入 ═════════════════ */
+  /* ═════════════════ 11. 输入 ═════════════════ */
   var KEYMAP = {
     ArrowLeft:"left", a:"left", A:"left",
     ArrowRight:"right", d:"right", D:"right",
@@ -1273,16 +1576,20 @@
   function onKeyDown(e) {
     var g = G; if (!g) return;
     var k = KEYMAP[e.key];
-    if (k) { keys[k] = true; e.preventDefault(); return; }
-    if (e.key === " " || e.key === "Spacebar" || e.code === "Space") {
-      e.preventDefault();
-      if (g.phase === "levelclear" && g.clear && !g.clear.last) { nextLevel(); return; }
-      if (g.phase === "result") { restart(); return; }
-      useFolder(g); return;
+    if (k) { keys[k] = true; if (e.preventDefault) e.preventDefault(); return; }
+    var key = e.key;
+    if (key === " " || key === "Spacebar" || e.code === "Space") {
+      if (e.preventDefault) e.preventDefault();
+      actSpace(); return;
     }
-    if (e.key === "e" || e.key === "E") { e.preventDefault(); interact(g); return; }
-    if (e.key === "p" || e.key === "P") { g.paused = !g.paused; e.preventDefault(); return; }
-    if (e.key === "Escape" && g.phase === "levelclear") nextLevel();
+    if (key === "e" || key === "E" || key === "Enter") {
+      if (e.preventDefault) e.preventDefault();
+      actInteract(); return;
+    }
+    if (key === "p" || key === "P" || key === "Escape" || key === "Esc") {
+      if (e.preventDefault) e.preventDefault();
+      actPause(); return;
+    }
   }
   function onKeyUp(e) { var k = KEYMAP[e.key]; if (k) keys[k] = false; }
 
@@ -1292,21 +1599,14 @@
     if (!lastTs) lastTs = ts;
     var dt = (ts - lastTs) / 1000;
     lastTs = ts;
-    /* frozen 是**只给调试钩子**的冻结：停掉 rAF 推进但互动照常可用，
-       与 paused（玩家按 P）不是一回事。无头验收靠它做确定性命中。 */
-    if (G && !G.paused && !G.frozen) step(dt);
+    /* frozen 是**只给调试钩子**的冻结：停掉时间推进但互动照常可用（无头验收靠它做确定性命中），
+       与 paused（玩家按 P / Esc）不是一回事。 */
+    if (G && !G.frozen) step(dt);
     render();
     drawOverlay();
-    if (G && G.paused) {
-      ctx.fillStyle = "rgba(11,10,19,.66)"; ctx.fillRect(0, 0, W, H);
-      txt("已暂停", W / 2, H / 2 - 10, 28, COL.exit, "center");
-      txt("P 继续 · Esc 关闭", W / 2, H / 2 + 24, 14, "rgba(233,227,209,.7)", "center", "normal");
-    }
   }
 
-  function restart() { G = newGame(opts0); fitCanvas(); return G; }
-
-  /* ═════════════════ 9. start / dispose / isBusy ═════════════════ */
+  /* ═════════════════ 12. start / dispose / isBusy ═════════════════ */
   function start(host, opts) {
     if (!root || !doc) return false;
     if (running) dispose();
@@ -1320,10 +1620,11 @@
     hostEl.appendChild(c);
     cv = c; ctx = c.getContext("2d");
     if (!ctx) { hostEl.innerHTML = ""; return false; }
-    G = newGame(opts0);
+    G = startSession(opts0);
     fitCanvas();
     doc.addEventListener("keydown", onKeyDown, false);
     doc.addEventListener("keyup", onKeyUp, false);
+    if (cv.addEventListener) cv.addEventListener("click", onClick, false);
     running = true; lastTs = 0;
     rafId = root.requestAnimationFrame(frame);
     return true;
@@ -1335,104 +1636,181 @@
       doc.removeEventListener("keydown", onKeyDown, false);
       doc.removeEventListener("keyup", onKeyUp, false);
     }
+    if (cv && cv.removeEventListener) cv.removeEventListener("click", onClick, false);
     if (hostEl) hostEl.innerHTML = "";
-    cv = null; ctx = null; G = null; hostEl = null; opts0 = null;
+    cv = null; ctx = null; G = null; hostEl = null; opts0 = null; NEAR = null;
     keys.left = keys.right = keys.up = keys.down = false;
     return true;
   }
   function isBusy() { return running; }
 
-  /* ═════════════════ 10. 调试钩子 ═════════════════ */
+  /* ═════════════════ 13. 调试钩子（浏览器验收脚本的接口，签名不变） ═════════════════ */
+  function legacyStatus(g) {
+    if (g.phase === "lost") return g.settled ? "result" : "caught";
+    if (g.phase === "won") return g.level >= LEVELS.length ? "result" : "levelclear";
+    return "play";
+  }
   debug.state = function () {
     if (!G) return null;
-    var g = G;
+    var g = G, mate = coworkerOf(g);
     return {
-      phase: g.phase, mode: g.modeId, level: g.levelIndex + 1, levelName: g.lv.name,
-      levels: LEVELS.length, elevator: !!g.lv.elevator,
-      cleared: g.cleared, caught: g.caught, ghost: g.ghost,
-      timeLeft: +g.timeLeft.toFixed(2), timeUsed: +g.timeUsed.toFixed(2),
+      /* ── 规格状态机 ── */
+      phase: g.phase,
+      status: legacyStatus(g),              /* V1 相位名（play/caught/levelclear/result）兼容 */
+      paused: g.phase === "paused", frozen: !!g.frozen, settled: !!g.settled,
+      mode: g.mode, level: g.level, levelName: g.map.name, levels: LEVELS.length,
+      floor: g.floor, floors: g.floors, mapId: g.mapId,
+      /* V2 三关的出口都是电梯（要呼叫、要等）—— 兼容键恒 true */
+      elevator: true,
+      /* ── 进度与经济 ── */
+      cleared: g.clearedCount || 0, caught: g.caughtCount || 0, ghost: !!g.ghost,
+      timeLeft: +g.time.toFixed(2), timeUsed: +totalTime(g).toFixed(2),
+      savedTime: +(g.savedTime || 0).toFixed(2),
+      /* ── 玩家 ── */
       px: +g.player.x.toFixed(1), py: +g.player.y.toFixed(1),
-      hasFolder: g.hasFolder, folderTaken: g.folderTaken,
-      disguised: g.timeUsed < g.disguiseUntil,
-      disguiseLeft: +Math.max(0, g.disguiseUntil - g.timeUsed).toFixed(2),
-      coffeeActive: g.coffeeActive, coffeeCd: +g.coffeeCd.toFixed(2),
-      elev: g.elev.state,
-      near: g.near ? { kind: g.near.kind, x: g.near.x, y: g.near.y } : null,
-      patrols: g.patrols.length, lured: g.patrols.filter(function (p) { return !!p.lure; }).length,
-      seenBy: g.seenBy ? g.seenBy.i : null,
-      result: g.result, clear: g.clear,
-      worldW: W, worldH: H
+      suspicion: +g.suspicion.toFixed(1),
+      hasFolder: !!g.file, folderTaken: !!g.fileTaken,
+      disguised: g.cover > 0, disguiseLeft: +g.cover.toFixed(2), hidden: !!g.hidden,
+      /* ── 机关 ── */
+      coffeeActive: g.lure > 0, coffeeCd: 0, lureActive: g.lure > 0,
+      bossActive: bossAwake(g), elev: g.lift, liftTimer: +g.liftTimer.toFixed(2),
+      /* ── 世界 ── */
+      near: NEAR ? { id:NEAR.id, kind:NEAR.kind, label:NEAR.label, key:NEAR.key,
+                     x:+NEAR.x.toFixed(1), y:+NEAR.y.toFixed(1) } : null,
+      patrols: g.npcs.length - (mate ? 1 : 0), npcs: g.npcs.length,
+      lured: g.lure > 0 ? 1 : 0,
+      seenBy: g.caughtBy || null,
+      result: g.result, clear: g.clear, message: g.message,
+      toast: g.toast, eventText: g.eventText, seed: g.seed, seed0: g.seed0,
+      worldW: WORLD_W, worldH: WORLD_H,
+      canvasW: W, canvasH: H,
+      camX: +(g.view ? g.view.x : 0).toFixed(1), camY: +(g.view ? g.view.y : 0).toFixed(1),
+      viewW: +(g.view ? g.view.w : 0).toFixed(1), viewH: +(g.view ? g.view.h : 0).toFixed(1)
     };
   };
-  debug.level = function () { return G ? G.lv : null; };
+  debug.level = function () {
+    if (!G) return null;
+    var g = G, m = g.map;
+    return { id:m.id, name:m.name, caption:m.caption, art:m.art, mapId:m.id, map:m,
+             index:(g.level + g.floor - 2) % MAPS.length, floor:g.floor, floors:g.floors,
+             w:WORLD_W, h:WORLD_H,
+             gridW:Math.round(WORLD_W / GRID_STEP), gridH:Math.round(WORLD_H / GRID_STEP),
+             bounds:m.bounds, walls:m.walls, points:m.points, spawns:m.spawns };
+  };
   debug.patrols = function () {
     if (!G) return [];
-    return G.patrols.map(function (p) {
-      return { i:p.i, x:+p.x.toFixed(1), y:+p.y.toFixed(1),
-               angle:+(p.angle * 180 / Math.PI).toFixed(1), mode:p.mode,
-               sees:!!p.sees, lured:!!p.lure,
-               range:Math.round(p.range), halfFov:+(p.halfFov * 180 / Math.PI).toFixed(1) };
-    });
+    var g = G, out = [];
+    for (var i = 0; i < g.npcs.length; i++) {
+      var n = g.npcs[i];
+      out.push({ i:i, id:n.id, x:+n.x.toFixed(1), y:+n.y.toFixed(1),
+                 angle:+(n.angle * 180 / Math.PI).toFixed(1), mode:"walk",
+                 sees:!!n.sees, lured:!!(n.id === "supervisor" && g.lure > 0),
+                 active:isDrawable(g, n), pause:+n.pause.toFixed(2),
+                 range:Math.round(n.range), halfFov:+(n.fov / 2 * 180 / Math.PI).toFixed(1),
+                 route:n.route ? n.route.length : 0, target:n.target });
+    }
+    return out;
   };
   debug.key = function (name, down) { if (name in keys) keys[name] = !!down; };
-  debug.keyDown = function (k) { onKeyDown({ key:k, preventDefault:function () {} }); };
+  debug.keyDown = function (k) { onKeyDown({ key:k, code:(k === " " ? "Space" : ""), preventDefault:function () {} }); };
   debug.tick = function (ms) {
     var n = Math.max(1, Math.round((ms || 16) / 16)), i;
     for (i = 0; i < n; i++) step(0.016);
+    if (G) syncWin(G);
     render(); drawOverlay();
   };
   debug.freeze = function (on) { if (G) G.frozen = (on !== false); };
   debug.unfreeze = function () { if (G) G.frozen = false; };
-  debug.pause = function () { if (G) G.paused = true; };
-  debug.resume = function () { if (G) G.paused = false; };
-  debug.restart = function (opts) { if (opts) opts0 = opts; return restart(); };
-  debug.interact = function () { return interact(G); };
-  debug.useFolder = function () { return useFolder(G); };
-  /* 把玩家瞬移到某格中心（无头验收要精确站到"咖啡机旁/电梯旁/某个巡逻者的视野里"）*/
-  debug.seek = function (tx, ty) {
+  debug.pause = function () { return actPause(); };
+  debug.resume = function () { return resumeRun(); };
+  debug.restart = function (opts) { if (opts) opts0 = opts; restartRun(); return G; };
+  debug.retry = function () { return retryRun(); };
+  debug.interact = function () { return actInteract(); };
+  /* ⚠ useFolder 是**纯粹的"按空格用文件夹"**（旧语义），不做上下文判定；
+     要模拟玩家按空格请用 keyDown(" ")。 */
+  debug.useFolder = function () {
+    var g = G;
+    if (!g) return false;
+    var r = useFile(g);
+    if (g.phase === "playing") NEAR = nearInfo(g);
+    return r;
+  };
+  /* 世界像素瞬移（无头验收要精确站到"咖啡机旁 / 电梯旁 / 某个巡逻者面前"）。
+     ⚠ 失败后整局冻结，seek 不再移动（否则就破坏了"状态字节级不变"）。 */
+  debug.seek = function (x, y) {
     if (!G) return null;
-    G.player.x = (tx + 0.5) * TUNE.TILE;
-    G.player.y = (ty + 0.5) * TUNE.TILE;
-    updateNear(G);
-    return { x:+G.player.x.toFixed(1), y:+G.player.y.toFixed(1), near:G.near ? G.near.kind : null };
+    var g = G;
+    if (g.phase === "lost" || g.phase === "won") {
+      return { x:+g.player.x.toFixed(1), y:+g.player.y.toFixed(1), frozen:true, near:NEAR ? NEAR.id : null };
+    }
+    g.player.x = x; g.player.y = y;
+    NEAR = nearInfo(g);
+    return { x:+g.player.x.toFixed(1), y:+g.player.y.toFixed(1), near:NEAR ? NEAR.id : null };
   };
-  debug.levelDone = function () { if (G) { finishLevel(G); render(); drawOverlay(); } };
-  debug.nextLevel = function () { nextLevel(); render(); drawOverlay(); };
-  debug.finishNow = function () { if (G) { endRun(G, "debug"); render(); drawOverlay(); } };
-  debug.setTime = function (sec) { if (G) G.timeLeft = sec; };
-  debug.giveFolder = function () { if (G) { G.hasFolder = true; G.folderTaken = true; } };
-  /* 把某个巡逻者摆到指定格、朝向指定角度 —— 用来精确构造"看得见 / 看不见"的场面 */
-  debug.placePatrol = function (i, tx, ty, deg) {
-    if (!G || !G.patrols[i]) return null;
-    var p = G.patrols[i];
-    p.x = (tx + 0.5) * TUNE.TILE; p.y = (ty + 0.5) * TUNE.TILE;
-    p.lure = null; p.mode = "scan"; p.timer = 0; p.scanFrom = deg2rad(deg); p.angle = deg2rad(deg);
-    return { i:i, x:+p.x.toFixed(1), y:+p.y.toFixed(1), deg:deg };
+  debug.levelDone = function () {
+    var g = G;
+    if (!g) return null;
+    if (g.phase === "playing" || g.phase === "paused" || g.phase === "floor-intro") {
+      g.phase = "won"; g.player.moving = false;
+      g.message = "电梯门关上的那一刻，世界安静了。";
+      syncWin(g);
+    }
+    render(); drawOverlay();
+    return g.phase;
   };
-  /* 把所有巡逻者暂时致盲（视距归零）—— 无头验收要单独验"电梯/出口"这类流程机制时，
-     得先把潜行层隔离掉：否则等待电梯的那几秒里被巡逻抓到，本关重开会把电梯状态复位，
-     测出来的失败是"被抓"而不是"电梯坏了"。 */
+  debug.nextLevel = function () { var ok = advanceLevel(); render(); drawOverlay(); return ok; };
+  debug.finishNow = function () {
+    var r = G ? endRun(G, "debug") : null;
+    render(); drawOverlay();
+    return r;
+  };
+  debug.setTime = function (sec) { if (G && G.phase !== "lost") G.time = sec; };
+  debug.giveFolder = function () {
+    if (!G) return null;
+    G.file = true; G.fileTaken = true;
+    if (G.phase === "playing") NEAR = nearInfo(G);
+    return true;
+  };
+  /* 把某个 NPC 摆到世界坐标 (x,y)、朝向 deg（0=向右）。
+     ⚠ 摆老板会顺手把 bossDelay 清零：否则它在普通模式前 12 秒**不动、不绘制、抓不到人**，
+       无头验收会以为"摆了个人却怎么都看不见我"。 */
+  debug.placePatrol = function (i, x, y, deg) {
+    if (!G || !G.npcs[i]) return null;
+    var g = G, n = g.npcs[i];
+    if (g.phase === "lost") return null;
+    n.x = x; n.y = y; n.route = []; n.target = 0; n.pause = 0;
+    n.angle = (deg === undefined ? 0 : deg) * Math.PI / 180;
+    if (n.id === "supervisor") g.lure = 0;        /* 被引诱的主管只认咖啡机，摆位会被覆盖 */
+    if (n.id === "boss") { g.config.bossDelay = 0; g.eventAt = g.elapsed; }
+    NEAR = nearInfo(g);
+    return { i:i, id:n.id, x:+n.x.toFixed(1), y:+n.y.toFixed(1), deg:deg === undefined ? 0 : deg };
+  };
+  /* 全部致盲（视距归零）：验电梯/换层这类流程时先把潜行层隔离掉，
+     否则"等待电梯的那几秒被抓"会把结论污染成"电梯坏了"。 */
   debug.blindAll = function (on) {
     if (!G) return null;
-    for (var i = 0; i < G.patrols.length; i++) {
-      G.patrols[i].range = (on === false) ? (TUNE.RANGE * G.mode.fovMul) : 0;
+    for (var i = 0; i < G.npcs.length; i++) {
+      var n = G.npcs[i];
+      n.range = (on === false) ? n.range0 : 0;
     }
-    return G.patrols.length;
+    return G.npcs.length;
   };
   debug.lifecycle = function () {
-    return { running: running, busy: isBusy(), hasCanvas: !!cv, phase: G ? G.phase : null, raf: rafId > 0 };
+    return { running:running, busy:isBusy(), hasCanvas:!!cv,
+             phase:G ? G.phase : null, raf:rafId > 0, frozen:G ? !!G.frozen : false };
   };
-  rules.conePoly = conePoly;
 
   /* ═════════════════ 导出 ═════════════════ */
   root.Clockout = {
-    version: "1.0.0",
+    version: "2.0.0",
     start: start,
     isBusy: isBusy,
     dispose: dispose,
     TUNE: TUNE,
     MODES: MODES,
     LEVELS: LEVELS,
+    MAPS: MAPS,
+    WORLD: { W: WORLD_W, H: WORLD_H },
     rules: rules,
     debug: debug
   };

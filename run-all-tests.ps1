@@ -45,10 +45,14 @@ $SUITES = @(
   [pscustomobject]@{ Layer = "logic";    Name = "开窗 · 赌石（规则+经济不变量）"; Script = "tests/jade.test.cjs";          Expect = 12 }
   # 一刀两断 · 切果（v1.33 新增）：几何/生成器/计分/模式配置 + 两条经济不变量
   [pscustomobject]@{ Layer = "logic";    Name = "一刀两断 · 切果（含经济不变量）"; Script = "tests/slash.test.cjs";         Expect = 16 }
-  # 准点下班：三关可达性 + 巡逻航线不卡死 + 视线/视野锥边界 + 时钟与奖励结构 + 经济不变量。
-  # 「时限必须 ≥ 最快可达时间」那条是回归断言 —— 第一版给地狱模式定的时限比理论最快还短，
-  # 整档在数学上不可能通关，而画面上完全看不出来。
-  [pscustomobject]@{ Layer = "logic";    Name = "准点下班（潜行规则+关卡自检）"; Script = "tests/clockout.test.cjs"; Expect = 22 }
+  # 准点下班（V2 · 3000×2000 连续世界）：规格 §8 的 11 条上游契约 + 视野锥边界 + 两条老不变量。
+  # 测试名里的「契约N」就是规格 §8 的编号，改了对照着看。
+  # 最值钱的几条：① 家具既挡路又挡视线（逐面墙验）；② 巡逻 3 关×3 模式×2 seed 各跑 1800 帧
+  # 不穿墙不卡死；③ 距离正好等于 range 算看得见、角度正好等于半角算看不见（两条等号方向相反）；
+  # ④ 失败后整个 g 对象字节级冻结；⑤ 文件夹必须提前用、cover 当帧到期当帧失效；
+  # ⑥ 地狱换层必须换到"下一张图"且整段继承剩余时间。
+  # 改 clockout.js 的 MAPS / MODES / LEVELS / 视线判定 / tick 顺序后必须重跑这一层。
+  [pscustomobject]@{ Layer = "logic";    Name = "准点下班（潜行规则+关卡自检）"; Script = "tests/clockout.test.cjs"; Expect = 74 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将系统单测";                 Script = "tests/mj-system.test.cjs";        Expect = 15 }
   [pscustomobject]@{ Layer = "logic";    Name = "麻将逻辑（最大的一套）";       Script = "tools/test/mahjong-logic.js";     Expect = 1181 }
   [pscustomobject]@{ Layer = "logic";    Name = "index.html 内联脚本语法闸";     Script = "tools/dev/check-inline.js";       Expect = 0 }
