@@ -55,6 +55,10 @@ const MODULES = [
   { file: "breakfast.js", tag: "bf"  },
   { file: "jade.js",      tag: "jd"  },   // v1.32 新增「开窗」赌石模块
   { file: "map3d.js",     tag: "map" },
+  { file: "delivery.js",  tag: "dl"  },   // 「您好，您的外卖」小区送餐模块
+  /* ⚠ nlroute.js（卡牌对决）之前漏在表外了：它改了不会让 ch 变，页面带着旧戳
+     继续跑缓存 —— 正好是这个工具要防的那件事。补进来。 */
+  { file: "nlroute.js",   tag: "nl"  },
 ];
 
 const BEGIN = "<!-- BUILD-STAMP:BEGIN -->";
@@ -184,6 +188,8 @@ function wmText(s) {
     "jd " + kb.jd + "K",
     "idx " + kb.idx + "K",
     "map " + kb.map + "K",
+    "dl " + kb.dl + "K",
+    "nl " + kb.nl + "K",
   ].join(" · ");
 }
 
@@ -315,7 +321,9 @@ if (CHECK) {
     console.error("   → 跑 `node tools/dev/stamp.js` 重新盖章；若浏览器里看到旧戳，Ctrl+Shift+R 强刷。");
   } else {
     say("✔ 版本戳一致 · build " + state.build + " · ch " + state.ch + " · " +
-      "bf " + state.sizesKB.bf + "K / mj " + state.sizesKB.mj + "K / idx " + state.sizesKB.idx + "K / map " + state.sizesKB.map + "K");
+      "bf " + state.sizesKB.bf + "K / mj " + state.sizesKB.mj + "K / jd " + state.sizesKB.jd +
+      "K / dl " + state.sizesKB.dl + "K / nl " + state.sizesKB.nl +
+      "K / idx " + state.sizesKB.idx + "K / map " + state.sizesKB.map + "K");
   }
   process.exit(problems.length ? 1 : 0);
 }

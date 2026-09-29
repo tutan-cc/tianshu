@@ -376,6 +376,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     <button id="dbgMj" style="padding:9px 22px;border:1px solid var(--cyan);color:var(--cyan);font-size:12px;letter-spacing:2px;background:rgba(77,216,255,.08)">⚑ 跳到麻将</button>
     <button id="dbgBf" style="padding:9px 22px;border:1px solid #ff9ec7;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,158,199,.08)">⚑ 跳到早餐店</button>
     <button id="dbgJade" style="padding:9px 22px;border:1px solid #c9a24a;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(201,162,74,.08)">⚑ 跳到赌石（开窗）</button>
+    <button id="dbgDeliv" style="padding:9px 22px;border:1px solid #e2762c;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(226,118,44,.08)">⚑ 跳到跑单（外卖）</button>
     <button id="dbgTalk" style="padding:9px 22px;border:1px solid var(--line);color:var(--dim);font-size:12px;letter-spacing:2px;background:rgba(255,255,255,.04)">⚑ 全部解锁</button>
   </div>
   <div class="tmeta">互动影游原型 v0.5 · 序章 + 第一章 + 第二章 · 14 节点 · 5 种小游戏 · 全台词配音<br>实拍素材来自本地素材库（授权未核实）</div>
@@ -404,6 +405,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
       <div id="mjRec" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:6px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="jadeBtn" style="border-color:#c9a24a;color:#ffd76e"><img class="gm-ico" src="art/icons/game/jade.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🪨</span> 开窗（赌石）</button>
       <div id="jadeNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
+      <button class="btn-m" id="delivBtn" style="border-color:#e2762c;color:#ffd76e"><img class="gm-ico" src="art/icons/game/delivery.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🛵</span> 您好，您的外卖</button>
+      <div id="delivNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="saveBtn">▣ 保存进度</button>
       <button class="btn-m" id="exportBtn">⇪ 导出存档</button>
       <button class="btn-m" id="importBtn">⇩ 导入存档</button>
@@ -675,11 +678,23 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 <!-- NPC 邀约条（手机消息风格，由 mahjong.js 渲染；固定在右下角，不挡沙盘） -->
 <div id="mjInviteWrap" style="position:fixed;right:18px;bottom:18px;z-index:150;display:none"></div>
 
+<!-- 您好，您的外卖（玩法与绘制都在 delivery.js，这里只给容器）
+     ⚠ 必须留在电影层之外、且带 .overlay.side —— 见上面那段注释的成因说明。 -->
+<div class="overlay side" id="deliv"><div class="panel" style="width:min(1040px,97%)">
+  <h3>您 好 ， 您 的 外 卖</h3><div class="sub2">小区环路 · 一周七天 —— 投进亮绿灯的取餐柜、擦身递给楼下等的顾客，别逆行</div>
+  <div id="delivHost"></div>
+  <div id="delivBar" style="display:flex;gap:8px;margin-top:10px">
+    <button class="mbtn" id="delivMode" style="flex:1">模 式<b id="delivModeN">单班</b></button>
+    <button class="mbtn" id="delivClose" style="flex:1">收 工</button>
+  </div>
+</div></div>
+
 <script src="three.min.js"></script>
 <script src="mahjong.js"></script>
 <script src="map3d.js"></script>
 <script src="breakfast.js"></script>
 <script src="jade.js"></script>
+<script src="delivery.js"></script>
 <script src="nlroute.js"></script>
 <script>
 "use strict";
@@ -1007,6 +1022,8 @@ const ACHV = {
   mjRival:{n:"冤家", d:"单局输光所选注码"},
   bfWin:{n:"早餐店老板", d:"在早餐店拼手速过关"},
   onedaofu:{n:"一刀富", d:"赌石单块净赚 ≥ ¥800（要蟒带+松花的高货）"},
+  delivAce:{n:"五星骑手", d:"外卖跑出 S 评级（一单不落 + 一滴不洒 + 一次不撞）"},
+  delivStreak:{n:"连送五单", d:"外卖连送 5 单（倍率封顶）"},
 };
 
 /* ═══════════════ 音频层 ═══════════════
@@ -1386,6 +1403,8 @@ function newState(){ return {version:SAVE_VER, done:[], stats:{cash:10, cha:5, p
   breakfastDay:{day:0, sent:[]}, bfWin:false, bfLast:null,
   /* ── 开窗 · 赌石：局数 / 累计净收支 / 单块最好 / 是否开出过一刀富 ── */
   jadeRuns:0, jadeNet:0, jadeBest:0, jadeJackpot:false,
+  /* ── 您好，您的外卖：局数 / 累计净收支 / 单局最好 / 是否拿过 S / 最长连送 ── */
+  delivRuns:0, delivNet:0, delivBest:0, delivAce:false, delivStreak5:false,
   rpg:{xp:0, owned:[], equipped:{hand:null,outfit:null,accessory:null}, bag:{}}, buffs:{time:0,window:0,hp:0,capital:0}}; }
 function save(){ try{ localStorage.setItem("cs2_save", JSON.stringify(S)); }catch(e){} }
 /* 唯一入口：量纲 → 引用白名单 → 状态机边界 → 子系统缺省补齐；坏档一律返回 null */
@@ -1484,6 +1503,12 @@ function restore(raw){
     out.jadeNet     = num0(s.jadeNet, 0, -99999999, 99999999);
     out.jadeBest    = num0(s.jadeBest, 0, 0, 99999999);
     out.jadeJackpot = s.jadeJackpot === true;
+    // ── 您好，您的外卖字段：同策略，旧档缺 deliv* 一律补默认值 ──
+    out.delivRuns    = num0(s.delivRuns, 0, 0, 99999);
+    out.delivNet     = num0(s.delivNet, 0, -99999999, 99999999);
+    out.delivBest    = num0(s.delivBest, 0, -99999999, 99999999);
+    out.delivAce     = s.delivAce === true;
+    out.delivStreak5 = s.delivStreak5 === true;
     return out;
   }catch(e){ return null; }
 }
@@ -1524,6 +1549,8 @@ function checkAchv(){
   if(S.mjWin) got("mjWin");
   if(S.bfWin) got("bfWin");
   if(S.jadeJackpot) got("onedaofu");
+  if(S.delivAce) got("delivAce");
+  if(S.delivStreak5) got("delivStreak");
   if(S.rpg && Object.values(S.rpg.equipped).filter(Boolean).length>=3) got("gear");
 }
 function hudTitle(){ const s=S.stats; const m=Object.entries(s).sort((a,b)=>b[1]-a[1])[0];
@@ -1539,6 +1566,7 @@ function render(){
   const recEl=$("mjRec"); if(recEl) recEl.innerHTML=mjRecordHtml();
   const bfEl=$("bfNote"); if(bfEl){ try{ bfEl.innerHTML=bfNoteHtml()+bfSinceLast(); }catch(e){ bfEl.textContent="🍳 做份早餐"; } }
   const jdEl=$("jadeNote"); if(jdEl){ try{ jdEl.innerHTML=jadeNoteHtml(); }catch(e){ jdEl.textContent="🪨 开窗（赌石）"; } }
+  const dlEl=$("delivNote"); if(dlEl){ try{ dlEl.innerHTML=delivNoteHtml(); }catch(e){ dlEl.textContent="🛵 您好，您的外卖"; } }
   const bd=$("bonds"); bd.innerHTML="";
   for(const k in BONDS){ const v=S.bonds[k]; bd.innerHTML+=`<div class="bond"><div class="face">${BONDS[k].f}</div>
     <div style="flex:1"><div class="nm">${BONDS[k].n} <span class="rl">${BONDS[k].r}</span></div>
@@ -5126,6 +5154,73 @@ $("jadeClose").addEventListener("click", ()=>{ AudioSys.click();
   if(window.Jade && Jade.isBusy()) Jade.dispose();     // 中途收摊：不结算、不吃本金
   $("jade").classList.remove("on"); render(); });
 
+/* ═══════════════ 您好，您的外卖（玩法与绘制都在 delivery.js，这里只负责接 S / toast） ═══════════════
+   结算口径：**整局一次性结算**（不是每天结）—— net = 赔付 − 入场 ¥20 − 违规罚款。
+   中途点「收工」= dispose = 不结算、也不收入场费，与开窗"中途收摊不吃本金"同口径。
+   逆行只扣钱、不加分：这条不是靠这里记得不加，而是 delivery.js 的 SCORE_TABLE 里
+   根本没有 violation 这一项（结构上就加不了分，单测有断言守着）。 */
+const DELIV_MODES = ["shift","rush","week"];
+let delivMode = "shift";
+function delivModeName(){
+  const M = (window.Delivery && Delivery.MODES) ? Delivery.MODES : null;
+  return (M && M[delivMode] && M[delivMode].n) || "单班";
+}
+function delivNoteHtml(){
+  const r = S.delivRuns || 0;
+  const entry = (window.Delivery && Delivery.TUNE) ? Delivery.TUNE.ENTRY : 20;
+  if(!r) return `🛵 您好，您的外卖 · 小区跑单（入场 ¥${entry}）<br>`+
+    `<span style="color:var(--dim)">绿灯柜才投 · 时机踩准星环绿区 · 别逆行（省时间但吃罚款）</span>`;
+  const net = S.delivNet || 0;
+  const col = net>0 ? "var(--green)" : (net<0 ? "var(--red)" : "var(--dim)");
+  const best = S.delivBest>0 ? "+¥"+S.delivBest : (S.delivBest<0 ? "−¥"+(-S.delivBest) : "—");
+  return `🛵 外卖：<b>${r}</b> 局 · 累计 <b style="color:${col}">${net>0?"+":""}¥${net}</b><br>`+
+    `<span style="color:var(--dim)">单局最好 ${best}${S.delivAce?" · ✦ 拿过 S":""}${S.delivStreak5?" · 连送 5 单":""}</span>`;
+}
+function openDelivery(practice){
+  if(!window.Delivery){ toast("外卖模块未加载（缺 delivery.js）"); return false; }
+  AudioSys.init(); AudioSys.click();
+  if(Delivery.isBusy()){ $("deliv").classList.add("on"); return true; }
+  const entry = Delivery.TUNE.ENTRY;
+  let prac = !!practice;
+  if(!prac && S.stats.cash < entry){
+    prac = true;
+    toast(`财富不足（外卖租车 ¥${entry}，当前 ¥${S.stats.cash}）—— 这次给你跑<b>练手局</b>，不结算财富`);
+  }
+  $("deliv").classList.add("on");
+  $("delivModeN").textContent = delivModeName();
+  const ok = Delivery.start($("delivHost"), {
+    practice: prac, mode: delivMode,
+    cash:  ()=>S.stats.cash,
+    phys:  ()=>S.stats.phy,
+    intel: ()=>S.stats.int,
+    onSettle: (net, info)=>{
+      if(prac) return;                                  // 练手局：不落账
+      S.stats.cash = Math.max(0, S.stats.cash + net);
+      S.delivRuns = (S.delivRuns||0) + 1;
+      S.delivNet  = (S.delivNet||0) + net;
+      if(net > (S.delivBest||0)) S.delivBest = net;
+      if(info && info.grade === "S") S.delivAce = true;
+      if(info && info.bestStreak >= 5) S.delivStreak5 = true;
+      save(); render(); checkAchv();
+      const why = { mistakes:"撞满 3 次，当班结束", weekDone:"跑完一周", debug:"调试结束" }[info && info.why] || "收工";
+      toast(`🛵 ${why}：${info.grade} 级 · 送达 ${info.delivered}/${info.total} · 净 <b>${net>0?"+":""}¥${net}</b>`);
+    },
+    onFinish: (sum)=>{ window.__cs2.deliv = sum; }
+  });
+  if(!ok){ $("deliv").classList.remove("on"); toast("外卖模块启动失败（详见控制台）"); }
+  return ok;
+}
+$("delivBtn").addEventListener("click", ()=>{ openDelivery(); });
+$("delivMode").addEventListener("click", ()=>{
+  AudioSys.click();
+  if(window.Delivery && Delivery.isBusy()){ toast("跑单中不能换模式，先收工"); return; }
+  delivMode = DELIV_MODES[(DELIV_MODES.indexOf(delivMode)+1) % DELIV_MODES.length];
+  $("delivModeN").textContent = delivModeName();
+});
+$("delivClose").addEventListener("click", ()=>{ AudioSys.click();
+  if(window.Delivery && Delivery.isBusy()) Delivery.dispose();   // 中途收工：不结算、不收入场费
+  $("deliv").classList.remove("on"); render(); });
+
 /* ── 章末卡 ── */
 const CHN=["序章","第一章","第二章","第三章"];
 function showEndcard(){
@@ -5254,6 +5349,24 @@ window.__cs2 = {
   jadeNext: ()=> (window.Jade ? Jade.debug.next() : false),
   jadeFinish: ()=> (window.Jade ? Jade.debug.finishNow() : false),
   openJade: openJade,
+  /* 您好，您的外卖钩子（浏览器验收脚本用）—— 同样直接转发 Delivery.debug */
+  get deliv(){ return (window.Delivery && Delivery.debug) ? Delivery.debug : null; },
+  get delivState(){ return (window.Delivery && Delivery.debug) ? Delivery.debug.state() : null; },
+  get delivLifecycle(){ return (window.Delivery && Delivery.debug) ? Delivery.debug.lifecycle() : null; },
+  delivTick:  (ms)=> (window.Delivery ? Delivery.debug.tick(ms) : null),
+  delivAct:   (k)=>  (window.Delivery ? Delivery.debug.act(k) : null),
+  delivKey:   (k)=>  (window.Delivery ? Delivery.debug.keyDown(k) : null),
+  delivAim:   (i,t)=> (window.Delivery ? Delivery.debug.aimAt(i,t) : null),
+  delivAimDecoy: (i,t)=> (window.Delivery ? Delivery.debug.aimAtDecoy(i,t) : null),
+  delivLateral: (x)=> (window.Delivery ? Delivery.debug.setLateral(x) : null),
+  delivBag:   (n)=>  (window.Delivery ? Delivery.debug.setBag(n) : null),
+  delivGoto:  (i,f)=> (window.Delivery ? Delivery.debug.gotoSeg(i,f) : null),
+  delivGuards:()=>    (window.Delivery ? Delivery.debug.guards() : null),
+  delivDog:   ()=>   (window.Delivery ? Delivery.debug.spawnDog() : null),
+  delivFinishDay: ()=> (window.Delivery ? Delivery.debug.finishDay() : null),
+  delivNextDay:   ()=> (window.Delivery ? Delivery.debug.nextDay() : null),
+  delivFinish:    ()=> (window.Delivery ? Delivery.debug.finishNow() : null),
+  openDelivery: openDelivery,
 };
 
 /* ═══════════════ 启动 ═══════════════ */
@@ -5277,6 +5390,8 @@ $("dbgBf").addEventListener("click",()=>{ enterGame();
    练手局不结算财富，所以新档（只有 ¥10）也能直接试玩。 */
 $("dbgJade").addEventListener("click",()=>{ enterGame();
   setTimeout(()=>{ if(openJade(true)===false) toast("赌石模块未加载（缺 jade.js）"); }, 300); });
+$("dbgDeliv").addEventListener("click",()=>{ enterGame();
+  setTimeout(()=>{ if(openDelivery(true)===false) toast("外卖模块未加载（缺 delivery.js）"); }, 300); });
 $("dbgTalk").addEventListener("click",()=>{ AudioSys.init(); CS2_DEBUG.unlockAll();
   $("title").classList.add("hide"); $("game").classList.add("on"); render(); });
 /* ═══ 进入游戏运行时（开始重生 / 各调试跳转共用，避免 S 未初始化就 render） ═══ */
@@ -5337,11 +5452,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260923-1157" data-fp="b1b943"
-     title="构建版本戳 · build 20260923-1157 · 内容指纹 b1b943（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260929-1624" data-fp="b97223"
+     title="构建版本戳 · build 20260929-1624 · 内容指纹 b97223（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260923-1157 · ch b1b943 · bf 226K · mj 320K · jd 56K · idx 331K · map 68K</div>
-<script>window.__BUILD={"build":"20260923-1157","fingerprint":"b1b943","sizes":{"idx":331,"mj":320,"bf":226,"jd":56,"map":68},"files":{"index.html":338580,"mahjong.js":327444,"breakfast.js":231571,"jade.js":56837,"map3d.js":69967},"mtimes":{"mahjong.js":1790057842446,"breakfast.js":1790135869042,"jade.js":1790135281465,"map3d.js":1789789317181},"idxContentHash":"51840b9fcd6a2dd464cbdbe0d7996d4192d6c998","idxContentBytes":337232,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260929-1624 · ch b97223 · bf 226K · mj 320K · jd 56K · idx 340K · map 68K · dl 92K · nl 54K</div>
+<script>window.__BUILD={"build":"20260929-1624","fingerprint":"b97223","sizes":{"idx":340,"mj":320,"bf":226,"jd":56,"map":68,"dl":92,"nl":54},"files":{"index.html":348129,"mahjong.js":327444,"breakfast.js":231571,"jade.js":56837,"map3d.js":69967,"delivery.js":94209,"nlroute.js":55538},"mtimes":{"mahjong.js":1790667226710,"breakfast.js":1790667226664,"jade.js":1790667226706,"map3d.js":1790667226718,"delivery.js":1790670268433,"nlroute.js":1790667226721},"idxContentHash":"9acc1f79657290e6aa2615afa77f3201aeea63c6","idxContentBytes":346651,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
