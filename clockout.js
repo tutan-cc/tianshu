@@ -603,6 +603,7 @@
     if (g.phase !== "intro") return false;
     g.phase = "playing";
     notify(g, "第 " + g.level + " 关：" + g.config.hint);
+    cue("ui-open");                     /* 载入音（上游 tone(620)） */
     return true;
   }
 
@@ -611,6 +612,7 @@
     if (g.phase !== "floor-intro") return false;
     g.phase = "playing";
     notify(g, "二层 · " + g.map.name + "：继续寻找绿色出口。");
+    cue("ui-open");
     return true;
   }
 
@@ -653,45 +655,61 @@
       if (g.hidden) { g.player.x = g.map.points.seat.x; g.player.y = g.map.points.seat.y; }
       g.player.moving = false;
       notify(g, g.hidden ? "假装加班中。按 E 起身，或移动离开。" : "继续下班行动。");
+      cue("sfx-co-seat");                        /* 坐下 / 起身：一记很轻的闷响 */
       return true;
     }
     if (p.id === "printer") {
       g.file = true; g.fileTaken = true; g.interacted++;
       notify(g, "已拿文件夹：进入视野前按空格，伪装 " + g.config.coverDuration + " 秒。");
+      cue("sfx-co-folder");                      /* 拿文件夹：交互音 + 纸张感 */
       return true;
     }
     if (p.id === "coffee") {
       g.lure = g.config.lureDuration; g.lureUsed = true; g.interacted++;
       notify(g, "咖啡机响了，主管转向茶水间。趁现在！");
+      cue("sfx-co-coffee");                      /* 开咖啡机：按钮 + 低沉嗡鸣 */
       return true;
     }
     if (p.id === "lift" && g.lift === "idle") {
       g.lift = "calling"; g.liftTimer = g.config.liftWait;
       notify(g, "电梯正在下行，留意身后！");
+      cue("sfx-co-liftcall");                    /* 呼叫电梯：按钮音 */
       return true;
     } else if (p.id === "lift" && g.lift === "open") {
-      if (g.floor < g.floors) { changeFloor(g); return true; }
+      /* 上二层：换图（phase 仍是 playing，不走过关收口）→ 这里发"进电梯"的上行三音。
+         ⚠ 最后一层进电梯不在这里发：那条路会打成 phase='won' 并被 syncWin 收口，
+           声音统一由 syncWin 发一次，否则同一帧会叠两遍。 */
+      if (g.floor < g.floors) { cue("sfx-co-clear"); changeFloor(g); return true; }
       g.phase = "won"; g.player.moving = false;
       g.message = "电梯门关上的那一刻，世界安静了。";
       return true;
     }
-    return false;   /* lift==='calling' 时按 E：什么都不发生，也没有提示（规格 §7.3） */
+    /* 只剩一种落空：lift==='calling' 时按 E（规格 §7.3 规定什么都不发生、也不提示）。
+       这是"撞不到的无效操作"，给一声短促的"无效"音，别让玩家以为是按键没生效。 */
+    if (p.id === "lift") cue("sfx-co-invalid");
+    return false;
   }
 
   /* 空格：用文件夹（规格 §7.4）。坐姿中也能用（没有 hidden 限制）。
      ⚠ 没拿文件夹时只提示、不消耗；被看见的当帧先失败、folder 保持 true。 */
   function useFile(g) {
     if (g.phase !== "playing" || captureIfSeen(g)) { settleIfLost(g); return false; }
-    if (!g.file) { notify(g, "先去打印区拿文件夹。"); return false; }
+    if (!g.file) { notify(g, "先去打印区拿文件夹。"); cue("ui-toast", 0.7); return false; }
     g.file = false; g.cover = g.config.coverDuration;
     g.suspicion = Math.max(0, g.suspicion - 35);
     g.interacted++;
     notify(g, "“我去送份材料。” " + g.config.coverDuration + " 秒内不会引起怀疑。");
+    cue("sfx-co-disguise");                      /* 伪装生效：轻快上行两音 */
     return true;
   }
 
   function fail(g, reason) {
     g.phase = "lost"; g.message = reason; g.player.moving = false;
+    /* 失败音挂在这里 —— fail() 是**唯一**的失败收口（captureIfSeen 的"被发现"与
+       tick 的超时各走一次），所以一次失败一定只响一声：
+       caughtBy 有值 = 被看见 → 警报；否则 = 到点超时 → 下行双音。
+       结算面板不再另发失败音（同一帧，会叠）。 */
+    cue(g.caughtBy ? "sfx-co-alert" : "sfx-co-timeout");
   }
 
   /* 应用层字段：引擎不认识它们，但换层 / 换关 / 重试时要跟着走（否则画布视图、
@@ -740,8 +758,12 @@
     if (g.phase !== "playing") return;
     dt = Math.min(dt, DT_MAX);
     g.time -= dt; g.elapsed += dt;
+    var hadCover = g.cover > 0;                 /* 伪装到期的"跳变"判据（见下） */
     var decay = ["toastTimer", "cover", "eventTimer", "lure", "shoutCooldown"];
     for (var i = 0; i < decay.length; i++) g[decay[i]] = Math.max(0, g[decay[i]] - dt);
+    /* 伪装到期：cover 从 >0 落到 0 的**那一帧**响一次（不是每帧 —— cover 归零后
+       hadCover 就恒为 false）。这一声要能让玩家听出"保护没了"。 */
+    if (hadCover && g.cover <= 0) cue("sfx-co-coverend");
     if (g.time <= 0) { g.time = 0; fail(g, "下班太晚了，被拉进了“只开五分钟”的会议。"); return; }
     if (captureIfSeen(g)) return;                    /* 判定 A：移动前 */
     var p = g.player, m = hyp(input.x, input.y);
@@ -759,24 +781,30 @@
     }
     for (i = 0; i < g.npcs.length; i++) patrol(g.npcs[i], dt, g);
     if (g.elapsed >= g.eventAt) {                    /* 老板到场横幅（只影响横幅，不影响判定） */
-      g.eventAt = Infinity;
+      g.eventAt = Infinity;                          /* 置成 Infinity → 横幅一辈子只弹一次 */
       g.eventText = "老板出门了：“大家都还在吧？”";
       g.eventTimer = 4;
+      cue("ui-toast", 0.7);                           /* 对话/提示横幅出现 */
     }
     if (captureIfSeen(g)) return;                    /* 判定 B：NPC 移动后 */
     g.suspicion = 0;
     var mate = coworkerOf(g);
     if (mate && g.shoutCooldown <= 0 && dist(mate, p) < 75 && !g.hidden && g.cover <= 0) {
-      g.shoutCooldown = 16;
+      g.shoutCooldown = 16;                          /* 16 秒冷却 → 不会每帧喊 */
       g.eventText = "同事：“你这么早就走啦？”";
       g.eventTimer = 3.5;
+      cue("ui-toast", 0.7);                          /* 对话出现（同事喊话 = 最隐蔽的一次暴露源） */
       var sup = supervisorOf(g);                     /* 同事只喊话：主管转向玩家并停 1.8s */
       if (sup) { sup.angle = Math.atan2(p.y - sup.y, p.x - sup.x); sup.pause = 1.8; }
     }
     if (captureIfSeen(g)) return;                    /* 判定 C：主管被喊话转向后 */
     if (g.lift === "calling") {
       g.liftTimer = Math.max(0, g.liftTimer - dt);
-      if (g.liftTimer === 0) { g.lift = "open"; notify(g, "电梯到了！靠近门口，按 E 进入。"); }
+      if (g.liftTimer === 0) {
+        g.lift = "open";                             /* 状态跳变：从 calling 到 open 只发生一次 */
+        notify(g, "电梯到了！靠近门口，按 E 进入。");
+        cue("sfx-co-liftding");                      /* 电梯到达的上行"叮" —— 玩家在等的就是这一声 */
+      }
     }
   }
 
@@ -1184,7 +1212,115 @@
     setW: 460, setHead: 120, setRowH: 21, setDiv: 18, setNetGap: 40, setFootPad: 20
   };
 
-  function beep(f, d, t, g) { try { if (root.AudioSys && root.AudioSys.blip) root.AudioSys.blip(f, d, t, g); } catch (e) {} }
+  /* 取音频层对象。⚠ 必须两条路都试，这是本仓库一个**真踩到的坑**：
+     index.html 里写的是 `const AudioSys = {…}` —— const 声明出来的是**全局词法绑定，
+     不是 window 的属性**，所以 `root.AudioSys`（= window.AudioSys）恒为 undefined。
+     浏览器实测：`typeof AudioSys === "object"` 而 `window.AudioSys === undefined`。
+     于是仓库里所有模块那种 `if (root.AudioSys && AudioSys.play) …` 守卫**一次都没进去过**
+     —— 代码读起来有声音、真跑起来一声不响（本玩法原先那个 beep 也是这样哑的）。
+     这里先试 root.AudioSys（哪天改成 window 属性也照样工作），再试裸标识符（当前真相）。
+     ⚠ 只能用 `typeof 标识符` 判存在：它遇到未声明/尚未初始化都返回 "undefined" 而不抛错，
+       所以没有 AudioSys 的 vm 单测里这条路同样是安全的。 */
+  function audioSys() {
+    try { if (root && root.AudioSys) return root.AudioSys; } catch (e) {}
+    try { if (typeof AudioSys !== "undefined" && AudioSys) return AudioSys; } catch (e) {}
+    return null;
+  }
+  function beep(f, d, t, g) {
+    try { var A = audioSys(); if (A && A.blip) A.blip(f, d, t, g); } catch (e) {}
+  }
+
+  /* ═════════════════ 9.0b 音频接线：每个事件都「先试文件、缺失回落 blip」═════════════════
+     与 index.html 的 AudioSys 三层（文件 / 程序化 / 环境音）同一套约定。三条纪律：
+       ① `AudioSys.play(name)` 返回 false（文件缺失 **或** 还在异步探测）就必须回落 blip ——
+          **不能因为素材没到位就静音**；
+       ② 文件存在时也不能删掉兜底分支 —— 素材库一旦改名就会整片无声，而且不报错
+          （这正是本仓库"1542 项断言全绿、牌桌上却完全没声音"那个坑的成因）；
+       ③ 只在**事件发生的那一帧**发声：tick 里的四处（伪装到期 / 老板到场 / 同事喊话 /
+          电梯到达）全部挂在"状态跳变"上，不是每帧触发。
+     ⚠ 单测在 vm 沙箱里跑：没有 AudioSys、没有 AudioContext、**也没有 setTimeout**
+       （tests/clockout.test.cjs 只给了 console），所以每次发声都先判存在，
+       所有延迟发声一律走 later()，无声环境里整块音频接线是彻底的空操作。 */
+  var FALLBACK = {
+    /* 本玩法自己的 12 条事件音（audio/sfx/sfx-co-*.mp3）：缺失时的合成兜底。
+       格式 = [频率Hz, 时长s, 波形, 增益, 延迟ms]；增益一律 ≤0.12（与仓库同量级）。 */
+    "sfx-co-folder":   [[660, 0.05, "square", 0.06, 0], [1100, 0.07, "triangle", 0.07, 70]],
+    "sfx-co-coffee":   [[150, 0.26, "sawtooth", 0.07, 0], [96, 0.30, "sine", 0.07, 40]],
+    "sfx-co-liftcall": [[520, 0.06, "square", 0.07, 0]],
+    "sfx-co-liftding": [[880, 0.12, "sine", 0.09, 0], [1320, 0.20, "sine", 0.09, 130]],
+    "sfx-co-clear":    [[660, 0.13, "triangle", 0.09, 0], [880, 0.13, "triangle", 0.09, 110],
+                        [1320, 0.20, "triangle", 0.09, 220]],
+    "sfx-co-alert":    [[440, 0.26, "sawtooth", 0.09, 0], [220, 0.34, "sawtooth", 0.10, 260]],
+    "sfx-co-timeout":  [[330, 0.22, "sine", 0.09, 0], [220, 0.34, "sine", 0.09, 240]],
+    "sfx-co-disguise": [[880, 0.08, "triangle", 0.08, 0], [1174, 0.12, "triangle", 0.08, 90]],
+    "sfx-co-coverend": [[880, 0.12, "square", 0.07, 0], [587, 0.18, "square", 0.07, 170]],
+    "sfx-co-victory":  [[523, 0.14, "triangle", 0.09, 0], [659, 0.14, "triangle", 0.09, 110],
+                        [784, 0.16, "triangle", 0.09, 220], [1046, 0.30, "triangle", 0.10, 330]],
+    "sfx-co-seat":     [[180, 0.07, "sine", 0.05, 0]],
+    "sfx-co-invalid":  [[150, 0.07, "square", 0.06, 0], [150, 0.07, "square", 0.05, 90]],
+    /* 复用素材库里已有的通用 UI 音（同样留兜底，音频层改名也不会哑） */
+    "ui-open":         [[620, 0.12, "sine", 0.07, 0]],
+    "ui-toast":        [[660, 0.08, "sine", 0.08, 0], [990, 0.14, "sine", 0.08, 90]],
+    "ui-tab":          [[520, 0.05, "square", 0.06, 0]],
+    "ui-click":        [[880, 0.05, "square", 0.06, 0]],
+    "ui-loss":         [[330, 0.16, "sawtooth", 0.08, 0], [247, 0.18, "sawtooth", 0.08, 120]]
+  };
+  /* 试播文件：true = 已播（或已排队播），false = 调用方必须回落合成音 */
+  function sfx(name, vol) {
+    try { var A = audioSys(); if (A && A.play) return A.play(name, vol) !== false; } catch (e) {}
+    return false;
+  }
+  function later(f, d, t, g, ms) {
+    if (!ms) { beep(f, d, t, g); return; }
+    try { if (root.setTimeout) root.setTimeout(function () { beep(f, d, t, g); }, ms); } catch (e) {}
+  }
+  function blips(list) {
+    for (var i = 0; list && i < list.length; i++) {
+      later(list[i][0], list[i][1], list[i][2], list[i][3], list[i][4]);
+    }
+  }
+  /* 一个事件一声：文件优先；play() 返回 false 就把这一声合成出来。
+     vol 只作用于文件音量（0~1），兜底音的响度写在 FALLBACK 里。 */
+  function cue(name, vol) {
+    if (sfx(name, vol)) return true;
+    blips(FALLBACK[name] || FALLBACK["ui-click"]);
+    return false;
+  }
+  /* 三关全通：优先自己的胜利文件；缺了就退回 AudioSys.good()（它内部同样是"文件→合成"），
+     连 AudioSys 都没有（无头单测）才自己合成 —— 三层都有声音，一层都不哑。 */
+  function cueVictory() {
+    if (sfx("sfx-co-victory")) return true;
+    try {
+      var A = audioSys();
+      if (A && A.good) { A.good(); return false; }
+    } catch (e) {}
+    blips(FALLBACK["sfx-co-victory"]);
+    return false;
+  }
+  /* 环境音：AudioSys.amb 是**全页独一份**的通道，进出玩法必须成对调用 ——
+     只有 amb(null) 才会淡出并停掉，漏掉收工那一次，办公室环境音会跟着玩家回主游戏。 */
+  function amb(loc) {
+    try { var A = audioSys(); if (A && A.amb) A.amb(loc); } catch (e) {}
+  }
+  /* 预热素材探测（只在开局调一次）：
+     AudioSys 的路径解析是**异步**的（resolveMedia 三态 pending/ready/bad），
+     探测落定之前 play() 一律返回 false，本层就会回落到合成音 —— 也就是"进面板后
+     每个**首次**事件都是 blip，第二次才听到真素材"。开局把 17 个候选路径先丢进探测队列
+     （resolveMedia 只探测、不发声），玩家走到打印区那几秒里就全部就位了。
+     ⚠ 只用 AudioSys 已有的公开方法，并且整体 try/catch：老版本没有 resolveMedia 就跳过。 */
+  var CUE_NAMES = ["sfx-co-folder", "sfx-co-coffee", "sfx-co-liftcall", "sfx-co-liftding",
+                   "sfx-co-clear", "sfx-co-alert", "sfx-co-timeout", "sfx-co-disguise",
+                   "sfx-co-coverend", "sfx-co-victory", "sfx-co-seat", "sfx-co-invalid",
+                   "ui-open", "ui-toast", "ui-tab", "ui-click", "ui-loss"];
+  function warm() {
+    try {
+      var A = audioSys();
+      if (!A || !A.resolveMedia) return;
+      for (var i = 0; i < CUE_NAMES.length; i++) {
+        A.resolveMedia("audio/sfx/" + CUE_NAMES[i] + ".mp3", "sfx-");
+      }
+    } catch (e) {}
+  }
   function txt(s, x, y, size, color, align, weight) {
     ctx.font = (weight || "bold") + " " + size + "px 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
     ctx.textAlign = align || "left";
@@ -2031,7 +2167,9 @@
     /* 省时奖励按**每关独立时限**累计（V1 是三关共用一个池子，口径已变） */
     g.savedTime = (g.savedTime || 0) + Math.max(0, g.config.time - g.elapsed);
     NEAR = null;
-    beep(990, 0.22, "triangle", 0.09);
+    /* 进电梯过关（还有下一关）：上行三音，对上游 beep(990) 的加强版。
+       这是"过关"的唯一收口（g.counted 保证一关只响一次）。 */
+    cue("sfx-co-clear");
   }
 
   /* 失败结算的**统一收口**（幂等，endRun 自身也判 settled）。
@@ -2076,7 +2214,12 @@
     if (opts0 && typeof opts0.onFinish === "function") {
       try { opts0.onFinish(g.result); } catch (e) {}
     }
-    beep(ghost ? 1180 : 620, 0.3, "triangle", 0.09);
+    /* 结算音（g.settled 保证只响一次）：
+       · 三关全通 → 更强的胜利音（上游是 beep(1180)）；
+       · caught / timeout → **不在这里发**：fail() 已经在同一帧发过警报/超时音了；
+       · 其余（debug 直接结束）→ 一声中性的收尾。 */
+    if (cleared === LEVELS.length) cueVictory();
+    else if (why !== "caught" && why !== "timeout") cue("ui-loss");
     return g.result;
   }
 
@@ -2110,7 +2253,7 @@
     return true;
   }
   function resumeRun() {
-    if (G && G.phase === "paused") { G.phase = "playing"; NEAR = nearInfo(G); }
+    if (G && G.phase === "paused") { G.phase = "playing"; NEAR = nearInfo(G); cue("ui-click"); }
     return true;
   }
 
@@ -2146,8 +2289,8 @@
   function actPause() {
     var g = G;
     if (!g) return false;
-    if (g.phase === "playing") { g.phase = "paused"; g.player.moving = false; return true; }
-    if (g.phase === "paused") return resumeRun();
+    if (g.phase === "playing") { g.phase = "paused"; g.player.moving = false; cue("ui-click"); return true; }
+    if (g.phase === "paused") return resumeRun();     /* 继续音在 resumeRun 里（那条路也走它） */
     return false;
   }
   /* 鼠标：失败后点画面 = 重试本关；过关浮层上点画面 = 继续下一关。
@@ -2161,8 +2304,10 @@
   }
   /* 视角档位（纯渲染层，随时可切，不影响任何判定）。finish=true 时立刻重画一帧。 */
   function setView(m) {
+    var was = viewMode;
     if (VIEW_DEF[m]) viewMode = m;
     if (G && ctx) { camFollow(G); render(); drawOverlay(); }
+    if (viewMode !== was) cue("ui-tab");     /* 切档位（切换视角）= 换页音 */
     return viewMode;
   }
   /* 画布点击：先看是不是点在视角控件上（是就换档，**不**触发"点画面重试/继续"），
@@ -2324,6 +2469,7 @@
     hostEl.appendChild(c);
     cv = c; ctx = c.getContext("2d");
     if (!ctx) { hostEl.innerHTML = ""; return false; }
+    warm();                                  /* 先把音效素材的异步探测排上队（见 warm 的说明） */
     G = startSession(opts0);
     gradDark = gradLight = gradFacade = null;   /* 渐变是建在 ctx 上的，换一局要重来 */
     fitCanvas();
@@ -2332,10 +2478,14 @@
     if (cv.addEventListener) cv.addEventListener("click", onCanvasClick, false);
     running = true; lastTs = 0;
     rafId = root.requestAnimationFrame(frame);
+    /* 环境音：进玩法开办公室环境音（audio/amb/amb-office.mp3，缺失时 amb 层自己静默）。
+       退出/收工在 dispose() 里 amb(null) 停掉 —— 必须成对，别把它留在主游戏里响。 */
+    amb("office");
     return true;
   }
   function dispose() {
     running = false;
+    amb(null);                                   /* 收工：停环境音（唯一停法） */
     if (rafId) { try { root.cancelAnimationFrame(rafId); } catch (e) {} rafId = 0; }
     if (doc) {
       doc.removeEventListener("keydown", onKeyDown, false);
