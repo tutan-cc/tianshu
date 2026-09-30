@@ -25,7 +25,10 @@
        seek(x,y), levelDone(), nextLevel(), finishNow(), setTime(s), giveFolder(),
        placePatrol(i,x,y,deg), blindAll(on), lifecycle(), retry(),
        新增（只增不改，上面 22 个签名一个没动）：
-       collisionOverlay(on), art(), artFail(on) }
+       collisionOverlay(on), art(), artFail(on), view(mode) }
+       ⚠ view(mode)：视角档位 "flat"（俯视，与改造前逐像素一致）/ "tilt"（倾斜 2.5D，
+         默认）/ "deep"（强立体）；不带参数返回当前档。也可点画布右下角的小控件循环切换。
+         **纯渲染层**：判定 / 状态机 / 经济一行都没动（见第 9.0 节）。
        ⚠ collisionOverlay(on)：细线描出 map.walls 的矩形，用来核对"看到的家具"与
          "实际的碰撞"是否对齐；不带参数 = 开关切换，默认关。
        ⚠ seek(x,y) / placePatrol(i,x,y,deg) 收的是**世界像素**（V1 是格坐标）：3000×2000 里
@@ -1087,6 +1090,44 @@
      坐标全部是**世界像素**：摄像机把世界平移到画布上（规格 §1.1 的夹取公式），
      文字与标签单独画在屏幕空间，免得被缩放糊掉。 */
 
+  /* ═════════════════ 9.0 视角档位（纯渲染层：只改"世界 → 屏幕"这一步） ═════════════════
+     三档运行时可切：debug.view("flat"|"tilt"|"deep")，或点画布右下角的小控件循环。
+       flat 俯视    —— **改造之前的老路径**，逐像素一致（保底档）
+       tilt 倾斜    —— 地面纵向压扁 TILT，家具挤出 WALL_H 的侧立面（默认档）
+       deep 强立体  —— 压得更扁、挤得更高，家具向左下投一层柔和暗影 + 轻微描边
+     ⚠ 三条铁律（改之前先读）：
+       ① **判定层一个像素都不读这里**：walkable / clearLine / sees / captureIfSeen / patrol /
+          tick / 状态机 / 结算 / 经济全部仍在世界坐标里算，投影只发生在"世界 → 屏幕"这一步；
+       ② 贴地的东西（背景图 / 地板格 / 视野锥 / 地面标记 / 影子 / 选中环 / 电梯地光）一律走
+          压缩变换 —— 少压一个，那一样东西就会"浮在空中"；
+       ③ 立起来的东西（角色贴图、世界标签药丸、HUD / 小地图 / 浮层）**不压缩**：锚点用压缩后的
+          地面坐标，贴图按原比例画，于是人"站"在地上，而不是"趴"在地上。
+     ⚠ 镜头夹取必须跟着压缩后的视口高度走（见 camFollow）：压扁之后一屏装得下更多世界，
+       不跟着改就会在上下露出黑边、或者视野跑到世界外面。 */
+  var VIEW_ORDER = ["flat", "tilt", "deep"];
+  var VIEW_DEF = {
+    /* tilt：地面纵向压缩系数（1 = 俯视原样）；wallH：家具挤出高度（**世界像素**，乘缩放才是屏幕）；
+       drop：deep 档的地面投影强度；edge：是否给挤出体加轻微描边 */
+    flat: { id:"flat", label:"俯视",      tilt:1,   wallH:0,   drop:0, edge:false },
+    tilt: { id:"tilt", label:"倾斜 2.5D", tilt:.68, wallH:64,  drop:0, edge:false },
+    deep: { id:"deep", label:"强立体",    tilt:.55, wallH:118, drop:1, edge:true  }
+  };
+  var viewMode = "tilt";                 /* 默认档 = 倾斜 2.5D（flat 保底、deep 极限） */
+  function viewCfg() { return VIEW_DEF[viewMode] || VIEW_DEF.flat; }
+  function nextView() {
+    for (var i = 0; i < VIEW_ORDER.length; i++) {
+      if (VIEW_ORDER[i] === viewMode) return VIEW_ORDER[(i + 1) % VIEW_ORDER.length];
+    }
+    return VIEW_ORDER[0];
+  }
+
+  /* 世界 → 屏幕（画布像素）：**唯一的投影入口**。
+       psx = (wx − camX) × scale
+       psy = oy + ((wy − 可见带中心) × tilt + 视口高/2) × scale
+     flat 档（tilt=1、oy=0）时 psy 正好退化成 (wy − camY) × scale —— 与老代码逐像素相同。 */
+  function projX(v, wx) { return (wx - v.x) * v.scale; }
+  function projY(v, wy) { return v.oy + ((wy - (v.y + v.eh / 2)) * v.ty + v.h / 2) * v.scale; }
+
   var COL = {
     floorA:"#1a1c26", floorB:"#171923", grid:"rgba(255,255,255,.030)",
     wall:"#2c3040", wallTop:"#3a4056", wallLine:"rgba(0,0,0,.35)", bound:"rgba(120,140,190,.28)",
@@ -1254,35 +1295,54 @@
     cv.style.width = "100%"; cv.style.height = H + "px";
     var vw = 1200;                       /* 一屏看到 1200 世界像素宽 */
     G.view.w = vw; G.view.h = H / (W / vw); G.view.scale = W / vw;
+    /* ⚠ 纵向能装下多少世界**不在这里定**：tilt/deep 把地面压扁之后一屏装得下更多，
+       压缩后的可见高度 v.eh 由 camFollow 按当前档位算（并据此夹取镜头，防黑边）。 */
   }
-  /* 摄像机（规格 §1.1）：cx=clamp(0, 3000-vw, player.x-vw/2)。 */
+  /* 摄像机（规格 §1.1）：cx=clamp(0, 3000-vw, player.x-vw/2)。
+     ⚠ 纵向按**压缩后**的视口高度 v.eh 夹取（tilt 时 eh = 视口高 / tilt，一屏能装更多世界）；
+       flat 档 eh === v.h，与改造前逐字节相同。oy 是世界整个装得下时的上下居中偏移（防黑边）。 */
   function camFollow(g) {
-    g.view.x = clampCam(g.player.x - g.view.w / 2, WORLD_W, g.view.w);
-    g.view.y = clampCam(g.player.y - g.view.h / 2, WORLD_H, g.view.h);
+    var v = g.view, c = viewCfg();
+    v.ty = c.tilt;
+    v.eh = v.h / c.tilt;
+    if (v.eh > WORLD_H) {
+      v.eh = WORLD_H;
+      v.oy = (H - WORLD_H * c.tilt * v.scale) / 2;
+    } else v.oy = 0;
+    v.x = clampCam(g.player.x - v.w / 2, WORLD_W, v.w);
+    v.y = clampCam(g.player.y - v.eh / 2, WORLD_H, v.eh);
   }
   function viewRect(g, pad) {
     pad = pad || 0;
-    return { x0:g.view.x - pad, y0:g.view.y - pad,
-             x1:g.view.x + g.view.w + pad, y1:g.view.y + g.view.h + pad };
+    var v = g.view, vh = v.eh || v.h;          /* 压缩后真正能看见的世界高度 */
+    return { x0:v.x - pad, y0:v.y - pad,
+             x1:v.x + v.w + pad, y1:v.y + vh + pad };
   }
 
   function render() {
     if (!G || !ctx) return;
-    var g = G, s = g.view.scale;
-    camFollow(g);
+    var g = G, s = g.view.scale, c = viewCfg();
+    camFollow(g);                 /* 里面按档位算好 ty/eh/oy，并把镜头夹在世界内 */
     HL = hudLayout(g);            /* 先算布局：下面画世界标签时要靠它避让 HUD 的块 */
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = COL.hud; ctx.fillRect(0, 0, W, H);
-    ctx.save();
-    ctx.translate(-g.view.x * s, -g.view.y * s);
-    ctx.scale(s, s);                         /* 之后一律用世界像素坐标画 */
-    drawFloor(g);
-    drawWalls(g);
-    drawMarkers(g);
-    drawCones(g);
-    drawNpcs(g);
-    drawPlayer(g);
-    ctx.restore();
+    if (c.tilt === 1) {
+      /* ── 档位 1「flat」：**改造之前的原路径**，一行没动（保底档）── */
+      ctx.save();
+      ctx.translate(-g.view.x * s, -g.view.y * s);
+      ctx.scale(s, s);                         /* 之后一律用世界像素坐标画 */
+      drawFloor(g);
+      drawWalls(g);
+      drawMarkers(g);
+      drawCones(g);
+      drawNpcs(g);
+      drawPlayer(g);
+      ctx.restore();
+    } else {
+      /* ── 档位 2/3：贴地层（压缩）→ 立体层（按世界 Y 排序，角色立牌不压缩）── */
+      drawGround2p5(g);
+      drawStanding2p5(g);
+    }
     drawLabels(g);
     drawHud(g);
   }
@@ -1470,6 +1530,233 @@
     }
   }
 
+  /* ═════════════════ 9.3 档位 2/3 的 2.5D 绘制（tilt / deep） ═════════════════
+     分两层画，顺序就是"从下往上"：
+       ① 贴地层 drawGround2p5 —— 背景图 / 地板格 / 地面标记 / 视野锥 / 影子 / 选中环，
+          全部在那一个"绕视口中心纵向压扁"的变换里画。少压一个就会浮在空中。
+       ② 立体层 drawStanding2p5 —— 家具挤出体 + 角色立牌，**屏幕空间**画（贴图不压缩），
+          按"地面接触 Y"（家具 = 矩形底边、角色 = 脚底）从小到大排序：近的压远的。
+     ⚠ 排序必须稳定：Y 相同时再按 类型 / 下标 比，否则同样高的两样东西会逐帧换位、看起来在闪。
+     ⚠ 角色贴图/程序化色块都**不压缩**（锚点用压缩后的脚底地面点，贴图按原比例向上画），
+       所以人是"站"在地上的；影子/选中环留在地层里被压扁，正好贴在压缩后的地面上。 */
+
+  /* 惰性建一次的"软边"渐变（单位盒，用时靠 CTM 缩放到位）：避免每帧给每个家具 new 一个渐变 */
+  var gradDark = null, gradLight = null, gradFacade = null;
+  function band(x, y, w, h, grad) {
+    if (!(w > 0) || !(h > 0)) return;
+    ctx.save(); ctx.translate(x, y); ctx.scale(w, h);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 1, 1); ctx.restore();
+  }
+  function initGrads() {
+    if (gradDark) return;
+    gradDark = ctx.createLinearGradient(0, 0, 1, 0);      /* 左→右：透 → 深（左投影带，靠墙最深） */
+    gradDark.addColorStop(0, "rgba(6,7,13,0)");
+    gradDark.addColorStop(1, "rgba(6,7,13,.34)");
+    gradLight = ctx.createLinearGradient(0, 0, 0, 1);     /* 上→下：深 → 透（下投影带，靠墙最深） */
+    gradLight.addColorStop(0, "rgba(6,7,13,.34)");
+    gradLight.addColorStop(1, "rgba(6,7,13,0)");
+    gradFacade = ctx.createLinearGradient(0, 0, 0, 1);    /* 侧立面：上沿略亮 → 落地最暗 */
+    gradFacade.addColorStop(0, "rgba(26,30,46,.82)");
+    gradFacade.addColorStop(1, "rgba(6,7,13,.95)");
+  }
+
+  /* 把"贴地的一层"整体绕视口中心纵向压扁：之后用世界像素坐标画，屏幕上自动是压过的。 */
+  function pushGroundXform(v, c) {
+    ctx.save();
+    ctx.translate(0, v.oy);
+    ctx.scale(v.scale, v.scale);
+    ctx.translate(-v.x, v.h / 2 - (v.y + v.eh / 2) * c.tilt);
+    ctx.scale(1, c.tilt);
+  }
+
+  /* deep 档：家具向左下投的一层柔和暗影（贴地，所以在压缩层里画、并被后面的家具本体盖住芯部）。
+     没有模糊滤镜，用两条"由深到透"的渐变带（左 + 下）拼出来，交界处自然叠一点。 */
+  var DROP_OFF = 26;
+  function drawDrop2p5(g) {
+    var w = g.map.walls, v = viewRect(g, 120), o = DROP_OFF, i, a;
+    initGrads();
+    for (i = 0; i < w.length; i++) {
+      a = w[i];
+      if (a[0] > v.x1 || a[0] + a[2] < v.x0 || a[1] > v.y1 || a[1] + a[3] < v.y0) continue;
+      band(a[0] - o, a[1] + o * .5, o, a[3], gradDark);          /* 左侧一条 */
+      band(a[0] - o, a[1] + a[3], a[2] + o, o, gradLight);       /* 下侧一条（含左下角） */
+    }
+  }
+
+  /* 贴地的影子与选中环：**和 flat 档同一套数字**，区别只是外面套了压缩变换 ——
+     于是它们自动贴在压缩后的地面上，不会"浮在空中"。 */
+  function drawDecals2p5(g) {
+    var i, n, r, p = g.player;
+    for (i = 0; i < g.npcs.length; i++) {
+      n = g.npcs[i];
+      if (!isDrawable(g, n)) continue;
+      r = n.id === "boss" ? 20 : 18;
+      ctx.fillStyle = n.sees ? "rgba(255,77,109,.32)" : "rgba(0,0,0,.35)";
+      ctx.beginPath(); ctx.ellipse(n.x, n.y + 7, r * 1.05, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    if (!g.hidden) {
+      ctx.fillStyle = "rgba(26,35,41,.19)";
+      ctx.beginPath(); ctx.ellipse(p.x, p.y + 6, 17, 6, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = g.cover > 0 ? "#8ef0e1" : (g.hidden ? "#85cb9e" : "#ffda84");
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, 22, 8, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  function drawGround2p5(g) {
+    var c = viewCfg();
+    pushGroundXform(g.view, c);
+    drawFloor(g);                            /* 背景贴图 / 程序化地板格（贴地） */
+    if (c.drop) drawDrop2p5(g);              /* deep：家具的地面投影（贴地） */
+    drawMarkers(g);                          /* 五个关键点：全在地上（电梯地光也在这里） */
+    drawCones(g);                            /* 视野锥：贴地 */
+    drawDecals2p5(g);                        /* 影子 / 选中环（贴地） */
+    ctx.restore();
+  }
+
+  /* 家具/墙体挤出：**先把顶面抬起来，再补上从顶面到地面接触边之间的侧立面，
+     最后给顶沿压一条亮边** —— 于是它看起来是"有高度的一块"，而不是"糊了一层"。
+     顶面用的是这张插图自己的那一块像素（9 参数 drawImage 只取那一小块），
+     所以家具仍然认得出原样，只是被整体抬高并加了一条暗色侧面。
+     ⚠ 侧立面以"地面接触边"为界**上下各半**（上 hh/2 抬顶面，下 hh/2 落在地面接触边之下当裙边）。
+       为什么不整段往上挤：整段上挤会让站在家具**后面**的角色被整个吞掉 —— deep 档实测，
+       贴着家具站的人 84px 身高里被盖住 88px，等于隐身（潜行游戏里看不见自己 = 不能玩）。
+       对半分之后最坏情况只盖住贴边角色的一半，而"顶面抬升 + 一整条暗色侧立面"的高度感
+       一点没少（侧立面总高仍然是 WALL_H）。 */
+  function drawWall2p5(g, a, c) {
+    var v = g.view, s = v.scale, bg = bgSlot(g), img = bg && bg.img;
+    var x0 = projX(v, a[0]), w = a[2] * s;
+    var yb = projY(v, a[1] + a[3]);          /* 地面接触边（近侧底边） */
+    var yt = projY(v, a[1]);                 /* 远侧边（未抬升） */
+    var hh = c.wallH * s, up = hh / 2;       /* 侧立面总高 / 其中抬顶面的那一半 */
+    var hRoof = yb - yt;
+    if (!(w > 0) || !(hh > 0) || !(hRoof > 0)) return;
+    /* ① 顶面（抬升 up） */
+    if (artReady(bg)) {
+      var bx = (img.naturalWidth || img.width) / WORLD_W;
+      var by = (img.naturalHeight || img.height) / WORLD_H;
+      ctx.drawImage(img, a[0] * bx, a[1] * by, a[2] * bx, a[3] * by,
+                    x0, yt - up, w, hRoof);
+    } else {
+      ctx.fillStyle = COL.wall; ctx.fillRect(x0, yt - up, w, hRoof);
+      ctx.fillStyle = COL.wallTop;
+      ctx.fillRect(x0, yt - up, w, Math.max(2, Math.min(12 * s, hRoof * .5)));
+    }
+    /* ② 侧立面：整条 hh 高（顶部略亮、落地最暗 → 一眼看出是"立面"） */
+    initGrads();
+    band(x0, yb - up, w, hh, gradFacade);
+    /* ③ 顶沿亮边（受光的那一条）+ deep 档的轻微描边 */
+    ctx.strokeStyle = "rgba(255,237,200,.26)"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0 + .5, yb - up + .5); ctx.lineTo(x0 + w - .5, yb - up + .5);
+    ctx.stroke();
+    if (c.edge) {
+      ctx.strokeStyle = "rgba(8,9,15,.40)"; ctx.lineWidth = 1;
+      ctx.strokeRect(x0 + .5, yt - up + .5, w - 1, hRoof + hh - 1);
+    }
+  }
+
+  /* 角色立牌：锚点 = 压缩后的**脚底**地面点，贴图按原比例（不压缩）向上画。
+     贴图优先，缺图回落成"站起来的色块"（圆心抬到脚底上方一个半径），
+     两条路的观感都是"立在地面上"而不是"趴在地上"。 */
+  function npcTop2p5(n, s) {
+    var art = npcArt(n);
+    return artReady(art) ? (art.size - art.dy) * s : (n.id === "boss" ? 20 : 18) * 2 * s;
+  }
+  function drawNpc2p5(g, n) {
+    var v = g.view, s = v.scale, X = projX(v, n.x), Y = projY(v, n.y);
+    var r = (n.id === "boss" ? 20 : 18) * s, art = npcArt(n), top = npcTop2p5(n, s);
+    if (artReady(art)) {
+      var d = art.size * s;
+      ctx.drawImage(art.img, X - d / 2, Y - (art.size - art.dy) * s, d, d);
+    } else {
+      var cy = Y - r;                        /* 程序化色块也"站"起来 */
+      ctx.fillStyle = n.sees ? COL.alert : npcColor(n.id);
+      ctx.beginPath(); ctx.arc(X, cy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#f0d8c0";
+      ctx.beginPath(); ctx.arc(X, cy, r * 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(X + Math.cos(n.angle) * r * 0.7, cy + Math.sin(n.angle) * r * 0.7);
+      ctx.lineTo(X + Math.cos(n.angle) * r * 1.5, cy + Math.sin(n.angle) * r * 1.5);
+      ctx.stroke();
+    }
+    if (n.lure) {                            /* 被咖啡机钉住：给个"分心"气泡（抬到头顶） */
+      ctx.strokeStyle = COL.coffeeOn; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(X, Y - top - 12, 7, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  function drawPlayer2p5(g) {
+    var v = g.view, s = v.scale, p = g.player, R0 = PLAYER_R;
+    var X = projX(v, p.x), Y = projY(v, p.y);
+    var art = ART.actor[g.hidden ? "player-seated" : "player"];
+    if (artReady(art)) {
+      var d = art.size * s;
+      ctx.drawImage(art.img, X - d / 2, Y - (art.size - art.dy) * s, d, d);
+    } else {
+      var r = R0 * 0.78 * s, cy = Y - R0 * s;
+      ctx.fillStyle = g.cover > 0 ? "#bff0ff" : COL.player;
+      ctx.beginPath(); ctx.arc(X, cy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = COL.playerDark;
+      ctx.beginPath(); ctx.arc(X, cy, r * 0.54, 0, Math.PI * 2); ctx.fill();
+      var a = p.angle === undefined ? 0 : p.angle;
+      ctx.strokeStyle = "#20222c"; ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(X, cy);
+      ctx.lineTo(X + Math.cos(a) * R0 * s, cy + Math.sin(a) * R0 * s);
+      ctx.stroke();
+    }
+    if (g.hidden) {                          /* 坐姿：椅子（和 flat 一样画在人物之后，压住下半身） */
+      ctx.fillStyle = "rgba(127,214,186,.55)";
+      roundRect(ctx, projX(v, p.x - 26), projY(v, p.y + 8), 52 * s, 16 * v.ty * s, 6);
+      ctx.fill();
+    }
+  }
+
+  /* 碰撞描边（debug.collisionOverlay）在 2.5D 下改到"立体层最后"画：描的仍然是
+     **地面碰撞矩形**（判定用的那个），于是"看到的高度"与"实际的碰撞"可以直接对照。 */
+  function drawCollide2p5(g) {
+    if (!collideOverlay) return;
+    var w = g.map.walls, v = viewRect(g, 160), i, a, x0, y0, x1, y1;
+    ctx.save();
+    ctx.strokeStyle = COL.collide; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (i = 0; i < w.length; i++) {
+      a = w[i];
+      if (a[0] > v.x1 || a[0] + a[2] < v.x0 || a[1] > v.y1 || a[1] + a[3] < v.y0) continue;
+      x0 = projX(g.view, a[0]); x1 = projX(g.view, a[0] + a[2]);
+      y0 = projY(g.view, a[1]); y1 = projY(g.view, a[1] + a[3]);
+      ctx.rect(x0 + .75, y0 + .75, Math.max(1, x1 - x0 - 1.5), Math.max(1, y1 - y0 - 1.5));
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* 立体层：屏幕空间画（贴图不压缩），按"地面接触 Y"排序 —— 角色与家具之间也正确遮挡。 */
+  function drawStanding2p5(g) {
+    var v = g.view, c = viewCfg(), vv = viewRect(g, 260), items = [], i, a, n;
+    for (i = 0; i < g.map.walls.length; i++) {
+      a = g.map.walls[i];
+      if (a[0] > vv.x1 || a[0] + a[2] < vv.x0 || a[1] > vv.y1 || a[1] + a[3] < vv.y0) continue;
+      items.push({ y:a[1] + a[3], k:0, i:i, a:a });            /* 家具：底边 */
+    }
+    for (i = 0; i < g.npcs.length; i++) {
+      n = g.npcs[i];
+      if (!isDrawable(g, n)) continue;
+      items.push({ y:n.y, k:1, i:i, n:n });                    /* 角色：脚底 */
+    }
+    items.push({ y:g.player.y, k:2, i:0, n:null });
+    items.sort(function (p, q) { return (p.y - q.y) || (p.k - q.k) || (p.i - q.i); });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);                        /* 之后一律屏幕像素 */
+    for (i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.k === 0) drawWall2p5(g, it.a, c);
+      else if (it.k === 1) drawNpc2p5(g, it.n);
+      else drawPlayer2p5(g);
+    }
+    drawCollide2p5(g);
+  }
+
   /* 文字标签：屏幕空间（字号不随摄像机缩放变），文案用规格 §7.6 原文。 */
   /* 标签要抬到**头顶**多高。两段口径别搞混：
        ① 贴图顶到脚底 = (size - dy) **世界像素**（111 高的贴图就是 103）；
@@ -1483,25 +1770,36 @@
     return (art.size - art.dy) + (HUD.tagPillH / 2 + 4) / (s || 1);
   }
   function drawLabels(g) {
-    var v = g.view, s = v.scale, p = g.map.points, i, n;
+    var v = g.view, s = v.scale, p = g.map.points, i, n, isFlat = (viewCfg().tilt === 1);
     function X(wx) { return (wx - v.x) * s; }
     function Y(wy) { return (wy - v.y) * s; }
-    tag(X(p.printer.x), Y(p.printer.y - 42), g.fileTaken ? "已取文件" : "文件夹");
-    tag(X(p.seat.x), Y(p.seat.y - 42), g.hidden ? "伪装中" : "空工位");
-    tag(X(p.distraction.x), Y(p.distraction.y - 42), "咖啡机");
-    tag(X(p.lift.x), Y(p.lift.y - 52),
+    /* ── 世界标签的锚点：flat 档与改造前逐像素相同；tilt/deep 档"锚点压缩、药丸不压缩" ──
+       up/dn：锚点先投影到压缩后的地面点，再按**屏幕像素**抬 / 降 —— 药丸本身不会被压扁。
+       head：人物的名字要抬到"立牌"头顶（贴图 (size−dy)×缩放、程序化 40×缩放），
+             再留半个药丸 + 4px 呼吸；照老口径（世界偏移 × 缩放）会被压进人物身体里。 */
+    function upY(wy, gap) { return isFlat ? Y(wy - gap) : projY(v, wy) - gap * s; }
+    function dnY(wy, gap) { return isFlat ? Y(wy + gap) : projY(v, wy) + gap * s; }
+    function headY(art, wy, fb) {
+      if (isFlat) return Y(wy - headGap(art, fb, s));
+      var top = artReady(art) ? (art.size - art.dy) * s : fb * s;
+      return projY(v, wy) - top - (HUD.tagPillH / 2 + 4);
+    }
+    tag(X(p.printer.x), upY(p.printer.y, 42), g.fileTaken ? "已取文件" : "文件夹");
+    tag(X(p.seat.x), upY(p.seat.y, 42), g.hidden ? "伪装中" : "空工位");
+    tag(X(p.distraction.x), upY(p.distraction.y, 42), "咖啡机");
+    tag(X(p.lift.x), upY(p.lift.y, 52),
       g.lift === "open" ? (g.floor < g.floors ? "前往二层" : "电梯已到")
         : g.lift === "calling" ? Math.ceil(g.liftTimer) + " 秒" : "换层电梯");
     for (i = 0; i < g.npcs.length; i++) {
       n = g.npcs[i];
       if (!isDrawable(g, n)) continue;
-      tag(X(n.x), Y(n.y - headGap(npcArt(n), 40, s)), npcLabel(n.id), 13);
+      tag(X(n.x), headY(npcArt(n), n.y, 40), npcLabel(n.id), 13);
     }
     var pl = g.player;
     var plArt = ART.actor[g.hidden ? "player-seated" : "player"];
-    tag(X(pl.x), Y(pl.y - headGap(plArt, 46, s)),
+    tag(X(pl.x), headY(plArt, pl.y, 46),
       g.hidden ? "正在假装工作" : (g.cover > 0 ? "送材料 " + Math.ceil(g.cover) + "s" : "你"), 13);
-    if (NEAR) tag(X(NEAR.x), Y(NEAR.y + 66), "E  " + NEAR.label, 15);
+    if (NEAR) tag(X(NEAR.x), dnY(NEAR.y, 66), "E  " + NEAR.label, 15);
   }
 
   /* ── HUD（规格 §7.6 的原文，一个字没改）＋ 小地图（规格 §1.1 的尺寸与配色）── */
@@ -1620,6 +1918,7 @@
     txtOut(ln.foot, W / 2, L.hint.footY, HUD.footL, "rgba(233,227,209,.46)", "center", "normal");
 
     drawMinimap(g, L);
+    drawViewCtl(g);
 
     /* toast（3.8s）与事件横幅（4s / 3.5s）—— 只在 playing 且还有时间时显示。
        y 由布局表给：恒定在左上信息块下沿之下，不会和任何一行挤在一起。 */
@@ -1659,6 +1958,31 @@
     dot(mx + g.player.x * k, my + g.player.y * k, 4, COL.player);
     txtOut("F" + g.floor + "/" + g.floors + " · 白点你 / 绿点电梯", mx + mw / 2, m.capY,
            HUD.miniCapL, "rgba(233,227,209,.62)", "center", "normal");
+  }
+
+  /* ── 视角切换控件（画布右下角的小药丸，点一下换下一档）────────────────────────
+     为什么放右下角：左上信息块 / 右上小地图 / 左下状态块 / 底部居中两行都够不着它
+     （底部两行是居中的，最窄画布下也与它横向错开）。
+     ⚠ 它**不进 HL.rects**：世界标签的避让口径必须与改造前逐像素一致（flat 档是保底档）。
+       它在 drawLabels 之后才画，所以万一有标签路过这里，也是被药丸盖住，不会两层字叠一起。 */
+  function viewCtlBox() {
+    var w = 120, h = 26;
+    return { x:W - HUD.pad - w, y:H - HUD.pad - h - 16, w:w, h:h };
+  }
+  function viewCtlHit(x, y) {
+    var b = viewCtlBox();
+    return x >= b.x - 6 && x <= b.x + b.w + 6 && y >= b.y - 6 && y <= b.y + b.h + 6;
+  }
+  function drawViewCtl(g) {
+    var b = viewCtlBox(), c = viewCfg(), i, x, dot0 = b.x + 10;
+    plate(b.x, b.y, b.w, b.h);
+    for (i = 0; i < VIEW_ORDER.length; i++) {          /* 三格：亮 = 当前档 */
+      x = dot0 + i * 11;
+      ctx.fillStyle = (VIEW_ORDER[i] === viewMode) ? COL.lift : "rgba(233,227,209,.20)";
+      roundRect(ctx, x, b.y + b.h / 2 - 3.5, 7, 7, 2); ctx.fill();
+    }
+    txtOut(c.label, dot0 + VIEW_ORDER.length * 11 + 3, b.y + b.h / 2 + .5, 12,
+           "rgba(233,227,209,.88)", "left", "normal");
   }
 
   /* ═════════════════ 10. 对局逻辑（应用层：会话控制 + 结算） ═════════════════ */
@@ -1835,6 +2159,23 @@
     else if (g.phase === "won" && !g.settled) advanceLevel();
     else if (g.phase === "floor-intro") enterFloor(g);
   }
+  /* 视角档位（纯渲染层，随时可切，不影响任何判定）。finish=true 时立刻重画一帧。 */
+  function setView(m) {
+    if (VIEW_DEF[m]) viewMode = m;
+    if (G && ctx) { camFollow(G); render(); drawOverlay(); }
+    return viewMode;
+  }
+  /* 画布点击：先看是不是点在视角控件上（是就换档，**不**触发"点画面重试/继续"），
+     其余位置照旧走 onClick —— 老行为一个字节没变。 */
+  function onCanvasClick(e) {
+    if (e && cv && cv.getBoundingClientRect) {
+      var r = cv.getBoundingClientRect();
+      var x = (e.clientX - r.left) * (W / (r.width || W));
+      var y = (e.clientY - r.top) * (H / (r.height || H));
+      if (viewCtlHit(x, y)) { setView(nextView()); return; }
+    }
+    onClick();
+  }
 
   /* ── 浮层（规格 §7.7 的文案原文 + 本地结算数字）── */
   function panel(pw, ph) {
@@ -1984,10 +2325,11 @@
     cv = c; ctx = c.getContext("2d");
     if (!ctx) { hostEl.innerHTML = ""; return false; }
     G = startSession(opts0);
+    gradDark = gradLight = gradFacade = null;   /* 渐变是建在 ctx 上的，换一局要重来 */
     fitCanvas();
     doc.addEventListener("keydown", onKeyDown, false);
     doc.addEventListener("keyup", onKeyUp, false);
-    if (cv.addEventListener) cv.addEventListener("click", onClick, false);
+    if (cv.addEventListener) cv.addEventListener("click", onCanvasClick, false);
     running = true; lastTs = 0;
     rafId = root.requestAnimationFrame(frame);
     return true;
@@ -1999,9 +2341,10 @@
       doc.removeEventListener("keydown", onKeyDown, false);
       doc.removeEventListener("keyup", onKeyUp, false);
     }
-    if (cv && cv.removeEventListener) cv.removeEventListener("click", onClick, false);
+    if (cv && cv.removeEventListener) cv.removeEventListener("click", onCanvasClick, false);
     if (hostEl) hostEl.innerHTML = "";
     cv = null; ctx = null; G = null; hostEl = null; opts0 = null; NEAR = null;
+    gradDark = gradLight = gradFacade = null;
     keys.left = keys.right = keys.up = keys.down = false;
     return true;
   }
@@ -2047,6 +2390,7 @@
       toast: g.toast, eventText: g.eventText, seed: g.seed, seed0: g.seed0,
       worldW: WORLD_W, worldH: WORLD_H,
       canvasW: W, canvasH: H,
+      view: viewMode,                       /* 当前视角档位：flat | tilt | deep */
       camX: +(g.view ? g.view.x : 0).toFixed(1), camY: +(g.view ? g.view.y : 0).toFixed(1),
       viewW: +(g.view ? g.view.w : 0).toFixed(1), viewH: +(g.view ? g.view.h : 0).toFixed(1)
     };
@@ -2192,6 +2536,12 @@
     ART.failAll = !!on;
     render(); drawOverlay();
     return ART.failAll;
+  };
+  /* 视角档位：view("flat"|"tilt"|"deep") 换档并返回当前档；不带参数 = 只读。
+     ⚠ 纯渲染层开关：玩法状态（g）一个字段都不改，只是下一帧换一种画法。 */
+  debug.view = function (m) {
+    if (m === undefined || m === null || m === "") return viewMode;
+    return setView(m);
   };
 
   /* ═════════════════ 导出 ═════════════════ */
