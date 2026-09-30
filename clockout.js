@@ -999,6 +999,7 @@
   var rafId = 0, lastTs = 0, running = false, opts0 = null;
   var keys = {}, NEAR = null;
   var collideOverlay = false;            /* debug.collisionOverlay(on)：墙体碰撞描边，默认关 */
+  var HL = null;                         /* 本帧的 HUD 布局（render 每帧刷新，见 hudLayout） */
 
   /* ═════════════════ 8.5 贴图资源（art/clockout/**）：贴图优先、缺图回落 ═════════════════
      与音频层是同一套约定（breakfast.js 的 art 加载器也是这个口径）：
@@ -1098,6 +1099,50 @@
     alert:"#ff4d6d", hud:"#0b0a13", panel:"#f4efe2", ink:"#20222c"
   };
 
+  /* ═════════════════ 9.1 HUD 布局常量表（屏幕空间，单位=画布像素） ═════════════════
+     ⚠ 这里是 HUD 坐标 / 字号 / 行距 / 内边距的**唯一**来源，别再往绘制函数里塞魔法数字。
+     为什么要有这张表：上一版把 22 / 46 / 68 / H-74 / H-40 / H-16 散在 drawHud 里，
+     左上三行的行距只有 22px 而目标行字号 15px（净空 9px），三行读起来是一坨；
+     世界标签又能随便飘进底部提示行 —— 于是出现"先找到电梯前往二层"压在
+     "W A S D 移动"上。现在的三条硬规则：
+       ① 每个块的行距 >= 该行字号（相邻两行的墨迹至少留 6px 净空，见 hudLayout）；
+       ② hudLayout() 每帧算一次，绘制与**标签避让**读同一份矩形，不会各算各的；
+       ③ 世界标签（tag）撞到任何一块就整体让开，HUD 文字与世界标签永不重叠。 */
+  var HUD = {
+    pad: 14,                            /* 画布四周安全边距 */
+    plate: "rgba(11,10,19,.56)",        /* 底衬：半透明，下面的插图还看得见 */
+    plateEdge: "rgba(255,255,255,.10)",
+    radius: 8,
+    ink: "rgba(6,5,12,.78)",            /* 文字描边色（压在亮插图上也不糊） */
+
+    /* ── 左上：模式行 / 目标行 / 目标副行 ── */
+    infoX: 12, infoY: 12, infoPadX: 10, infoPadY: 9,
+    infoL1: 12.5, infoL2: 15, infoL3: 11.5,   /* 三行字号 */
+    infoGap1: 28, infoGap2: 25,               /* 行1→2 / 行2→3 的中心距 */
+
+    /* ── 右上：小地图（宽高按世界比例算，这里只给边距） ── */
+    miniX: 16, miniY: 14, miniBox: 8, miniCap: 22, miniCapL: 11,
+
+    /* ── 左下：怀疑度条 + 倒计时 ── */
+    barW: 240, barH: 8, barLabelGap: 12, timeGap: 16,
+    barLabelL: 12, timeL: 12.5, timeBig: 21,
+
+    /* ── 底部：按键提示 + 脚注（都居中） ── */
+    hintL: 12.5, footL: 11, hintGap: 26, footGap: 23, botPad: 10,
+
+    /* ── 顶部中央：toast / 事件横幅（永远落在左上信息块下沿之下） ── */
+    toastK: 0.18, toastMin: 112, bannerGap: 42, toastL: 15, bannerL: 16,
+
+    /* ── 世界标签避让 HUD 时允许挪动的上限（px）：超过就干脆不画 ── */
+    tagNudge: 72,
+    /* ── 锚点离画布多远（px）就认为"人不在画面里"、连标签一起不画 ── */
+    tagCull: 40,
+    tagPillH: 25,                       /* 标签药丸高度（屏幕像素，见 tag / headGap） */
+
+    /* ── 结算面板：高度按行数算，"净收益"与底部提示各有自己的固定槽位 ── */
+    setW: 460, setHead: 120, setRowH: 21, setDiv: 18, setNetGap: 40, setFootPad: 20
+  };
+
   function beep(f, d, t, g) { try { if (root.AudioSys && root.AudioSys.blip) root.AudioSys.blip(f, d, t, g); } catch (e) {} }
   function txt(s, x, y, size, color, align, weight) {
     ctx.font = (weight || "bold") + " " + size + "px 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
@@ -1105,6 +1150,32 @@
     ctx.textBaseline = "middle";
     ctx.fillStyle = color;
     ctx.fillText(s, x, y);
+  }
+  /* HUD 专用文字：先描一圈深色边再填色 —— 压在亮插图上也能读，且**什么都不遮**
+     （比铺一整块底板轻）。结算面板是浅色底，那边继续用 txt()，描边反而脏。 */
+  function txtOut(s, x, y, size, color, align, weight) {
+    ctx.font = (weight || "bold") + " " + size + "px 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
+    ctx.textAlign = align || "left";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(2.5, size * 0.34);
+    ctx.strokeStyle = HUD.ink;
+    ctx.strokeText(s, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(s, x, y);
+  }
+  /* 文字实测宽度：底衬要按真实宽度裁，不能拍一个固定宽度（换地图名就露馅）。 */
+  function textW(s, size, weight) {
+    ctx.font = (weight || "bold") + " " + size + "px 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
+    return ctx.measureText(s).width;
+  }
+  /* HUD 底衬：一块半透明圆角板（提高可读性用，不吃掉下面的画面）。 */
+  function plate(x, y, w, h) {
+    if (!(w > 0) || !(h > 0)) return;
+    ctx.fillStyle = HUD.plate;
+    roundRect(ctx, x, y, w, h, HUD.radius); ctx.fill();
+    ctx.strokeStyle = HUD.plateEdge; ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, h, HUD.radius); ctx.stroke();
   }
   function roundRect(g, x, y, w, h, r) {
     if (w <= 0 || h <= 0) return;
@@ -1116,17 +1187,57 @@
     g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y);
     g.closePath();
   }
-  /* 世界里的一个标签：屏幕空间画，字号不随缩放变（规格 §1.1 的 tag 尺寸）。 */
-  function tag(x, y, s, size) {
+  /* 世界里的一个标签：屏幕空间画，字号不随缩放变（规格 §1.1 的 tag 尺寸）。
+     ⚠ 落点先过 tagPlace()：撞到 HUD 的块就整体让开 —— 上一版标签能直接飘到
+     "W A S D 移动"那一行上，两行字压在一起谁也别想读。raw=true 是 HUD 自己的
+     横幅（toast / 事件）用的：它本来就该在最上层，不参与避让。 */
+  function tag(x, y, s, size, raw) {
     if (!s) return;
-    ctx.font = "bold " + (size || 14) + "px 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
-    var w = ctx.measureText(s).width + 16;
+    var fs = size || 14;
+    ctx.font = "bold " + fs + "px 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
+    var w = ctx.measureText(s).width + 16, h = HUD.tagPillH;
+    if (!raw) {
+      /* 锚点离画布太远（角色基本在画面外）就不画：不然夹回画布会让名字"贴"在
+         边上，看着像画面里有个看不见的人。留 HUD.tagCull 的余量，给"半个身子
+         还在画面里"的角色留名字。 */
+      if (x < -HUD.tagCull || x > W + HUD.tagCull || y < -HUD.tagCull || y > H + HUD.tagCull) return;
+      var p = tagPlace(x, y, w, h);
+      if (!p) return;                    /* 让不开就不画（见 tagPlace 的注释） */
+      x = p.x; y = p.y;
+    }
     ctx.fillStyle = "rgba(11,10,19,.68)";
-    roundRect(ctx, x - w / 2, y - 13, w, 25, 9); ctx.fill();
+    roundRect(ctx, x - w / 2, y - h / 2 - 0.5, w, h, 9); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,.10)"; ctx.lineWidth = 1;
-    roundRect(ctx, x - w / 2, y - 13, w, 25, 9); ctx.stroke();
+    roundRect(ctx, x - w / 2, y - h / 2 - 0.5, w, h, 9); ctx.stroke();
     ctx.fillStyle = COL.player; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(s, x, y);
+  }
+  /* 标签落点：① 撞进 HUD 占用的矩形就沿**竖直**方向让开（选位移小的那一侧，
+     要么挪到块上方、要么挪到块下方）；② 夹进画布，别被边缘切掉。
+     只动 y 不动 x：标签是"头顶上的名字"，横着飞走反而找不到是谁。
+     让不开就**不画**（返回 null）：角落里的角色本来就被 HUD 压着，
+     与其把名字甩到半屏之外、或者被底衬盖掉一半，不如不画 —— minimap 上本来就有它的点。
+     两遍是因为让开 A 之后可能撞上 B；HUD 的块互不重叠，两遍足够收敛。 */
+  function tagPlace(x, y, w, h) {
+    var hw = w / 2 + 4, hh = h / 2 + 4, rs = HL ? HL.rects : [], i, k, r, up, dn, y0 = y, canUp, canDn;
+    for (k = 0; k < 2; k++) {
+      for (i = 0; i < rs.length; i++) {
+        r = rs[i];
+        if (x + hw <= r.x || x - hw >= r.x + r.w || y + hh <= r.y || y - hh >= r.y + r.h) continue;
+        up = r.y - hh;                     /* 挪到这块上面 */
+        dn = r.y + r.h + hh;               /* 或下面 */
+        canUp = up >= hh;                  /* 挪出去还得留在画布里，否则白挪（会被夹回来） */
+        canDn = dn <= H - hh;
+        if (canUp && canDn) y = (y - up <= dn - y) ? up : dn;
+        else if (canUp) y = up;
+        else if (canDn) y = dn;
+        else return null;                  /* 上下都放不下：这一块彻底占住了这条竖带 */
+        if (Math.abs(y - y0) > HUD.tagNudge) return null;
+      }
+      x = limit(x, hw, W - hw);
+      y = limit(y, hh, H - hh);
+    }
+    return { x:x, y:y };
   }
   function dot(x, y, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
@@ -1159,6 +1270,7 @@
     if (!G || !ctx) return;
     var g = G, s = g.view.scale;
     camFollow(g);
+    HL = hudLayout(g);            /* 先算布局：下面画世界标签时要靠它避让 HUD 的块 */
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = COL.hud; ctx.fillRect(0, 0, W, H);
     ctx.save();
@@ -1359,11 +1471,16 @@
   }
 
   /* 文字标签：屏幕空间（字号不随摄像机缩放变），文案用规格 §7.6 原文。 */
-  /* 标签要抬到**头顶**多高：贴图有 111/112 世界像素高，若还按程序化小人那套
-     40/46 的偏移，标签会正好糊在角色脸上（HUD 可读性）。用了贴图就按贴图上沿
-     (size - dy) 再留 16px；没贴图时原样返回旧偏移 —— 回落路径一个像素都不变。 */
-  function headGap(art, fallback) {
-    return artReady(art) ? (art.size - art.dy) + 16 : fallback;
+  /* 标签要抬到**头顶**多高。两段口径别搞混：
+       ① 贴图顶到脚底 = (size - dy) **世界像素**（111 高的贴图就是 103）；
+       ② 标签药丸是**屏幕空间**的 25px 定高（字号不随摄像机缩放变，规格 §1.1）。
+     所以头顶上还要留的世界像素 = (药丸半高 + 4px 呼吸) ÷ 缩放 —— 上一版这里写死
+     16 世界像素：W=982 时刚好让开 0.6px，画布一窄（缩放变小）16 世界像素就换不到
+     12.5 屏幕像素，药丸又压在角色头上（W=560 时压 5px）。没贴图时原样返回旧偏移 ——
+     程序化小人本来就只有 ~14 世界像素半径，回落路径一个像素都不变。 */
+  function headGap(art, fallback, s) {
+    if (!artReady(art)) return fallback;
+    return (art.size - art.dy) + (HUD.tagPillH / 2 + 4) / (s || 1);
   }
   function drawLabels(g) {
     var v = g.view, s = v.scale, p = g.map.points, i, n;
@@ -1378,75 +1495,154 @@
     for (i = 0; i < g.npcs.length; i++) {
       n = g.npcs[i];
       if (!isDrawable(g, n)) continue;
-      tag(X(n.x), Y(n.y - headGap(npcArt(n), 40)), npcLabel(n.id), 13);
+      tag(X(n.x), Y(n.y - headGap(npcArt(n), 40, s)), npcLabel(n.id), 13);
     }
     var pl = g.player;
     var plArt = ART.actor[g.hidden ? "player-seated" : "player"];
-    tag(X(pl.x), Y(pl.y - headGap(plArt, 46)),
+    tag(X(pl.x), Y(pl.y - headGap(plArt, 46, s)),
       g.hidden ? "正在假装工作" : (g.cover > 0 ? "送材料 " + Math.ceil(g.cover) + "s" : "你"), 13);
     if (NEAR) tag(X(NEAR.x), Y(NEAR.y + 66), "E  " + NEAR.label, 15);
   }
 
-  /* ── HUD（规格 §7.6 的原文）＋ 小地图（规格 §1.1 的尺寸与配色）── */
-  function drawHud(g) {
-    var pad = 14, coverDur = g.config.coverDuration || 1;
-    txt(g.difficulty.name + "模式 / 第 " + g.level + " 关 · " + g.map.name +
-        (g.floors > 1 ? "  F" + g.floor + "/2" : ""), pad, 22, 14, COL.lift);
-    var obj;
+  /* ── HUD（规格 §7.6 的原文，一个字没改）＋ 小地图（规格 §1.1 的尺寸与配色）── */
+
+  /* HUD 的三行文案与怀疑度状态 —— 布局与绘制共用同一份，杜绝"量的是 A、画的是 B"。
+     文案本身照抄规格 §7.6，这里只把它从 drawHud 里提出来。 */
+  function hudLines(g) {
+    var obj, sub, left, right, frac, danger = g.suspicion > 60;
+    var coverDur = g.config.coverDuration || 1;
     if (g.lift === "open") obj = g.floor < g.floors ? "换层电梯到了，前往二层" : "电梯到了，快进去！";
     else if (g.lift === "calling") obj = "等待电梯，留意身后";
-    else obj = "第 " + g.level + " / " + LEVELS.length + " 关 · " + g.map.name + (g.floors > 1 ? " · " + g.floor + "/2 层" : "");
-    txt(obj, pad, 46, 15, COL.marker);
-    txt(g.lift === "idle"
+    else obj = "第 " + g.level + " / " + LEVELS.length + " 关 · " + g.map.name +
+               (g.floors > 1 ? " · " + g.floor + "/2 层" : "");
+    sub = g.lift === "idle"
       ? ((g.floor < g.floors ? "先找到电梯前往二层" : "绿色标记为本层出口") + " · 等待 " + g.config.liftWait + " 秒")
-      : "靠近电梯门，按 E 进入", pad, 68, 12.5, "rgba(233,227,209,.62)", "left", "normal");
-
-    /* 怀疑度条（规格 §7.6）：danger=被发现的当帧，hidden/cover 各自一种颜色 */
-    var danger = g.suspicion > 60, left, right, frac;
+      : "靠近电梯门，按 E 进入";
     if (danger) { left = "已被发现"; right = "暴露"; frac = 1; }
     else if (g.hidden) { left = "伪装中"; right = "安全"; frac = 1; }
     else if (g.cover > 0) { left = "送材料中"; right = "伪装"; frac = limit(g.cover / coverDur, 0, 1); }
     else { left = "巡逻视线"; right = "安全"; frac = 0; }
-    var bw = Math.min(240, W * 0.26), bx = pad, by = H - 74;
-    ctx.fillStyle = "rgba(255,255,255,.10)"; roundRect(ctx, bx, by, bw, 8, 4); ctx.fill();
-    ctx.fillStyle = danger ? "#ed7964" : "#80d6ba";
-    roundRect(ctx, bx, by, Math.max(0, bw * frac), 8, 4); ctx.fill();
-    txt(left, bx, by - 13, 12, danger ? "#ed7964" : "rgba(233,227,209,.75)", "left", "normal");
-    txt(right, bx + bw, by - 13, 12, danger ? "#ed7964" : "#80d6ba", "right");
+    return {
+      title: g.difficulty.name + "模式 / 第 " + g.level + " 关 · " + g.map.name +
+             (g.floors > 1 ? "  F" + g.floor + "/2" : ""),
+      obj: obj, sub: sub, left: left, right: right, frac: frac, danger: danger,
+      time: Math.ceil(g.time), urgent: g.time <= 20,
+      hint: "W A S D 移动 · E 互动 · 空格 使用文件",
+      foot: "工作已完成，下班理直气壮。 躲开视线 · 临场应变 · 准点回家"
+    };
+  }
 
-    /* 倒计时 */
-    var tleft = Math.ceil(g.time), urgent = g.time <= 20;
-    txt("剩余", pad, H - 40, 12.5, "rgba(233,227,209,.6)", "left", "normal");
-    txt((tleft < 10 ? "0" : "") + tleft + " s", pad + 36, H - 40, 21, urgent ? COL.alert : COL.player);
+  /* 每帧一趟布局：把这一帧所有 HUD 块的位置 / 尺寸 / 基线算出来，并给出**占用矩形**。
+     绘制（drawHud）与世界标签的避让（tagPlace）都读它 —— "谁在哪儿"只有这一个答案。
+     所有数字来自 HUD 常量表；块与块之间按"从上往下 / 从下往上"的顺序排，不互相借位。 */
+  function hudLayout(g) {
+    var L = hudLines(g);
 
-    /* 底部按键提示 + 脚注 */
-    txt("W A S D 移动 · E 互动 · 空格 使用文件", W / 2, H - 40, 12.5, "rgba(233,227,209,.72)", "center", "normal");
-    txt("工作已完成，下班理直气壮。 躲开视线 · 临场应变 · 准点回家", W / 2, H - 16, 11.5, "rgba(233,227,209,.38)", "center", "normal");
+    /* ── 左上信息块：三行，中心距 28 / 25（字号 12.5 / 15 / 11.5 → 净空 12+px）── */
+    var c1 = HUD.infoY + HUD.infoPadY + HUD.infoL1 / 2;
+    var c2 = c1 + HUD.infoGap1, c3 = c2 + HUD.infoGap2;
+    var iw = Math.ceil(Math.max(textW(L.title, HUD.infoL1),
+                                textW(L.obj, HUD.infoL2),
+                                textW(L.sub, HUD.infoL3, "normal")));
+    var info = { x:HUD.infoX, y:HUD.infoY, tx:HUD.infoX + HUD.infoPadX,
+                 w:iw + HUD.infoPadX * 2, h:(c3 + HUD.infoL3 / 2 + HUD.infoPadY) - HUD.infoY,
+                 c1:c1, c2:c2, c3:c3 };
 
-    drawMinimap(g);
+    /* ── 右上小地图：底衬比地图本身外扩一圈，外加底部说明行 ── */
+    var mw = Math.min(230, W * 0.25), mh = mw * 2 / 3, mb = HUD.miniBox;
+    var mini = { x:W - mw - HUD.miniX, y:HUD.miniY, w:mw, h:mh, k:mw / WORLD_W,
+                 bx:W - mw - HUD.miniX - mb, by:HUD.miniY - mb,
+                 bw:mw + mb * 2, bh:mh + mb + HUD.miniCap,
+                 capY:HUD.miniY + mh + HUD.miniCap / 2 - 1 };
 
-    /* toast（3.8s）与事件横幅（4s / 3.5s）—— 只在 playing 且还有时间时显示 */
+    /* ── 左下状态块 + 底部居中提示块：都从画布底边往上排，顺序固定 ── */
+    var footY = H - HUD.botPad - HUD.footL / 2;
+    var hintY = footY - HUD.footGap;
+    var timeY = hintY - HUD.hintGap;
+    var barW = Math.min(HUD.barW, W * 0.26);
+    var barY = timeY - HUD.timeBig / 2 - HUD.timeGap - HUD.barH;
+    var labY = barY - HUD.barLabelGap;
+    var stat = { x:HUD.infoX, y:labY - HUD.barLabelL / 2 - 6,
+                 w:barW + HUD.infoPadX * 2,
+                 barX:HUD.infoX + HUD.infoPadX, barY:barY, barW:barW,
+                 labY:labY, timeY:timeY };
+    stat.h = (timeY + HUD.timeBig / 2 + 8) - stat.y;
+    var hint = { y:hintY, footY:footY,
+                 w:Math.max(textW(L.hint, HUD.hintL, "normal"),
+                            textW(L.foot, HUD.footL, "normal")) + 24 };
+
+    /* ── 顶部中央：toast / 事件横幅（恒定落在信息块下沿之下）── */
+    var toastY = Math.max(HUD.toastMin, Math.round(H * HUD.toastK));
+
+    /* ── 占用矩形：世界标签撞上任何一块都会让开（见 tagPlace）── */
+    var rects = [
+      { x:info.x - 3, y:info.y - 3, w:info.w + 6, h:info.h + 6 },
+      { x:mini.bx, y:mini.by, w:mini.bw, h:mini.bh },
+      { x:stat.x - 3, y:stat.y - 3, w:stat.w + 6, h:stat.h + 6 },
+      { x:(W - hint.w) / 2, y:hint.y - 7, w:hint.w, h:(hint.footY - hint.y) + 20 }
+    ];
+    if (g.phase === "playing" && g.time > 0) {
+      if (g.toastTimer > 0 && g.toast)
+        rects.push({ x:(W - textW(g.toast, HUD.toastL) - 20) / 2, y:toastY - 14,
+                     w:textW(g.toast, HUD.toastL) + 20, h:28 });
+      if (g.eventTimer > 0 && g.eventText)
+        rects.push({ x:(W - textW(g.eventText, HUD.bannerL) - 20) / 2, y:toastY + HUD.bannerGap - 14,
+                     w:textW(g.eventText, HUD.bannerL) + 20, h:28 });
+    }
+    return { g:g, lines:L, info:info, mini:mini, stat:stat, hint:hint,
+             toastY:toastY, rects:rects };
+  }
+
+  function drawHud(g) {
+    var L = (HL && HL.g === g) ? HL : hudLayout(g);
+    var ln = L.lines, st = L.stat;
+
+    /* ── 左上信息块：三行 + 半透明底衬（压在亮插图上也能读）── */
+    plate(L.info.x, L.info.y, L.info.w, L.info.h);
+    txtOut(ln.title, L.info.tx, L.info.c1, HUD.infoL1, COL.lift);
+    txtOut(ln.obj, L.info.tx, L.info.c2, HUD.infoL2, COL.marker);
+    txtOut(ln.sub, L.info.tx, L.info.c3, HUD.infoL3, "rgba(233,227,209,.70)", "left", "normal");
+
+    /* ── 左下：怀疑度条（规格 §7.6：danger / hidden / cover 三种颜色）+ 倒计时 ── */
+    plate(st.x, st.y, st.w, st.h);
+    txtOut(ln.left, st.barX, st.labY, HUD.barLabelL, ln.danger ? "#ed7964" : "rgba(233,227,209,.80)", "left", "normal");
+    txtOut(ln.right, st.barX + st.barW, st.labY, HUD.barLabelL, ln.danger ? "#ed7964" : "#80d6ba", "right");
+    ctx.fillStyle = "rgba(255,255,255,.10)";
+    roundRect(ctx, st.barX, st.barY, st.barW, HUD.barH, 4); ctx.fill();
+    ctx.fillStyle = ln.danger ? "#ed7964" : "#80d6ba";
+    roundRect(ctx, st.barX, st.barY, Math.max(0, st.barW * ln.frac), HUD.barH, 4); ctx.fill();
+    txtOut("剩余", st.barX, st.timeY, HUD.timeL, "rgba(233,227,209,.66)", "left", "normal");
+    txtOut((ln.time < 10 ? "0" : "") + ln.time + " s", st.barX + HUD.timeBig * 1.7, st.timeY,
+           HUD.timeBig, ln.urgent ? COL.alert : COL.player);
+
+    /* ── 底部两行（居中）：只描边不铺底板 —— 画面正中下部最容易挡住角色 ── */
+    txtOut(ln.hint, W / 2, L.hint.y, HUD.hintL, "rgba(233,227,209,.78)", "center", "normal");
+    txtOut(ln.foot, W / 2, L.hint.footY, HUD.footL, "rgba(233,227,209,.46)", "center", "normal");
+
+    drawMinimap(g, L);
+
+    /* toast（3.8s）与事件横幅（4s / 3.5s）—— 只在 playing 且还有时间时显示。
+       y 由布局表给：恒定在左上信息块下沿之下，不会和任何一行挤在一起。 */
     if (g.phase === "playing" && g.time > 0) {
       if (g.toastTimer > 0 && g.toast) {
         ctx.globalAlpha = Math.min(1, g.toastTimer * 1.4);
-        tag(W / 2, H * 0.20, g.toast, 15);
+        tag(W / 2, L.toastY, g.toast, HUD.toastL, true);
         ctx.globalAlpha = 1;
       }
       if (g.eventTimer > 0 && g.eventText) {
         ctx.globalAlpha = Math.min(1, g.eventTimer);
-        tag(W / 2, H * 0.29, g.eventText, 16);
+        tag(W / 2, L.toastY + HUD.bannerGap, g.eventText, HUD.bannerL, true);
         ctx.globalAlpha = 1;
       }
     }
   }
 
-  function drawMinimap(g) {
-    var mw = Math.min(230, W * 0.25), mh = mw * 2 / 3;
-    var mx = W - mw - 16, my = 16, k = mw / WORLD_W, i, p = g.map.points;
+  function drawMinimap(g, L) {
+    var m = L.mini, mx = m.x, my = m.y, mw = m.w, mh = m.h, k = m.k, i, p = g.map.points;
     ctx.fillStyle = "rgba(11,10,19,.72)";
-    roundRect(ctx, mx - 8, my - 8, mw + 16, mh + 38, 10); ctx.fill();
+    roundRect(ctx, m.bx, m.by, m.bw, m.bh, 10); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,.16)"; ctx.lineWidth = 1;
-    roundRect(ctx, mx - 8, my - 8, mw + 16, mh + 38, 10); ctx.stroke();
+    roundRect(ctx, m.bx, m.by, m.bw, m.bh, 10); ctx.stroke();
     ctx.fillStyle = "rgba(200,210,240,.30)";
     for (i = 0; i < g.map.walls.length; i++) {
       var a = g.map.walls[i];
@@ -1461,7 +1657,8 @@
       dot(mx + n.x * k, my + n.y * k, 2.5, "rgba(255,214,90,.9)");
     }
     dot(mx + g.player.x * k, my + g.player.y * k, 4, COL.player);
-    txt("F" + g.floor + "/" + g.floors + " · 白点你 / 绿点电梯", mx + mw / 2, my + mh + 16, 11, "rgba(233,227,209,.55)", "center", "normal");
+    txtOut("F" + g.floor + "/" + g.floors + " · 白点你 / 绿点电梯", mx + mw / 2, m.capY,
+           HUD.miniCapL, "rgba(233,227,209,.62)", "center", "normal");
   }
 
   /* ═════════════════ 10. 对局逻辑（应用层：会话控制 + 结算） ═════════════════ */
@@ -1691,28 +1888,35 @@
     }
     if (g.settled && g.result) {                    /* 结算：被抓 / 超时 / 三关全通 / 调试 */
       var r = g.result, last_ = r.cleared === r.levels;
-      pw = 460; y = panel(pw, 344);
+      /* 面板高度**按行数算**（"全程零被发现"会多一行），"净收益"与底部提示各有固定槽位。
+         ⚠ 上一版高度写死 344、底部提示写死 y+322，而"净收益"随行数漂到 y+334 ——
+         两行必然叠在一起（子代理用 debug.artFail(true) 做的 A/B 也复现了，与素材无关）。 */
+      var rows = 5 + (r.ghostScore ? 1 : 0);
+      var ph = Math.min(HUD.setHead + rows * HUD.setRowH + HUD.setDiv * 2 + HUD.setRowH * 2
+                        + 6 + HUD.setNetGap + HUD.setFootPad, H - HUD.pad * 2);
+      pw = HUD.setW; y = panel(pw, ph);
       txt(last_ ? "三关全通 · 下班成功" : "第 " + g.level + " 关 · 下班任务失败",
           W / 2, y + 28, 12.5, "#8a836f", "center", "normal");
       txt(last_ ? "终于，自由了。" : (g.caughtBy ? "被发现了，下班失败。" : "这会，真不止五分钟。"),
           W / 2, y + 58, 21, COL.ink, "center");
       txt(g.message, W / 2, y + 88, 12, "#5b5646", "center", "normal");
       if (!last_ && g.floors > 1) txt("本关将从第一层重试，已通关的关卡保留。", W / 2, y + 108, 12, "#8a836f", "center", "normal");
-      i = y + 136;
-      divider(i, pw); i += 20;
-      row("通关", r.cleared + " / " + r.levels + " 关", i, pw); i += 22;
-      row("被抓次数", String(r.caught), i, pw); i += 22;
-      row("三关总用时", r.timeUsed + " 秒", i, pw); i += 22;
-      row("剩余时间", r.timeLeft + " 秒", i, pw); i += 22;
-      row("关卡分 + 省时分", r.levelScore + " + " + r.timeScore, i, pw); i += 22;
-      if (r.ghostScore) { row("全程零被发现", "+" + r.ghostScore, i, pw); i += 22; }
-      divider(i, pw); i += 20;
-      row("总分 / 评级", r.score + " · " + r.grade, i, pw); i += 22;
-      row("赔付 − 入场", "¥" + r.pay + " − ¥" + r.entry, i, pw); i += 26;
+      i = y + HUD.setHead;
+      divider(i, pw); i += HUD.setDiv;
+      row("通关", r.cleared + " / " + r.levels + " 关", i, pw); i += HUD.setRowH;
+      row("被抓次数", String(r.caught), i, pw); i += HUD.setRowH;
+      row("三关总用时", r.timeUsed + " 秒", i, pw); i += HUD.setRowH;
+      row("剩余时间", r.timeLeft + " 秒", i, pw); i += HUD.setRowH;
+      row("关卡分 + 省时分", r.levelScore + " + " + r.timeScore, i, pw); i += HUD.setRowH;
+      if (r.ghostScore) { row("全程零被发现", "+" + r.ghostScore, i, pw); i += HUD.setRowH; }
+      divider(i, pw); i += HUD.setDiv;
+      row("总分 / 评级", r.score + " · " + r.grade, i, pw); i += HUD.setRowH;
+      row("赔付 − 入场", "¥" + r.pay + " − ¥" + r.entry, i, pw); i += HUD.setRowH + 6;
       txt("净收益  " + money(r.net), W / 2, i, 20, moneyColor(r.net), "center");
+      /* 底部提示钉在面板**底边**上，与"净收益"恒定隔 40px —— 行数怎么变都不撞。 */
       txt(r.practice ? "练手局 · 不结算财富 · 点击画面重试第 " + g.level + " 关"
                      : "点击画面重试第 " + g.level + " 关",
-          W / 2, y + 322, 12.5, "#8a836f", "center", "normal");
+          W / 2, y + ph - HUD.setFootPad, 12.5, "#8a836f", "center", "normal");
       return;
     }
     if (g.phase === "won" || g.phase === "lost") {  /* 过关（还有下一关） */
