@@ -1123,6 +1123,9 @@
        flat 俯视    —— **改造之前的老路径**，逐像素一致（保底档）
        tilt 倾斜    —— 地面纵向压扁 TILT，家具挤出 WALL_H 的侧立面（默认档）
        deep 强立体  —— 压得更扁、挤得更高，家具向左下投一层柔和暗影 + 轻微描边
+     ⚠ 侧立面**不是纯色暗面**：色相取自顶面自己那一块像素（同一列的平均色），
+       再压一层"上亮 → 落地最暗"的环境光遮蔽渐变。取样有缓存、每关只算一次，
+       详见 9.3b。挤出高度也从 64/118 收到 42/76 —— 上一轮偏厚，暗面占屏太大。
      ⚠ 三条铁律（改之前先读）：
        ① **判定层一个像素都不读这里**：walkable / clearLine / sees / captureIfSeen / patrol /
           tick / 状态机 / 结算 / 经济全部仍在世界坐标里算，投影只发生在"世界 → 屏幕"这一步；
@@ -1134,11 +1137,14 @@
        不跟着改就会在上下露出黑边、或者视野跑到世界外面。 */
   var VIEW_ORDER = ["flat", "tilt", "deep"];
   var VIEW_DEF = {
-    /* tilt：地面纵向压缩系数（1 = 俯视原样）；wallH：家具挤出高度（**世界像素**，乘缩放才是屏幕）；
-       drop：deep 档的地面投影强度；edge：是否给挤出体加轻微描边 */
-    flat: { id:"flat", label:"俯视",      tilt:1,   wallH:0,   drop:0, edge:false },
-    tilt: { id:"tilt", label:"倾斜 2.5D", tilt:.68, wallH:64,  drop:0, edge:false },
-    deep: { id:"deep", label:"强立体",    tilt:.55, wallH:118, drop:1, edge:true  }
+    /* tilt：地面纵向压缩系数（1 = 俯视原样）；wallH：家具挤出高度（**世界像素**，乘缩放才是屏幕；
+       画布最宽时缩放 ≈ 0.82，所以 tilt 42 → 约 34 屏幕像素、deep 76 → 约 62 屏幕像素）；
+       drop：deep 档的地面投影强度；edge：是否给挤出体加轻微描边。
+       ⚠ wallH 上一轮是 64 / 118（≈52 / 97 屏幕像素），侧立面偏厚 —— 挤出体越高，
+         那条暗面占屏越大、插图越被压扁。这一轮收薄到 42 / 76（见 9.3b 的说明）。 */
+    flat: { id:"flat", label:"俯视",      tilt:1,   wallH:0,   drop:0,    edge:false },
+    tilt: { id:"tilt", label:"倾斜 2.5D", tilt:.68, wallH:42,  drop:0,    edge:false },
+    deep: { id:"deep", label:"强立体",    tilt:.55, wallH:76,  drop:.55,  edge:true  }
   };
   var viewMode = "tilt";                 /* 默认档 = 倾斜 2.5D（flat 保底、deep 极限） */
   function viewCfg() { return VIEW_DEF[viewMode] || VIEW_DEF.flat; }
@@ -1677,7 +1683,7 @@
        所以人是"站"在地上的；影子/选中环留在地层里被压扁，正好贴在压缩后的地面上。 */
 
   /* 惰性建一次的"软边"渐变（单位盒，用时靠 CTM 缩放到位）：避免每帧给每个家具 new 一个渐变 */
-  var gradDark = null, gradLight = null, gradFacade = null;
+  var gradDark = null, gradLight = null, gradFacade = null, gradFacadeAO = null;
   function band(x, y, w, h, grad) {
     if (!(w > 0) || !(h > 0)) return;
     ctx.save(); ctx.translate(x, y); ctx.scale(w, h);
@@ -1691,9 +1697,18 @@
     gradLight = ctx.createLinearGradient(0, 0, 0, 1);     /* 上→下：深 → 透（下投影带，靠墙最深） */
     gradLight.addColorStop(0, "rgba(6,7,13,.34)");
     gradLight.addColorStop(1, "rgba(6,7,13,0)");
-    gradFacade = ctx.createLinearGradient(0, 0, 0, 1);    /* 侧立面：上沿略亮 → 落地最暗 */
+    gradFacade = ctx.createLinearGradient(0, 0, 0, 1);    /* 缺图回落的程序化侧立面：上沿略亮 → 落地最暗 */
     gradFacade.addColorStop(0, "rgba(26,30,46,.82)");
     gradFacade.addColorStop(1, "rgba(6,7,13,.95)");
+    /* ★ 有插图时压在"取样色带"上的环境光遮蔽：**上沿最亮、贴近地面接触边最暗**。
+       它只是一层半透明暗色，色相完全由下面的色带（= 顶面自己的像素）决定 ——
+       所以木家具出木色侧面、金属出冷灰侧面，而不再是一整块纯色黑板。
+       上一版这里是 .82→.95 的近乎不透明暗面，插图的笔触与配色在侧面全丢。 */
+    gradFacadeAO = ctx.createLinearGradient(0, 0, 0, 1);
+    gradFacadeAO.addColorStop(0,    "rgba(12,13,22,.13)");
+    gradFacadeAO.addColorStop(.32,  "rgba(9,10,19,.28)");
+    gradFacadeAO.addColorStop(.70,  "rgba(6,7,14,.50)");
+    gradFacadeAO.addColorStop(1,    "rgba(4,5,11,.72)");
   }
 
   /* 把"贴地的一层"整体绕视口中心纵向压扁：之后用世界像素坐标画，屏幕上自动是压过的。 */
@@ -1706,16 +1721,21 @@
   }
 
   /* deep 档：家具向左下投的一层柔和暗影（贴地，所以在压缩层里画、并被后面的家具本体盖住芯部）。
-     没有模糊滤镜，用两条"由深到透"的渐变带（左 + 下）拼出来，交界处自然叠一点。 */
-  var DROP_OFF = 26;
+     没有模糊滤镜，用两条"由深到透"的渐变带（左 + 下）拼出来，交界处自然叠一点。
+     ⚠ 侧立面改亮之后（见 9.3b），投影太重会跟侧面抢戏、把家具糊成一团 ——
+       所以把带子从 26 收到 18 世界像素、alpha 从 .34 压到 .16~.18：
+       只留"家具压在地上"的一点接触感，不再是一层厚阴影。 */
+  var DROP_OFF = 18;
   function drawDrop2p5(g) {
-    var w = g.map.walls, v = viewRect(g, 120), o = DROP_OFF, i, a;
+    var w = g.map.walls, v = viewRect(g, 120), o = DROP_OFF, i, a, k = viewCfg().drop;
     initGrads();
     for (i = 0; i < w.length; i++) {
       a = w[i];
       if (a[0] > v.x1 || a[0] + a[2] < v.x0 || a[1] > v.y1 || a[1] + a[3] < v.y0) continue;
+      ctx.globalAlpha = k;
       band(a[0] - o, a[1] + o * .5, o, a[3], gradDark);          /* 左侧一条 */
       band(a[0] - o, a[1] + a[3], a[2] + o, o, gradLight);       /* 下侧一条（含左下角） */
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -1750,16 +1770,145 @@
     ctx.restore();
   }
 
+  /* ═════════════════ 9.3b 侧立面的"色相跟着家具走"（取样 + 缓存） ═════════════════
+     问题（改前）：侧立面是一条 `rgba(26,30,46,.82) → rgba(6,7,13,.95)` 的纯色暗面 ——
+     每件家具下面都像垫了块黑板，手绘插画最值钱的笔触与配色在侧面全丢；deep 档尤其严重，
+     暗面占了小半个屏幕、插画被压得看不清。
+
+     现在（三步，全部在**屏幕空间**里做，判定层一个像素都不读）：
+       ① **取样**：把整张背景插图缩到 SAMPLE_W 宽的小画布，一次 getImageData 拿到像素；
+       ② **成带**：每面墙取"顶面靠地面接触边的那条带"（最近一行，从 y0+h×.72 到 y0+h）
+          按列求平均色 → 每条墙一条 w×1 的色带，全部拼进**一张 1 像素高的图集**；
+       ③ **上色**：绘制时把该墙的色带横向拉伸成侧立面（drawImage），再压一层
+          "上亮、落地最暗"的环境光遮蔽渐变（gradFacadeAO）—— 于是侧面是
+          "顶面自己的颜色 + 渐变",木家具出木色侧面、金属出冷灰侧面。
+
+     ⚠ 性能铁律：**getImageData 每关只调一次**（不是每帧、也不是每面墙一次）。
+       矩形是静态的 map.walls，所以整份结果按 (背景图 × 关卡 id × failAll) 缓存，
+       只在换关 / 换图 / 切 failAll 时重建（见 buildFacade 的 key）。
+       之后每帧每面墙的代价 = drawImage + fillRect 两笔（改造前是 fillRect + stroke 两笔级），
+       与改造前同一个量级，没有逐帧重算。
+     ⚠ 取样失败一律静默回落：没有 Image 构造器 / 画布被污染（getImageData 抛错）/
+       缺图 / debug.artFail(true) → 走 gradFacade 的**老程序化暗面**，颜色与改造前一致，
+       绝不抛错、绝不黑屏。 */
+  var SAMPLE_W = 320;                /* 取样画布宽（世界 3000 宽 → 每世界像素 0.1067 采样像素） */
+  var FACADE_BAND = 0.72;            /* 取顶面靠地面这条带：[y0+h×BAND, y0+h] —— "最近一行"的稳健版 */
+  var FACADE_SAT = 1.30;             /* 平均色会糊成灰，往它自己的色相推一点（只提饱和、不动明度） */
+  var facadeCache = null;            /* { key, atlas:<1px 高的图集 canvas>, slot:[{x,w} 每面墙] } */
+  var sampleCv = null, sampleCtx = null;
+
+  function facadeReset() { facadeCache = null; }
+
+  /* 把整张插图缩到小画布取一份像素（**每关唯一的一次 getImageData**）。 */
+  function samplePixels(bg) {
+    if (!doc || !doc.createElement || !bg || !bg.img) return null;
+    var iw = bg.img.naturalWidth || bg.img.width;
+    var ih = bg.img.naturalHeight || bg.img.height;
+    if (!(iw > 0) || !(ih > 0)) return null;
+    var sw = SAMPLE_W, sh = Math.max(1, Math.round(sw * ih / iw));
+    try {
+      if (!sampleCv) sampleCv = doc.createElement("canvas");
+      if (!sampleCv) return null;
+      if (sampleCv.width !== sw || sampleCv.height !== sh) { sampleCv.width = sw; sampleCv.height = sh; }
+      sampleCtx = sampleCv.getContext ? sampleCv.getContext("2d") : null;
+      if (!sampleCtx) return null;
+      sampleCtx.clearRect(0, 0, sw, sh);
+      sampleCtx.drawImage(bg.img, 0, 0, sw, sh);
+      return { w:sw, h:sh, data:sampleCtx.getImageData(0, 0, sw, sh).data };
+    } catch (e) { return null; }     /* 被污染的画布 / 没有 getImageData → 回落程序化暗面 */
+  }
+
+  /* 平均色往自己的色相推一点：整条带求平均会把亮部与暗部糊成灰，
+     侧面就会像水泥而不像木纹 / 金属。只放大色度分量，明度不动。 */
+  function huePush(r, g2, b) {
+    var l = r * 0.299 + g2 * 0.587 + b * 0.114;
+    r = l + (r - l) * FACADE_SAT;
+    g2 = l + (g2 - l) * FACADE_SAT;
+    b = l + (b - l) * FACADE_SAT;
+    return [r < 0 ? 0 : (r > 255 ? 255 : r),
+            g2 < 0 ? 0 : (g2 > 255 ? 255 : g2),
+            b < 0 ? 0 : (b > 255 ? 255 : b)];
+  }
+
+  /* 为当前关拼"侧立面色带图集"。**只在换关 / 换图 / 切 failAll 时重建**，
+     同一关里每帧都是直接命中缓存（key 里含 map.id 与背景图 key）。 */
+  function buildFacade(g) {
+    var bg = bgSlot(g), map = g && g.map, walls = map ? map.walls : null, img = bg && bg.img;
+    /* ⚠ key 必须带上"插图这一帧到底能不能用"（artReady）+ 图片像素宽：
+       否则第一帧插图还没 onload 时会把"没有色带"的结果缓存住，
+       图片随后加载好也永远重建不了 —— 侧立面就永远停在下落的程序化暗面上。
+       带上 artReady 与图宽之后，onload 一发生 key 就变、自动重建一次。 */
+    var key = (bg ? bg.key : "-") + "|" + (map ? map.id : "-") + "|" + (ART.failAll ? "F" : "A") +
+              "|" + (artReady(bg) ? "R" + ((img.naturalWidth || img.width) || 0) : "0");
+    if (facadeCache && facadeCache.key === key) return facadeCache;
+    var pack = { key:key, atlas:null, slot:[] }, i, n = walls ? walls.length : 0, total = 0;
+    facadeCache = pack;                     /* 先落缓存：失败了也记住，别每帧重试 */
+    for (i = 0; i < n; i++) {
+      /* 每条色带几列：按"这面墙有多宽"折算到采样密度，最少 2 列、最多 160 列 */
+      var cw = Math.round(walls[i][2] * SAMPLE_W / WORLD_W);
+      if (!(cw >= 2)) cw = 2;
+      if (cw > 160) cw = 160;
+      pack.slot.push({ x:total, w:cw });
+      total += cw;
+    }
+    if (!artReady(bg) || !(total > 0)) return pack;      /* 缺图：slot 留着，绘制时走程序化暗面 */
+    var px = samplePixels(bg);
+    if (!px) return pack;
+    var atlas = null, actx = null, img = null, out = null;
+    try {
+      atlas = doc.createElement("canvas");
+      if (!atlas) return pack;
+      atlas.width = total; atlas.height = 1;
+      actx = atlas.getContext ? atlas.getContext("2d") : null;
+      if (!actx) return pack;
+      img = actx.createImageData(total, 1);
+      if (!img) return pack;
+      out = img.data;
+    } catch (e) { return pack; }
+    var kx = px.w / WORLD_W, ky = px.h / WORLD_H;
+    for (i = 0; i < n && i < pack.slot.length; i++) {
+      var a = walls[i], slot = pack.slot[i];
+      var ax0 = Math.floor(a[0] * kx), ax1 = Math.ceil((a[0] + a[2]) * kx);
+      var ay0 = Math.floor((a[1] + a[3] * FACADE_BAND) * ky), ay1 = Math.ceil((a[1] + a[3]) * ky);
+      if (ax0 < 0) ax0 = 0; if (ax1 > px.w) ax1 = px.w; if (ax1 <= ax0) ax1 = ax0 + 1;
+      if (ay0 < 0) ay0 = 0; if (ay1 > px.h) ay1 = px.h; if (ay1 <= ay0) ay1 = ay0 + 1;
+      var c, cx0, cx1, xx, yy, r, g2, b, cnt, p, o, al, rgb;
+      for (c = 0; c < slot.w; c++) {
+        cx0 = ax0 + Math.floor((ax1 - ax0) * c / slot.w);
+        cx1 = ax0 + Math.floor((ax1 - ax0) * (c + 1) / slot.w);
+        if (cx1 <= cx0) cx1 = cx0 + 1;
+        if (cx1 > px.w) cx1 = px.w;
+        r = 0; g2 = 0; b = 0; cnt = 0;
+        for (yy = ay0; yy < ay1; yy++) {
+          p = (yy * px.w + cx0) * 4;
+          for (xx = cx0; xx < cx1; xx++, p += 4) {
+            al = px.data[p + 3];
+            if (!al) continue;
+            r += px.data[p]; g2 += px.data[p + 1]; b += px.data[p + 2]; cnt++;
+          }
+        }
+        if (cnt) { r /= cnt; g2 /= cnt; b /= cnt; }
+        else { r = 44; g2 = 48; b = 64; }                /* 该处没有画（全透明）→ COL.wall */
+        rgb = huePush(r, g2, b);
+        o = (slot.x + c) * 4;
+        out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2]; out[o + 3] = 255;
+      }
+    }
+    try { actx.putImageData(img, 0, 0); } catch (e) { return pack; }
+    pack.atlas = atlas;
+    return pack;
+  }
+
   /* 家具/墙体挤出：**先把顶面抬起来，再补上从顶面到地面接触边之间的侧立面，
      最后给顶沿压一条亮边** —— 于是它看起来是"有高度的一块"，而不是"糊了一层"。
      顶面用的是这张插图自己的那一块像素（9 参数 drawImage 只取那一小块），
-     所以家具仍然认得出原样，只是被整体抬高并加了一条暗色侧面。
+     侧立面用的是**同一张插图、同一列**的平均色（见 9.3b），所以两者在接缝处是连续的。
      ⚠ 侧立面以"地面接触边"为界**上下各半**（上 hh/2 抬顶面，下 hh/2 落在地面接触边之下当裙边）。
        为什么不整段往上挤：整段上挤会让站在家具**后面**的角色被整个吞掉 —— deep 档实测，
        贴着家具站的人 84px 身高里被盖住 88px，等于隐身（潜行游戏里看不见自己 = 不能玩）。
-       对半分之后最坏情况只盖住贴边角色的一半，而"顶面抬升 + 一整条暗色侧立面"的高度感
-       一点没少（侧立面总高仍然是 WALL_H）。 */
-  function drawWall2p5(g, a, c) {
+       对半分之后最坏情况只盖住贴边角色的一半，而"顶面抬升 + 一整条侧立面"的高度感
+       一点没少（侧立面总高仍然是 wallH）。 */
+  function drawWall2p5(g, a, c, idx, fac) {
     var v = g.view, s = v.scale, bg = bgSlot(g), img = bg && bg.img;
     var x0 = projX(v, a[0]), w = a[2] * s;
     var yb = projY(v, a[1] + a[3]);          /* 地面接触边（近侧底边） */
@@ -1778,10 +1927,17 @@
       ctx.fillStyle = COL.wallTop;
       ctx.fillRect(x0, yt - up, w, Math.max(2, Math.min(12 * s, hRoof * .5)));
     }
-    /* ② 侧立面：整条 hh 高（顶部略亮、落地最暗 → 一眼看出是"立面"） */
+    /* ② 侧立面：取样色带横拉 + 环境光遮蔽渐变（上亮 → 落地最暗）；
+          没有色带（缺图 / 取样失败）就退回原来那条程序化暗面。 */
     initGrads();
-    band(x0, yb - up, w, hh, gradFacade);
-    /* ③ 顶沿亮边（受光的那一条）+ deep 档的轻微描边 */
+    var slot = (fac && fac.atlas && fac.slot && idx >= 0) ? fac.slot[idx] : null;
+    if (slot) {
+      ctx.drawImage(fac.atlas, slot.x, 0, slot.w, 1, x0, yb - up, w, hh);
+      band(x0, yb - up, w, hh, gradFacadeAO);
+    } else {
+      band(x0, yb - up, w, hh, gradFacade);
+    }
+    /* ③ 顶沿亮边（受光的那一条，"有高度"的关键线索）+ deep 档的轻微描边 */
     ctx.strokeStyle = "rgba(255,237,200,.26)"; ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x0 + .5, yb - up + .5); ctx.lineTo(x0 + w - .5, yb - up + .5);
@@ -1871,6 +2027,8 @@
   /* 立体层：屏幕空间画（贴图不压缩），按"地面接触 Y"排序 —— 角色与家具之间也正确遮挡。 */
   function drawStanding2p5(g) {
     var v = g.view, c = viewCfg(), vv = viewRect(g, 260), items = [], i, a, n;
+    /* 侧立面色带图集：整关只建一次（内部按 key 缓存），这里拿到的就是缓存对象 */
+    var fac = c.wallH > 0 ? buildFacade(g) : null;
     for (i = 0; i < g.map.walls.length; i++) {
       a = g.map.walls[i];
       if (a[0] > vv.x1 || a[0] + a[2] < vv.x0 || a[1] > vv.y1 || a[1] + a[3] < vv.y0) continue;
@@ -1886,7 +2044,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);                        /* 之后一律屏幕像素 */
     for (i = 0; i < items.length; i++) {
       var it = items[i];
-      if (it.k === 0) drawWall2p5(g, it.a, c);
+      if (it.k === 0) drawWall2p5(g, it.a, c, it.i, fac);
       else if (it.k === 1) drawNpc2p5(g, it.n);
       else drawPlayer2p5(g);
     }
@@ -2471,7 +2629,8 @@
     if (!ctx) { hostEl.innerHTML = ""; return false; }
     warm();                                  /* 先把音效素材的异步探测排上队（见 warm 的说明） */
     G = startSession(opts0);
-    gradDark = gradLight = gradFacade = null;   /* 渐变是建在 ctx 上的，换一局要重来 */
+    gradDark = gradLight = gradFacade = gradFacadeAO = null;  /* 渐变是建在 ctx 上的，换一局要重来 */
+    facadeReset();                              /* 侧立面取样图集同理：换一局重取（每关只取一次） */
     fitCanvas();
     doc.addEventListener("keydown", onKeyDown, false);
     doc.addEventListener("keyup", onKeyUp, false);
