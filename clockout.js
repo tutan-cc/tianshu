@@ -2,8 +2,10 @@
    clockout.js —「准点下班」· 办公室潜行（俯视）
 
    自包含 IIFE，暴露全局 window.Clockout；ES5 风格，不使用 ES module，
-   不依赖页面内变量（只读 opts / 挂载 hostEl）。零素材：工位、咖啡机、电梯、
-   巡逻者、视野锥全部用 canvas 图元程序化绘制。
+   不依赖页面内变量（只读 opts / 挂载 hostEl）。**贴图优先、缺图回落**：
+   art/clockout/ 下的本地 PNG（三关整张背景 + 玩家/坐姿/主管/老板）用 new Image()
+   异步预加载，加载好了自动用上；任何一张缺失/失败都永久标记不可用，回落到现在
+   这套程序化绘制（地板格 + 墙体矩形 + 角色色块），一局都不会少玩。
 
    一句话规格（V2 引擎 · 按 clockout-v2-spec.md 逐条实现）：3000×2000 连续世界里躲开
    主管/老板/保安的视野锥（**只有墙体矩形挡视线**），用工位坐姿伪装、用文件夹换 6 秒免疫、
@@ -21,7 +23,11 @@
      window.Clockout.debug = { state(), level(), patrols(), key(n,d), keyDown(k), tick(ms),
        freeze(on), unfreeze(), pause(), resume(), restart(opts), interact(), useFolder(),
        seek(x,y), levelDone(), nextLevel(), finishNow(), setTime(s), giveFolder(),
-       placePatrol(i,x,y,deg), blindAll(on), lifecycle(), retry() }
+       placePatrol(i,x,y,deg), blindAll(on), lifecycle(), retry(),
+       新增（只增不改，上面 22 个签名一个没动）：
+       collisionOverlay(on), art(), artFail(on) }
+       ⚠ collisionOverlay(on)：细线描出 map.walls 的矩形，用来核对"看到的家具"与
+         "实际的碰撞"是否对齐；不带参数 = 开关切换，默认关。
        ⚠ seek(x,y) / placePatrol(i,x,y,deg) 收的是**世界像素**（V1 是格坐标）：3000×2000 里
          直接给点，例如电梯 (2790,1650)、工位 (930,1110)。
        ⚠ state().phase 用规格状态机：intro / playing / paused / floor-intro / won / lost；
@@ -992,6 +998,89 @@
   var G = null, hostEl = null, cv = null, ctx = null, W = 900, H = 560;
   var rafId = 0, lastTs = 0, running = false, opts0 = null;
   var keys = {}, NEAR = null;
+  var collideOverlay = false;            /* debug.collisionOverlay(on)：墙体碰撞描边，默认关 */
+
+  /* ═════════════════ 8.5 贴图资源（art/clockout/**）：贴图优先、缺图回落 ═════════════════
+     与音频层是同一套约定（breakfast.js 的 art 加载器也是这个口径）：
+     模块初始化时用 new Image() 预加载本地 PNG，绘制处优先 drawImage；
+     图片没就绪 / 加载失败 / 环境里根本没有 Image 构造器（无头单测、老浏览器）
+     → 一律回落到本来的程序化画法（地板格 + 墙体矩形 + 角色色块）。
+     所以规矩是：**只允许加载 art/clockout/ 下的本地图片，且每一处都必须有程序化回退**。
+
+       bg     office-open / office-meeting / office-executive .png
+              三关各自整张手绘插图，按世界坐标 (0,0)-(3000,2000) 铺满
+              （源图 1536×1024，正好 3:2 = 3000:2000 等比，不裁不拉伸）
+       bg     office.png   浮层（准备页 / 暂停 / 结算）底下的场景图（可缺）
+       actor  player.png · player-seated.png · supervisor.png · boss.png
+       ⚠ coworker.png **故意不注册**：规格 §4「同事永不绘制」，连请求都不发。
+       ⚠ 保安（guard3…guard6，只在变态/地狱出现）上游没有贴图 → 保持程序化色块。
+
+     尺寸与原点照规格 §1.1 逐字抄（App.jsx:25-28），不自己拍：
+       玩家 111 · NPC 112 · 坐姿 105；原点 (-size/2, -size+8)，坐姿 (-size/2, -size+12)。
+       size 是贴图**短边**在世界上占的像素数，方框 size×size 画在原点处。
+
+     ⚠ 判定层（walkable / clearLine / sees / patrol / 状态机）**一个像素都不读这里**：
+       贴图只影响"画什么"，不影响"怎么判"。 */
+
+  var ART_DIR = "art/clockout/";         /* 相对页面目录 —— 不写盘符 / 协议 / data URI */
+  var ART = {
+    dir: ART_DIR, slots: [], bg: {}, actor: {},
+    total: 0, loaded: 0, failed: 0,
+    failAll: false                       /* 阴性对照用：强制按"一张图都没有"渲染 */
+  };
+  function mkArt(key, file, kind, size, dy) {
+    var s = { key:key, file:file, kind:kind, size:size || 0, dy:dy || 0,
+              src:ART_DIR + file, img:null, ok:false, failed:false };
+    ART.slots.push(s);
+    if (kind === "bg") ART.bg[key] = s; else ART.actor[key] = s;
+    return s;
+  }
+  /* 三关背景（键 = map.art）+ 一张浮层场景图 */
+  mkArt("office-open",      "office-open.png",      "bg");
+  mkArt("office-meeting",   "office-meeting.png",   "bg");
+  mkArt("office-executive", "office-executive.png", "bg");
+  mkArt("office",           "office.png",           "bg");
+  /* 角色贴图：size / dy 照规格 §1.1 的表 */
+  mkArt("player",        "player.png",        "actor", 111, 8);
+  mkArt("player-seated", "player-seated.png", "actor", 105, 12);
+  mkArt("supervisor",    "supervisor.png",    "actor", 112, 8);
+  mkArt("boss",          "boss.png",          "actor", 112, 8);
+
+  function artLoad() {
+    ART.total = ART.slots.length; ART.loaded = 0; ART.failed = 0;
+    /* 没有 Image 构造器（vm 里的单测就是）→ 全部按缺图处理，一律程序化 */
+    if (!root || !root.Image) { ART.failed = ART.total; return ART; }
+    for (var i = 0; i < ART.slots.length; i++) {
+      (function (s) {
+        var img = null;
+        try { img = new root.Image(); } catch (e) { img = null; }
+        if (!img) { s.failed = true; ART.failed++; return; }
+        s.img = img;
+        /* ⚠ ok 是**唯一**的"可以画它"判据：onload 之前一次都不许 drawImage。 */
+        img.onload = function () { if (!s.ok) { s.ok = true; ART.loaded++; } };
+        /* ⚠ onerror = **永久**不可用：failed 一旦置位就再也不碰这张图，直接走程序化。
+           任何一张图缺失都不影响玩法 —— 只是那一层退回矢量画法。 */
+        img.onerror = function () { s.ok = false; s.failed = true; ART.failed++; };
+        try { img.src = s.src; } catch (e) { s.failed = true; ART.failed++; }
+        /* 命中缓存时个别浏览器不会补发 onload —— 补一次同步判定（带幂等守卫）。 */
+        try {
+          if (img.complete && (img.naturalWidth || img.width)) {
+            if (!s.ok) { s.ok = true; ART.loaded++; }
+          }
+        } catch (e) {}
+      })(ART.slots[i]);
+    }
+    return ART;
+  }
+  /* 能画吗：已 onload 且真的解出了像素；failAll 是给阴性对照用的总闸。 */
+  function artReady(s) {
+    if (!s || !s.ok || !s.img || ART.failAll) return false;
+    return !!(s.img.naturalWidth || s.img.width);
+  }
+  function bgSlot(g) { return (g && g.map && g.map.art && ART.bg[g.map.art]) || null; }
+  function bgReady(g) { return artReady(bgSlot(g)); }
+  function npcArt(n) { return n ? (ART.actor[n.id] || null) : null; }
+  artLoad();                             /* 建局前就开始加载；好了自动用上，不用重开一局 */
 
   /* ═════════════════ 9. 渲染（世界像素 + 摄像机跟随 + 小地图） ═════════════════
      坐标全部是**世界像素**：摄像机把世界平移到画布上（规格 §1.1 的夹取公式），
@@ -1003,6 +1092,7 @@
     cone:"rgba(252,185,58,.23)", coneEdge:"rgba(240,170,48,.5)",
     coneHot:"rgba(226,88,65,.27)", coneHotEdge:"rgba(241,99,80,.7)",
     marker:"#ebce8d", lift:"#75f1cf", player:"#fff5d0", playerDark:"#23252f",
+    collide:"rgba(255,86,116,.92)",      /* debug.collisionOverlay 的描边色 */
     shop:"#a14f42", boss:"#8f5a3c", guard:"#4a5a86", mate:"#3f5a4a",
     folder:"#e9e3d1", coffee:"#c96a2c", coffeeOn:"#ffb03c",
     alert:"#ff4d6d", hud:"#0b0a13", panel:"#f4efe2", ink:"#20222c"
@@ -1087,6 +1177,11 @@
 
   function drawFloor(g) {
     var b = g.map.bounds, v = viewRect(g, 80), x, y;
+    /* ── 背景贴图优先（规格 §1.1）：按当前关的 map.art 取图，等比铺满世界矩形
+       (0,0)-(3000,2000)。已经跟着摄像机的 translate/scale 走，所以这里直接给世界坐标。
+       还没 onload / 加载失败 → 掉下去画程序化地板（**绝不黑屏**）。── */
+    var bg = bgSlot(g);
+    if (artReady(bg)) { ctx.drawImage(bg.img, 0, 0, WORLD_W, WORLD_H); return; }
     ctx.fillStyle = COL.floorA;
     ctx.fillRect(b[0] - 200, b[1] - 200, (b[2] - b[0]) + 400, (b[3] - b[1]) + 400);
     ctx.fillStyle = COL.floorB;
@@ -1113,14 +1208,32 @@
   }
 
   function drawWalls(g) {
-    var w = g.map.walls, v = viewRect(g, 100), i;
-    for (i = 0; i < w.length; i++) {
-      var a = w[i];
-      if (a[0] > v.x1 || a[0] + a[2] < v.x0 || a[1] > v.y1 || a[1] + a[3] < v.y0) continue;
-      ctx.fillStyle = COL.wall; ctx.fillRect(a[0], a[1], a[2], a[3]);
-      ctx.fillStyle = COL.wallTop; ctx.fillRect(a[0], a[1], a[2], Math.min(12, a[3] * 0.18));
-      ctx.strokeStyle = COL.wallLine; ctx.lineWidth = 2;
-      ctx.strokeRect(a[0] + 1, a[1] + 1, a[2] - 2, a[3] - 2);
+    var w = g.map.walls, v = viewRect(g, 100), i, a;
+    /* ── 背景就绪时**不再**画程序化墙体色块：插图里已经画好了家具与隔断，
+       再叠一层就是双重叠加（很脏）。碰撞本身一点没变，要核对"看到的家具 vs
+       实际的碰撞"就开 debug.collisionOverlay(true)（细线描边，默认关）。── */
+    if (!bgReady(g)) {
+      for (i = 0; i < w.length; i++) {
+        a = w[i];
+        if (a[0] > v.x1 || a[0] + a[2] < v.x0 || a[1] > v.y1 || a[1] + a[3] < v.y0) continue;
+        ctx.fillStyle = COL.wall; ctx.fillRect(a[0], a[1], a[2], a[3]);
+        ctx.fillStyle = COL.wallTop; ctx.fillRect(a[0], a[1], a[2], Math.min(12, a[3] * 0.18));
+        ctx.strokeStyle = COL.wallLine; ctx.lineWidth = 2;
+        ctx.strokeRect(a[0] + 1, a[1] + 1, a[2] - 2, a[3] - 2);
+      }
+    }
+    /* 调试描边：只描线、不填色，铺不铺背景都能开（两层叠加时就是"双重"的实证）。 */
+    if (collideOverlay) {
+      ctx.save();
+      ctx.strokeStyle = COL.collide; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (i = 0; i < w.length; i++) {
+        a = w[i];
+        if (a[0] > v.x1 || a[0] + a[2] < v.x0 || a[1] > v.y1 || a[1] + a[3] < v.y0) continue;
+        ctx.rect(a[0] + 0.75, a[1] + 0.75, Math.max(1, a[2] - 1.5), Math.max(1, a[3] - 1.5));
+      }
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -1183,17 +1296,26 @@
       var n = g.npcs[i];
       if (!isDrawable(g, n)) continue;
       var r = n.id === "boss" ? 20 : 18;
-      ctx.fillStyle = "rgba(0,0,0,.35)";
+      /* 脚下影子：贴图与色块两条路都画（它同时承载"这个巡查正看着你"的红色警示） */
+      ctx.fillStyle = n.sees ? "rgba(255,77,109,.32)" : "rgba(0,0,0,.35)";
       ctx.beginPath(); ctx.ellipse(n.x, n.y + 7, r * 1.05, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = n.sees ? COL.alert : npcColor(n.id);
-      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#f0d8c0";
-      ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(n.x + Math.cos(n.angle) * r * 0.7, n.y + Math.sin(n.angle) * r * 0.7);
-      ctx.lineTo(n.x + Math.cos(n.angle) * r * 1.5, n.y + Math.sin(n.angle) * r * 1.5);
-      ctx.stroke();
+      /* ── 贴图优先：主管 / 老板 用贴图，尺寸 112、原点 (-size/2, -size+8)（规格 §1.1）。
+         保安（guard3…，只在变态/地狱出现）上游没有贴图 → 落到下面的程序化色块。── */
+      var art = npcArt(n);
+      if (artReady(art)) {
+        var size = art.size;
+        ctx.drawImage(art.img, n.x - size / 2, n.y - size + art.dy, size, size);
+      } else {
+        ctx.fillStyle = n.sees ? COL.alert : npcColor(n.id);
+        ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#f0d8c0";
+        ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(n.x + Math.cos(n.angle) * r * 0.7, n.y + Math.sin(n.angle) * r * 0.7);
+        ctx.lineTo(n.x + Math.cos(n.angle) * r * 1.5, n.y + Math.sin(n.angle) * r * 1.5);
+        ctx.stroke();
+      }
       if (n.lure) {                                   /* 被咖啡机钉住：给个"分心"气泡 */
         ctx.strokeStyle = COL.coffeeOn; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(n.x, n.y - r - 12, 7, 0, Math.PI * 2); ctx.stroke();
@@ -1207,26 +1329,42 @@
       ctx.fillStyle = "rgba(26,35,41,.19)";
       ctx.beginPath(); ctx.ellipse(p.x, p.y + 6, 17, 6, 0, 0, Math.PI * 2); ctx.fill();
     }
+    /* 选中环（规格 §1.1）：状态色不变，贴图与色块两条路都画 */
     ctx.strokeStyle = g.cover > 0 ? "#8ef0e1" : (g.hidden ? "#85cb9e" : "#ffda84");
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.ellipse(p.x, p.y, 22, 8, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = g.cover > 0 ? "#bff0ff" : COL.player;
-    ctx.beginPath(); ctx.arc(p.x, p.y - 4, R0 * 0.78, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = COL.playerDark;
-    ctx.beginPath(); ctx.arc(p.x, p.y - 4, R0 * 0.42, 0, Math.PI * 2); ctx.fill();
-    var a = p.angle === undefined ? 0 : p.angle;
-    ctx.strokeStyle = "#20222c"; ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y - 4);
-    ctx.lineTo(p.x + Math.cos(a) * R0, p.y - 4 + Math.sin(a) * R0);
-    ctx.stroke();
-    if (g.hidden) {                                  /* 坐姿：椅子 */
+    /* ── 贴图优先（规格 §1.1）：站着 111 / 坐着 105，原点 (-size/2, -size+8)，
+       坐姿原点 (-size/2, -size+12)。hidden 状态用 player-seated.png。
+       贴图没就绪 / 加载失败 → 落到下面的程序化小人（原来那套，一个像素没改）。── */
+    var art = ART.actor[g.hidden ? "player-seated" : "player"];
+    if (artReady(art)) {
+      var size = art.size;
+      ctx.drawImage(art.img, p.x - size / 2, p.y - size + art.dy, size, size);
+    } else {
+      ctx.fillStyle = g.cover > 0 ? "#bff0ff" : COL.player;
+      ctx.beginPath(); ctx.arc(p.x, p.y - 4, R0 * 0.78, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = COL.playerDark;
+      ctx.beginPath(); ctx.arc(p.x, p.y - 4, R0 * 0.42, 0, Math.PI * 2); ctx.fill();
+      var a = p.angle === undefined ? 0 : p.angle;
+      ctx.strokeStyle = "#20222c"; ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - 4);
+      ctx.lineTo(p.x + Math.cos(a) * R0, p.y - 4 + Math.sin(a) * R0);
+      ctx.stroke();
+    }
+    if (g.hidden) {                                  /* 坐姿：椅子（两条路都画） */
       ctx.fillStyle = "rgba(127,214,186,.55)";
       roundRect(ctx, p.x - 26, p.y + 8, 52, 16, 6); ctx.fill();
     }
   }
 
   /* 文字标签：屏幕空间（字号不随摄像机缩放变），文案用规格 §7.6 原文。 */
+  /* 标签要抬到**头顶**多高：贴图有 111/112 世界像素高，若还按程序化小人那套
+     40/46 的偏移，标签会正好糊在角色脸上（HUD 可读性）。用了贴图就按贴图上沿
+     (size - dy) 再留 16px；没贴图时原样返回旧偏移 —— 回落路径一个像素都不变。 */
+  function headGap(art, fallback) {
+    return artReady(art) ? (art.size - art.dy) + 16 : fallback;
+  }
   function drawLabels(g) {
     var v = g.view, s = v.scale, p = g.map.points, i, n;
     function X(wx) { return (wx - v.x) * s; }
@@ -1240,10 +1378,11 @@
     for (i = 0; i < g.npcs.length; i++) {
       n = g.npcs[i];
       if (!isDrawable(g, n)) continue;
-      tag(X(n.x), Y(n.y - 40), npcLabel(n.id), 13);
+      tag(X(n.x), Y(n.y - headGap(npcArt(n), 40)), npcLabel(n.id), 13);
     }
     var pl = g.player;
-    tag(X(pl.x), Y(pl.y - 46),
+    var plArt = ART.actor[g.hidden ? "player-seated" : "player"];
+    tag(X(pl.x), Y(pl.y - headGap(plArt, 46)),
       g.hidden ? "正在假装工作" : (g.cover > 0 ? "送材料 " + Math.ceil(g.cover) + "s" : "你"), 13);
     if (NEAR) tag(X(NEAR.x), Y(NEAR.y + 66), "E  " + NEAR.label, 15);
   }
@@ -1503,6 +1642,10 @@
   /* ── 浮层（规格 §7.7 的文案原文 + 本地结算数字）── */
   function panel(pw, ph) {
     var px = (W - pw) / 2, py = (H - ph) / 2;
+    /* 准备页场景图（art/clockout/office.png，1672×941 = 画布比例）：垫在浮层底下
+       当底图，再压原来的暗幕 —— 缺图时这一层直接不画，暗幕照旧。 */
+    var scene = ART.bg.office;
+    if (artReady(scene)) ctx.drawImage(scene.img, 0, 0, W, H);
     ctx.fillStyle = "rgba(11,10,19,.78)"; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = COL.panel; roundRect(ctx, px, py, pw, ph, 8); ctx.fill();
     ctx.strokeStyle = "#c9a24a"; ctx.lineWidth = 2; roundRect(ctx, px, py, pw, ph, 8); ctx.stroke();
@@ -1814,6 +1957,37 @@
   debug.lifecycle = function () {
     return { running:running, busy:isBusy(), hasCanvas:!!cv,
              phase:G ? G.phase : null, raf:rafId > 0, frozen:G ? !!G.frozen : false };
+  };
+
+  /* ── 新增（只增不改，上面 22 个签名一个没动）───────────────────────────── */
+  /* 碰撞描边：用细线把所有 map.walls 矩形描出来 —— 铺上背景插图后核对
+     "看到的家具"与"实际的碰撞"是否对齐。不带参数 = 开关切换；默认关。 */
+  debug.collisionOverlay = function (on) {
+    collideOverlay = (on === undefined) ? !collideOverlay : !!on;
+    render(); drawOverlay();
+    return collideOverlay;
+  };
+  /* 贴图加载状态（诊断用）：每张图的 ok / failed / 解出的宽高 + 当前关背景是否就绪。 */
+  debug.art = function () {
+    var out = { dir:ART_DIR, total:ART.total, loaded:ART.loaded, failed:ART.failed,
+                failAll:!!ART.failAll, collisionOverlay:!!collideOverlay,
+                currentArt:(G && G.map) ? (G.map.art || null) : null,
+                bgReady:G ? bgReady(G) : false, slots:[] };
+    for (var i = 0; i < ART.slots.length; i++) {
+      var s = ART.slots[i], im = s.img;
+      out.slots.push({ key:s.key, src:s.src, kind:s.kind, size:s.size, dy:s.dy,
+                       ok:!!s.ok, failed:!!s.failed, ready:artReady(s),
+                       w:im ? (im.naturalWidth || im.width || 0) : 0,
+                       h:im ? (im.naturalHeight || im.height || 0) : 0 });
+    }
+    return out;
+  };
+  /* 阴性对照用总闸：on=true 时所有贴图都按"不可用"渲染（程序化回退路径），
+     但**不改**各 slot 的真实加载状态 —— 关掉就恢复，方便同一局里前后对比。 */
+  debug.artFail = function (on) {
+    ART.failAll = !!on;
+    render(); drawOverlay();
+    return ART.failAll;
   };
 
   /* ═════════════════ 导出 ═════════════════ */
