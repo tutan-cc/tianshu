@@ -382,6 +382,7 @@ body.dev #dbgRow{display:flex}
     <button id="dbgBf" style="padding:9px 22px;border:1px solid #ff9ec7;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(255,158,199,.08)">⚑ 跳到早餐店</button>
     <button id="dbgJade" style="padding:9px 22px;border:1px solid #c9a24a;color:#ffd76e;font-size:12px;letter-spacing:2px;background:rgba(201,162,74,.08)">⚑ 跳到赌石（开窗）</button>
     <button id="dbgSlash" style="padding:9px 22px;border:1px solid #5dffa0;color:#5dffa0;font-size:12px;letter-spacing:2px;background:rgba(93,255,160,.08)">⚑ 跳到切果</button>
+    <button id="dbgCo" style="padding:9px 22px;border:1px solid #4a6fd8;color:#bcd4ff;font-size:12px;letter-spacing:2px;background:rgba(74,111,216,.08)">⚑ 跳到潜行（下班）</button>
     <button id="dbgTalk" style="padding:9px 22px;border:1px solid var(--line);color:var(--dim);font-size:12px;letter-spacing:2px;background:rgba(255,255,255,.04)">⚑ 全部解锁</button>
   </div>
   <div class="tmeta">互动影游原型 v0.5 · 序章 + 第一章 + 第二章 · 14 节点 · 5 种小游戏 · 全台词配音<br>实拍素材来自本地素材库（授权未核实）</div>
@@ -412,6 +413,8 @@ body.dev #dbgRow{display:flex}
       <div id="jadeNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="slashBtn" style="border-color:#ff7d9c;color:#5dffa0"><img class="gm-ico" src="art/icons/game/slash.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🍉</span> 一刀两断（切果）</button>
       <div id="slashNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
+      <button class="btn-m" id="coBtn" style="border-color:#4a6fd8;color:#bcd4ff"><img class="gm-ico" src="art/icons/game/clockout.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🚪</span> 准点下班</button>
+      <div id="coNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="saveBtn">▣ 保存进度</button>
       <button class="btn-m" id="exportBtn">⇪ 导出存档</button>
       <button class="btn-m" id="importBtn">⇩ 导入存档</button>
@@ -691,12 +694,25 @@ body.dev #dbgRow{display:flex}
 <!-- NPC 邀约条（手机消息风格，由 mahjong.js 渲染；固定在右下角，不挡沙盘） -->
 <div id="mjInviteWrap" style="position:fixed;right:18px;bottom:18px;z-index:150;display:none"></div>
 
+<!-- 准点下班（玩法与绘制都在 clockout.js，这里只给容器）
+     ⚠ 必须留在电影层之外、且带 .overlay.side：侧栏只在沙盘视图可点，而 #cine 平时 display:none，
+     塞进 #cine 里会变成"点了小游戏没反应"（rect 0x0）。 -->
+<div class="overlay side" id="co"><div class="panel" style="width:min(1040px,97%)">
+  <h3>准 点 下 班</h3><div class="sub2">办公室潜行 —— 躲开黄色视野锥，用工位和隔板当掩体，三关之内搭电梯溜走</div>
+  <div id="coHost"></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="mbtn" id="coMode" style="flex:1">难 度<b id="coModeN">正常</b></button>
+    <button class="mbtn" id="coClose" style="flex:1">收 工</button>
+  </div>
+</div></div>
+
 <script src="three.min.js"></script>
 <script src="mahjong.js"></script>
 <script src="map3d.js"></script>
 <script src="breakfast.js"></script>
 <script src="jade.js"></script>
 <script src="slash.js"></script>
+<script src="clockout.js"></script>
 <script src="nlroute.js"></script>
 <script>
 "use strict";
@@ -1026,6 +1042,8 @@ const ACHV = {
   onedaofu:{n:"一刀富", d:"赌石单块净赚 ≥ ¥800（要蟒带+松花的高货）"},
   slashCombo:{n:"一刀两断", d:"街机切果：一刀切开 5 个以上"},
   slashAce:{n:"刀客", d:"街机切果：单局 ≥300 分"},
+  coAllClear:{n:"三关全通", d:"准点下班三关全部通过（周末属于你）"},
+  coGhost:{n:"没被发现过", d:"准点下班全程零被发现通关（一次都没被抓）"},
 };
 
 /* ═══════════════ 音频层 ═══════════════
@@ -1407,6 +1425,8 @@ function newState(){ return {version:SAVE_VER, done:[], stats:{cash:10, cha:5, p
   jadeRuns:0, jadeNet:0, jadeBest:0, jadeJackpot:false,
   /* ── 一刀两断 · 切果：局数 / 累计净收支 / 各模式最高分 / 两个成就标记 ── */
   slashRuns:0, slashNet:0, slashBest:{classic:0,arcade:0,zen:0}, slashCombo5:false, slashAce:false,
+  /* ── 准点下班：局数 / 累计净收支 / 单局最好 / 三关全通 / 全程零被发现 ── */
+  coRuns:0, coNet:0, coBest:0, coAllClear:false, coGhost:false,
   rpg:{xp:0, owned:[], equipped:{hand:null,outfit:null,accessory:null}, bag:{}}, buffs:{time:0,window:0,hp:0,capital:0}}; }
 function save(){ try{ localStorage.setItem("cs2_save", JSON.stringify(S)); }catch(e){} }
 /* 唯一入口：量纲 → 引用白名单 → 状态机边界 → 子系统缺省补齐；坏档一律返回 null */
@@ -1512,6 +1532,12 @@ function restore(raw){
     (function(){ var sb = s.slashBest || {}; ["classic","arcade","zen"].forEach(function(k){ out.slashBest[k] = num0(sb[k], 0, 0, 999999); }); })();
     out.slashCombo5 = s.slashCombo5 === true;
     out.slashAce    = s.slashAce === true;
+    // ── 准点下班字段：同策略，旧档缺 co* 一律补默认值 ──
+    out.coRuns     = num0(s.coRuns, 0, 0, 99999);
+    out.coNet      = num0(s.coNet, 0, -99999999, 99999999);
+    out.coBest     = num0(s.coBest, 0, -99999999, 99999999);
+    out.coAllClear = s.coAllClear === true;
+    out.coGhost    = s.coGhost === true;
     return out;
   }catch(e){ return null; }
 }
@@ -1554,6 +1580,8 @@ function checkAchv(){
   if(S.jadeJackpot) got("onedaofu");
   if(S.slashCombo5) got("slashCombo");
   if(S.slashAce) got("slashAce");
+  if(S.coAllClear) got("coAllClear");
+  if(S.coGhost) got("coGhost");
   if(S.rpg && Object.values(S.rpg.equipped).filter(Boolean).length>=3) got("gear");
 }
 function hudTitle(){ const s=S.stats; const m=Object.entries(s).sort((a,b)=>b[1]-a[1])[0];
@@ -1570,6 +1598,7 @@ function render(){
   const bfEl=$("bfNote"); if(bfEl){ try{ bfEl.innerHTML=bfNoteHtml()+bfSinceLast(); }catch(e){ bfEl.textContent="🍳 做份早餐"; } }
   const jdEl=$("jadeNote"); if(jdEl){ try{ jdEl.innerHTML=jadeNoteHtml(); }catch(e){ jdEl.textContent="🪨 开窗（赌石）"; } }
   const slEl=$("slashNote"); if(slEl){ try{ slEl.innerHTML=slashNoteHtml(); }catch(e){ slEl.textContent="🍉 一刀两断"; } }
+  const coEl=$("coNote"); if(coEl){ try{ coEl.innerHTML=coNoteHtml(); }catch(e){ coEl.textContent="🚪 准点下班"; } }
   const bd=$("bonds"); bd.innerHTML="";
   for(const k in BONDS){ const v=S.bonds[k]; bd.innerHTML+=`<div class="bond"><div class="face">${BONDS[k].f}</div>
     <div style="flex:1"><div class="nm">${BONDS[k].n} <span class="rl">${BONDS[k].r}</span></div>
@@ -5224,6 +5253,73 @@ $("dbgSlash").addEventListener("click", ()=>{ enterGame();
   setTimeout(()=>{ if(openSlash(true)===false) toast("切果模块未加载（缺 slash.js）"); }, 300); });
 
 /* ── 章末卡 ── */
+/* ═══════════════ 准点下班（玩法与绘制都在 clockout.js，这里只负责接 S / toast） ═══════════════
+   结算口径：**整轮一次性结算** —— net = 赔付 − 入场 ¥20（没有罚款项，失败只损失时间）。
+   中途点「收工」= dispose = 不结算、也不收入场费（与开窗/外卖同口径）。
+   扣分只来自"没通关"与"剩的时间少"，表里没有任何"被抓"的加分项 —— 失败只能是损失。 */
+const CO_MODES = ["normal","extreme","hell"];   // V2 三档（对齐上游 maps.js 的 MODES）
+let coMode = "normal";
+function coModeName(){
+  const M = (window.Clockout && Clockout.MODES) ? Clockout.MODES : null;
+  return (M && M[coMode] && M[coMode].n) || "正常";
+}
+function coNoteHtml(){
+  const r = S.coRuns || 0;
+  const entry = (window.Clockout && Clockout.TUNE) ? Clockout.TUNE.ENTRY : 20;
+  if(!r) return `🚪 准点下班 · 办公室潜行（入场 ¥${entry}）<br>`+
+    `<span style="color:var(--dim)">躲开黄色视野锥 · 隔板挡视线 · 文件夹伪装 · 咖啡机调虎离山</span>`;
+  const net = S.coNet || 0;
+  const col = net>0 ? "var(--green)" : (net<0 ? "var(--red)" : "var(--dim)");
+  const best = S.coBest>0 ? "+¥"+S.coBest : (S.coBest<0 ? "−¥"+(-S.coBest) : "—");
+  return `🚪 下班：<b>${r}</b> 局 · 累计 <b style="color:${col}">${net>0?"+":""}¥${net}</b><br>`+
+    `<span style="color:var(--dim)">单局最好 ${best}${S.coAllClear?" · ✦ 三关全通":""}${S.coGhost?" · 一次没被抓":""}</span>`;
+}
+function openClockout(practice){
+  if(!window.Clockout){ toast("潜行模块未加载（缺 clockout.js）"); return false; }
+  AudioSys.init(); AudioSys.click();
+  if(Clockout.isBusy()){ $("co").classList.add("on"); return true; }
+  const entry = Clockout.TUNE.ENTRY;
+  let prac = !!practice;
+  if(!prac && S.stats.cash < entry){
+    prac = true;
+    toast(`财富不足（入场 ¥${entry}，当前 ¥${S.stats.cash}）—— 这次给你跑<b>练手局</b>，不结算财富`);
+  }
+  $("co").classList.add("on");
+  $("coModeN").textContent = coModeName();
+  const ok = Clockout.start($("coHost"), {
+    practice: prac, mode: coMode,
+    cash:  ()=>S.stats.cash,
+    phys:  ()=>S.stats.phy,
+    intel: ()=>S.stats.int,
+    onSettle: (net, info)=>{
+      if(prac) return;                                  // 练手局：不落账
+      S.stats.cash = Math.max(0, S.stats.cash + net);
+      S.coRuns = (S.coRuns||0) + 1;
+      S.coNet  = (S.coNet||0) + net;
+      if(net > (S.coBest||0)) S.coBest = net;
+      if(info && info.cleared === info.levels) S.coAllClear = true;
+      if(info && info.ghost && info.cleared === info.levels) S.coGhost = true;
+      save(); render(); checkAchv();
+      const why = { timeout:"到点了，没走成", allclear:"三关全通", debug:"调试结束" }[info && info.why] || "下班";
+      toast(`🚪 ${why}：${info.grade} 级 · 过 ${info.cleared}/${info.levels} 关 · 净 <b>${net>0?"+":""}¥${net}</b>`);
+    },
+    onFinish: (sum)=>{ window.__cs2.co = sum; }
+  });
+  if(!ok){ $("co").classList.remove("on"); toast("潜行模块启动失败（详见控制台）"); }
+  return ok;
+}
+$("coBtn").addEventListener("click", ()=>{ openClockout(); });
+$("coMode").addEventListener("click", ()=>{
+  AudioSys.click();
+  if(window.Clockout && Clockout.isBusy()){ toast("还在潜行，先收工"); return; }
+  coMode = CO_MODES[(CO_MODES.indexOf(coMode)+1) % CO_MODES.length];
+  $("coModeN").textContent = coModeName();
+});
+$("coClose").addEventListener("click", ()=>{ AudioSys.click();
+  if(window.Clockout && Clockout.isBusy()) Clockout.dispose();   // 中途收工：不结算、不收入场费
+  $("co").classList.remove("on"); render(); });
+
+/* ── 章末卡 ── *//* ── 章末卡 ── */
 const CHN=["序章","第一章","第二章","第三章"];
 function showEndcard(){
   const s=S.stats;
@@ -5360,6 +5456,24 @@ window.__cs2 = {
   slashTick: (ms)=> (window.Slash ? Slash.debug.tick(ms) : false),
   slashFinish: ()=> (window.Slash ? Slash.debug.finishNow() : false),
   openSlash: (pr)=> openSlash(pr),
+  openJade: openJade,  /* 准点下班钩子（浏览器验收脚本用）—— 同样直接转发 Clockout.debug */
+  get co(){ return (window.Clockout && Clockout.debug) ? Clockout.debug : null; },
+  get coState(){ return (window.Clockout && Clockout.debug) ? Clockout.debug.state() : null; },
+  get coPatrols(){ return (window.Clockout && Clockout.debug) ? Clockout.debug.patrols() : null; },
+  get coLifecycle(){ return (window.Clockout && Clockout.debug) ? Clockout.debug.lifecycle() : null; },
+  coTick:   (ms)=> (window.Clockout ? Clockout.debug.tick(ms) : null),
+  coSeek:   (x,y)=> (window.Clockout ? Clockout.debug.seek(x,y) : null),
+  coPlace:  (i,x,y,d)=> (window.Clockout ? Clockout.debug.placePatrol(i,x,y,d) : null),
+  coKey:    (k)=> (window.Clockout ? Clockout.debug.keyDown(k) : null),
+  coInteract: ()=> (window.Clockout ? Clockout.debug.interact() : null),
+  coFolder: ()=> (window.Clockout ? Clockout.debug.useFolder() : null),
+  coLevelDone: ()=> (window.Clockout ? Clockout.debug.levelDone() : null),
+  coNextLevel: ()=> (window.Clockout ? Clockout.debug.nextLevel() : null),
+  coFinish: ()=> (window.Clockout ? Clockout.debug.finishNow() : null),
+  coSetTime: (s)=> (window.Clockout ? Clockout.debug.setTime(s) : null),
+  coGiveFolder: ()=> (window.Clockout ? Clockout.debug.giveFolder() : null),
+  coBlind: (on)=> (window.Clockout ? Clockout.debug.blindAll(on) : null),
+  openClockout: openClockout,
 };
 
 /* ═══════════════ 启动 ═══════════════ */
@@ -5385,6 +5499,8 @@ $("dbgBf").addEventListener("click",()=>{ enterGame();
    练手局不结算财富，所以新档（只有 ¥10）也能直接试玩。 */
 $("dbgJade").addEventListener("click",()=>{ enterGame();
   setTimeout(()=>{ if(openJade(true)===false) toast("赌石模块未加载（缺 jade.js）"); }, 300); });
+$("dbgCo").addEventListener("click",()=>{ enterGame();
+  setTimeout(()=>{ if(openClockout(true)===false) toast("潜行模块未加载（缺 clockout.js）"); }, 300); });
 $("dbgTalk").addEventListener("click",()=>{ AudioSys.init(); CS2_DEBUG.unlockAll();
   $("title").classList.add("hide"); $("game").classList.add("on"); render(); });
 /* ═══ 进入游戏运行时（开始重生 / 各调试跳转共用，避免 S 未初始化就 render） ═══ */
@@ -5445,11 +5561,11 @@ window.addEventListener("keydown",e=>{
 </script>
 <!-- BUILD-STAMP:BEGIN -->
 <!-- 由 tools/dev/stamp.js 生成 —— 不要手改块内内容；改了跑一次 stamp.js 会原样覆盖 -->
-<div id="buildStamp" data-build="20260928-1103" data-fp="2eda50"
-     title="构建版本戳 · build 20260928-1103 · 内容指纹 2eda50（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
+<div id="buildStamp" data-build="20260930-1656" data-fp="a4c1bf"
+     title="构建版本戳 · build 20260930-1656 · 内容指纹 a4c1bf（由 tools/dev/stamp.js 生成；戳早于代码 = 浏览器缓存，Ctrl+Shift+R）"
      aria-hidden="true"
-     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260928-1103 · ch 2eda50 · bf 226K · mj 320K · jd 54K · sl 58K · idx 340K · map 68K</div>
-<script>window.__BUILD={"build":"20260928-1103","fingerprint":"2eda50","sizes":{"idx":340,"mj":320,"bf":226,"jd":54,"sl":58,"map":68},"files":{"index.html":347762,"mahjong.js":327444,"breakfast.js":231571,"jade.js":55659,"slash.js":59872,"map3d.js":69967},"mtimes":{"mahjong.js":1790070275667,"breakfast.js":1790563488434,"jade.js":1790130010115,"slash.js":1790564587149,"map3d.js":1790070275672},"idxContentHash":"8a1fee333b091e9d200b7a99215af91edd55547a","idxContentBytes":346354,"generatedBy":"tools/dev/stamp.js"};</script>
+     style="position:fixed;right:8px;bottom:6px;z-index:180;pointer-events:none;user-select:none;-webkit-user-select:none;font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;color:rgba(236,234,244,.45);letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.75);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis">天枢原型 · build 20260930-1656 · ch a4c1bf · bf 226K · mj 320K · jd 56K · sl 60K · idx 347K · map 68K · co 157K</div>
+<script>window.__BUILD={"build":"20260930-1656","fingerprint":"a4c1bf","sizes":{"idx":347,"mj":320,"bf":226,"jd":56,"sl":60,"co":157,"map":68},"files":{"index.html":355767,"mahjong.js":327444,"breakfast.js":231571,"jade.js":56837,"slash.js":61094,"clockout.js":160706,"map3d.js":69967},"mtimes":{"mahjong.js":1790671361831,"breakfast.js":1790671361785,"jade.js":1790671361827,"slash.js":1790675594298,"clockout.js":1790758597207,"map3d.js":1790671361836},"idxContentHash":"cdd665287ce91d610981d5851e61b0bc9a058c75","idxContentBytes":354290,"generatedBy":"tools/dev/stamp.js"};</script>
 <!-- BUILD-STAMP:END -->
 </body>
 </html>
