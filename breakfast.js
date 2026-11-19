@@ -1285,6 +1285,7 @@
     if (!c.perfectList) c.perfectList = [];
     c.perfectList[c.order.indexOf(foodId)] = perfect;
     c.done.push(foodId);
+    c.lastFoodAt = st.elapsed; // Visual receipt event; wrong/burnt food never reaches here.
     var HEATC = { hot:"#ffd76e", warm:"#ffb347", cold:"#9aa3b8" };
     addFloat(st, (d > 0 ? "+" : "") + d + (perfect ? "" : " 过火"),
              HEATC[tier] || "#cfd2e6", tier === "hot" ? 30 : 24);
@@ -2684,7 +2685,27 @@
         img = assetOf(FACE_ICON, name);
         IA.drawn.faceHappyFallback = (IA.drawn.faceHappyFallback || 0) + 1;
       }
-      if (img && drawAssetFit(g, img, { x: box.x + 10, y: box.y + 22, w: 64, h: 68 }, null)) {
+      var faceBox = { x: box.x + 10, y: box.y + 22, w: 64, h: 68 };
+      var rigged = false;
+      var reduced = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      var rigOptions = {time:st0.elapsed + c.id * 0.71,mood:mood,
+        sinceFood:c.lastFoodAt === undefined ? -1 : st0.elapsed - c.lastFoodAt,reduced:!!reduced};
+      c.rig3D = false;
+      if (name.indexOf("stud_") === 0 && root.Breakfast3D) {
+        var largeFaceBox = {x:box.x+4,y:box.y+1,w:96,h:102};
+        rigged = root.Breakfast3D.draw(g, img, largeFaceBox, rigOptions);
+        if (rigged) { c.rig3D = true; c.rigFaceBox = largeFaceBox; }
+      }
+      if (!rigged && img && name.indexOf("stud_") === 0 && root.BreakfastRig) {
+        rigged = root.BreakfastRig.draw(g, img, faceBox, {
+          time:st0.elapsed + c.id * 0.71, mood:mood,
+          sinceFood:c.lastFoodAt === undefined ? -1 : st0.elapsed - c.lastFoodAt,
+          reduced:!!reduced
+        });
+        c.rigFaceBox = faceBox;
+        IA.drawn.rigFaces = (IA.drawn.rigFaces || 0) + (rigged ? 1 : 0);
+      }
+      if (rigged || (img && drawAssetFit(g, img, { x: box.x + 10, y: box.y + 22, w: 64, h: 68 }, null))) {
         IA.drawn.faces = (IA.drawn.faces || 0) + 1;
         IA.drawn.faceMood = mood;
         IA.drawn.faceName = name;
@@ -2714,11 +2735,12 @@
       roundRect(g, box.x, box.y, box.w, box.h, 14); g.stroke();
       /* 头像 + 编号 */
       drawCustomerFace(box, c);
+      var customerTextX = box.x + (c.rig3D ? 104 : 68);
       g.textAlign = "left"; g.textBaseline = "middle";
       g.font = fontOf(FONT.cardNo, true); g.fillStyle = PAL.ink;
-      g.fillText("顾客 #" + c.id, box.x + 68, box.y + 44);
+      g.fillText("顾客 #" + c.id, customerTextX, box.y + 44);
       g.font = fontOf(FONT.small, false); g.fillStyle = PAL.dim;
-      g.fillText(c.order.length + " 样早餐 · 还差 " + remainOf(c) + " 样", box.x + 68, box.y + 68);
+      g.fillText(c.order.length + " 样早餐 · 还差 " + remainOf(c) + " 样", customerTextX, box.y + 68);
       /* 订单食物图标 + 完成打勾 */
       var n = Math.max(1, c.order.length), iw = Math.min(96, (box.w - 40) / n);
       var x0 = box.x + 20 + Math.max(0, (box.w - 40 - n * iw) / 2);
@@ -3109,6 +3131,26 @@
       drawBg();
       var list = activeCustomers(st);
       for (var i = 0; i < list.length && i < LAY.cards.n; i++) drawCustomer(list[i], customerCardBox(i), i);
+      // Completed customers immediately release their cards. Keep only a fading
+      // portrait for the receipt nod; ordering, hit targets and spawn rules stay intact.
+      if (root.BreakfastRig || root.Breakfast3D) for (var ri = 0; ri < st.customers.length; ri++) {
+        var rc = st.customers[ri], age = st.elapsed - rc.servedAt;
+        if (!rc.left || rc.angry || !rc.rigFaceBox || !(age >= 0 && age < 1.1)) continue;
+        var goodbye = assetOf(FACE_ICON, faceNameIn(st, rc.id, 1, true));
+        var rb = rc.rigFaceBox;
+        var reduce = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduce) continue;
+        g.save(); g.globalAlpha = 1 - Math.max(0, (age - 0.65) / 0.45);
+        var byeX = rb.x + LAY.cards.w - 96, byeY = rb.y - 12 - age * 12;
+        g.fillStyle = "rgba(30,19,27,.95)"; g.strokeStyle = PAL.gold; g.lineWidth = 1;
+        roundRect(g, byeX, byeY, 78, 84, 9); g.fill(); g.stroke();
+        var farewellRig = rc.rig3D && root.Breakfast3D ? root.Breakfast3D : root.BreakfastRig;
+        if (farewellRig) farewellRig.draw(g, goodbye, {x:byeX+13,y:byeY+3,w:52,h:56},
+          {time:st.elapsed+rc.id*0.71,mood:"happy",sinceFood:age});
+        g.fillStyle = PAL.gold; g.font = fontOf(14, true); g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText("谢谢早餐！", byeX + 39, byeY + 71);
+        g.restore();
+      }
       if (!list.length && !st.over) {
         var b0 = customerCardBox(0);
         var wAll = LAY.cards.w * LAY.cards.n + LAY.cards.gap * (LAY.cards.n - 1);
@@ -3230,6 +3272,7 @@
     try { if (IA.detach) IA.detach(); } catch (e) {}
     try { if (IA.host) { IA.host.innerHTML = ""; IA.host.classList.remove("bf-on"); } } catch (e) {}
     try { hideOverlayOf(IA.host); } catch (e) {}    // 兜底：onFinish 没接住时也不留挡住的死界面
+    if (root.Breakfast3D && typeof root.Breakfast3D.dispose === "function") root.Breakfast3D.dispose();
     lifecycle.disposed++;
   }
   /** 兜底：从 host 往上找 .overlay 祖先并摘掉 on（覆盖层一定要关掉） */

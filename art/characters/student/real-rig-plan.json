@@ -1,0 +1,14 @@
+{
+  "status": "prepared_not_submitted",
+  "reference": "D:/下载/绑骨流程.md",
+  "input_image": "student-tpose-reconstruction.png",
+  "generation_dry_run": "../../../dist/student-tripo-dry-run.json",
+  "generation": {"model":"v3.1-20260211","texture":true,"pbr":true,"texture_quality":"standard","face_limit":20000},
+  "rig": {"endpoint":"/v3/animations/rig","input":"<successful-model-task-id>","model":"v3.0-20260909","rig_type":"biped","spec":"tripo","out_format":"glb"},
+  "retarget": {"endpoint":"/v3/animations/retarget","input":"<bare-successful-rig-task-uuid>","animations":["preset:idle"],"out_format":"glb"},
+  "local_animation_work": ["wave with clavicle and shoulder coordination", "receive with elbows and wrists", "impatient weight shift, head and forearm gesture"],
+  "acceptance": ["one anatomically coherent 3D character", "no disconnected shoulder seam throughout the full arm raise", "all visible vertices have normalized skin weights", "all actions contain changing bone animation tracks", "inspect front, side and back", "remove extraneous geometry only after inspection"],
+  "balance_observed": 15,
+  "paid_tasks_submitted": false,
+  "requires": "Account funding and user-authorized credit budget before paid generation or rigging."
+}

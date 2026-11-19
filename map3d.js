@@ -25,7 +25,7 @@
 (function (global) {
   "use strict";
 
-  var VERSION = "1.0.0";
+  var VERSION = "2.0.0";
 
   /* ───────────────────────────── 常量 ───────────────────────────── */
 
@@ -33,29 +33,24 @@
   var SX = 40, SZ = 40;             // 像素 → 世界单位 的比例
   var CX = MAP_W / 2, CY = MAP_H / 2;
 
-  var ISO_YAW = Math.PI / 4;                        // 等距 yaw = 45°
-  var ISO_PITCH = Math.atan(1 / Math.SQRT2);        // 等距 pitch = 35.264°
+  var ISO_YAW = 0.12;                        // 等距 yaw = 45°
+  var ISO_PITCH = 0.88;        // 等距 pitch = 35.264°
   var TOP_PITCH = 1.5454;                           // 俯视 pitch ≈ 88.5°（不取 90° 以免 lookAt 退化）
   var CAM_DIST = 68;                                // 相机轨道半径
   var CAM_TARGET_Y = 1.1;
 
-  var MM_SIZE = 120, MM_MARGIN = 10, MM_HALF = 11.6;   // 小地图
+  var MM_SIZE = 120, MM_MARGIN = 10, MM_HALF = 19;   // 小地图
 
   /* 氛围预设：雾 / 背景 / 光色温 / 环境光强度
    * 注意：主相机 8 字轨道半径 = |(38,38,38)| ≈ 65.8，场景沿视线深度约 54~78，
    *       因此 fogNear/fogFar 必须落在该区间之外，否则整个沙盘会被雾吃成全黑。
    * floor = 楼体最低亮度（自发光下限），保证夜间/暗场也能看清建筑轮廓。 */
   var MOODS = {
-    calm:  { bg: 0x0a0a16, fog: 0x141232, fogNear: 58, fogFar: 118, amb: 0.36, hemi: 0.30,
-             sun: 0xfff2d6, sunI: 0.62, fill: 0x6d7cff, fillI: 0.20, night: false, floor: 0.045 },
-    city:  { bg: 0x0b1018, fog: 0x16283a, fogNear: 56, fogFar: 112, amb: 0.40, hemi: 0.32,
-             sun: 0xdfeaff, sunI: 0.70, fill: 0x4dd8ff, fillI: 0.18, night: false, floor: 0.050 },
-    tense: { bg: 0x150810, fog: 0x38121f, fogNear: 50, fogFar: 100, amb: 0.32, hemi: 0.24,
-             sun: 0xffb08a, sunI: 0.60, fill: 0xff4d6d, fillI: 0.26, night: false, floor: 0.075 },
-    night: { bg: 0x04050c, fog: 0x080c22, fogNear: 52, fogFar: 106, amb: 0.26, hemi: 0.20,
-             sun: 0x9fb4ff, sunI: 0.42, fill: 0xffd76e, fillI: 0.16, night: true,  floor: 0.115 },
-    dark:  { bg: 0x020205, fog: 0x050512, fogNear: 50, fogFar: 100, amb: 0.20, hemi: 0.15,
-             sun: 0x6b7ac0, sunI: 0.30, fill: 0x8a6bff, fillI: 0.14, night: true,  floor: 0.150 }
+    calm:  { bg: 0x869eab, fog: 0x9eaeb0, fogNear: 95, fogFar: 180, amb: 0.30, hemi: 0.45, sun: 0xffeed8, sunI: 0.85, fill: 0xb8d5ef, fillI: 0.25, night: false, floor: 0.025 },
+    city:  { bg: 0x849daa, fog: 0xa2b8c2, fogNear: 95, fogFar: 180, amb: 0.32, hemi: 0.46, sun: 0xfff5e8, sunI: 0.85, fill: 0xb1d7ed, fillI: 0.28, night: false, floor: 0.025 },
+    tense: { bg: 0x7b767a, fog: 0xa39491, fogNear: 90, fogFar: 170, amb: 0.55, hemi: 0.52, sun: 0xffc49a, sunI: 0.9, fill: 0xaab9cf, fillI: 0.22, night: false, floor: 0.045 },
+    night: { bg: 0x142533, fog: 0x203b50, fogNear: 95, fogFar: 165, amb: 0.42, hemi: 0.42, sun: 0xa9c9ec, sunI: 0.55, fill: 0xffc38b, fillI: 0.18, night: true, floor: 0.08 },
+    dark:  { bg: 0x101b2b, fog: 0x1d2d43, fogNear: 90, fogFar: 160, amb: 0.32, hemi: 0.35, sun: 0xa9bada, sunI: 0.48, fill: 0xd4b498, fillI: 0.16, night: true, floor: 0.09 }
   };
   var MOOD_FALLBACK = "calm";
 
@@ -78,8 +73,8 @@
   }
   function rand01(s) { return hash32(s) / 4294967296; }
 
-  /** 由 id 决定建筑高度：确定性落在 2~6 */
-  function heightOf(id) { return 2 + (hash32(id + "|h") % 5); }
+  /** 由 id 决定建筑高度：确定性落在 1.6~4.2 */
+  function heightOf(id) { return 1.6 + (hash32(id + "|h") % 5) * 0.65; }
 
   /** #rrggbb / #rgb / number → 数字色；失败返回 fb */
   function toHex(c, fb) {
@@ -260,15 +255,15 @@
     cv.width = cv.height = 128;
     var g = cv.getContext("2d");
     if (!g) return null;
-    g.fillStyle = "#171524"; g.fillRect(0, 0, 128, 128);
+    g.fillStyle = "#718073"; g.fillRect(0, 0, 128, 128);
     for (var i = 0; i < 260; i++) {
       var v = 120 + (hash32("g" + i) % 100);
       g.fillStyle = "rgba(" + v + "," + (v - 20) + "," + (v + 40) + ",.16)";
       g.fillRect(hash32("x" + i) % 128, hash32("y" + i) % 128, 2, 2);
     }
-    g.strokeStyle = "rgba(96,90,168,.30)"; g.lineWidth = 2;
+    g.strokeStyle = "rgba(113,125,110,.04)"; g.lineWidth = 2;
     g.strokeRect(1, 1, 126, 126);
-    g.strokeStyle = "rgba(96,90,168,.10)"; g.lineWidth = 1;
+    g.strokeStyle = "rgba(113,125,110,.02)"; g.lineWidth = 1;
     for (var k = 32; k < 128; k += 32) {
       g.beginPath(); g.moveTo(k, 0); g.lineTo(k, 128); g.stroke();
       g.beginPath(); g.moveTo(0, k); g.lineTo(128, k); g.stroke();
@@ -279,42 +274,19 @@
   /* ───────────────────────────── 标签（CanvasTexture + Sprite） ───────────────────────────── */
 
   function drawLabel(p) {
-    var g = p.lblCtx;
-    if (!g) return;
-    var avail = p.state === "avail", done = p.state === "done";
-    var col = "#" + ("000000" + (p.color >>> 0).toString(16)).slice(-6);
-
-    g.clearRect(0, 0, LABEL_W, LABEL_H);
-    rr(g, 5, 8, LABEL_W - 10, LABEL_H - 16, 10);
-    // avail = 主题色高亮 / done = 灰绿 / locked = 灰暗
-    g.fillStyle = avail ? "rgba(13,11,26,.95)" : (done ? "rgba(9,16,12,.86)" : "rgba(8,8,14,.60)");
-    g.fill();
-    g.lineWidth = avail ? 3 : 2;
-    g.strokeStyle = avail ? col : (done ? "#5b7d68" : "#2b2942");
-    g.stroke();
-
-    // 左侧状态点
-    g.beginPath(); g.arc(30, LABEL_H / 2, 7, 0, Math.PI * 2);
-    g.fillStyle = avail ? col : (done ? "#7fa88f" : "#3a3852");
-    g.fill();
-    if (avail) {
-      g.beginPath(); g.arc(30, LABEL_H / 2, 11.5, 0, Math.PI * 2);
-      g.strokeStyle = col; g.globalAlpha = 0.45; g.lineWidth = 2; g.stroke(); g.globalAlpha = 1;
-    }
-
-    // 中文名（超宽自动缩字号）
-    var txt = String(p.name || p.id);
-    var ff = "'Noto Sans SC','Microsoft YaHei','PingFang SC','Hiragino Sans GB',sans-serif";
-    var fs = 23, maxW = LABEL_W - 80;
-    g.font = "700 " + fs + "px " + ff;
-    while (fs > 12 && g.measureText(txt).width > maxW) {
-      fs -= 1; g.font = "700 " + fs + "px " + ff;
-    }
-    g.textAlign = "left"; g.textBaseline = "middle";
-    g.fillStyle = avail ? "#ffffff" : (done ? "#9dc4a9" : "#5f5c7a");
-    g.fillText(txt, 48, LABEL_H / 2 + 1);
-
-    if (p.lblTex) p.lblTex.needsUpdate = true;
+    var g=p.lblCtx; if(!g) return;
+    var avail=p.state==='avail', done=p.state==='done';
+    g.clearRect(0,0,LABEL_W,LABEL_H);
+    g.shadowColor='rgba(0,0,0,.35)'; g.shadowBlur=5;
+    rr(g,6,4,244,43,21); g.fillStyle='rgba(14,22,28,.94)'; g.fill(); g.shadowBlur=0;
+    g.beginPath(); g.moveTo(24,45);g.lineTo(34,55);g.lineTo(43,45);g.fill();
+    g.beginPath();g.arc(32,25,15,0,Math.PI*2);g.fillStyle=avail?'#f6bf41':(done?'#7aab94':'#e3e9ec');g.fill();
+    g.fillStyle=avail?'#202b31':'#253740'; g.font='bold 20px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(avail?'!':(done?'✓':'•'),32,26);
+    var txt=String(p.name||p.id),size=23;
+    g.textAlign='left';g.font='700 '+size+'px "Microsoft YaHei",sans-serif';
+    while(size>14 && g.measureText(txt).width>185){size--;g.font='700 '+size+'px "Microsoft YaHei",sans-serif';}
+    g.fillStyle='#f5f5ef';g.fillText(txt,56,25);
+    if(p.lblTex)p.lblTex.needsUpdate=true;
   }
 
   function makeLabel(inst, p) {
@@ -331,7 +303,7 @@
       map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: 1
     });
     var sp = new T.Sprite(mat);
-    sp.scale.set(LABEL_W / LABEL_H * 0.47, 0.47, 1);
+    sp.scale.set(LABEL_W / LABEL_H * 0.62, 0.62, 1);
     sp.renderOrder = 20;
     p.lblCanvas = cv; p.lblCtx = ctx; p.lblTex = tex; p.lblMat = mat; p.label = sp;
     drawLabel(p);
@@ -405,15 +377,15 @@
     /* ── 光照 ── */
     inst.amb = new T.AmbientLight(0xb9c2e8, 0.36);
     scene.add(inst.amb);
-    inst.hemi = new T.HemisphereLight(0xa8bcff, 0x1a1428, 0.30);
+    inst.hemi = new T.HemisphereLight(0xddeeff, 0x68705c, 0.30);
     scene.add(inst.hemi);
     inst.sun = new T.DirectionalLight(0xfff2d6, 0.62);
     inst.sun.position.set(26, 46, 18);
     inst.sun.castShadow = true;
     var sc = inst.sun.shadow;
     sc.mapSize.width = 1024; sc.mapSize.height = 1024;
-    sc.camera.left = -17; sc.camera.right = 17;
-    sc.camera.top = 17; sc.camera.bottom = -17;
+    sc.camera.left = -27; sc.camera.right = 27;
+    sc.camera.top = 27; sc.camera.bottom = -27;
     sc.camera.near = 1; sc.camera.far = 140;
     sc.bias = -0.0012;
     sc.normalBias = 0.02;
@@ -439,7 +411,7 @@
       var sg = skyCv.getContext("2d");
       if (sg) {
         var grd = sg.createLinearGradient(0, 0, 0, 160);
-        grd.addColorStop(0, "#232a4a"); grd.addColorStop(0.5, "#0e1020"); grd.addColorStop(1, "#04040a");
+        grd.addColorStop(0, "#152c43"); grd.addColorStop(0.5, "#071421"); grd.addColorStop(1, "#04040a");
         sg.fillStyle = grd; sg.fillRect(0, 0, 8, 160);
         var skyTex = new T.CanvasTexture(skyCv); skyTex.needsUpdate = true;
         var sky = new T.Mesh(
@@ -449,7 +421,7 @@
         sky.renderOrder = -10;
         sky.frustumCulled = false;
         scene.add(sky);
-        inst.sky = sky;
+        inst.sky = sky; sky.visible = false;
       }
     } catch (eSky) { inst.sky = null; }
 
@@ -458,7 +430,7 @@
     if (!gCv) throw new Error("ground canvas unavailable");
     var gTex = newTex(T, gCv, 9, 7);
     gTex.anisotropy = aniso(renderer);
-    var minX = -10.6, maxX = 10.6, minZ = -7.3, maxZ = 7.3, rad = 1.3;
+    var minX = -36, maxX = 36, minZ = -28, maxZ = 28, rad = 0.2;
     var shape = new T.Shape();
     shape.moveTo(minX + rad, minZ);
     shape.lineTo(maxX - rad, minZ); shape.quadraticCurveTo(maxX, minZ, maxX, minZ + rad);
@@ -479,11 +451,11 @@
       for (var pi = 0; pi < pts.length; pi++) v3.push(new T.Vector3(pts[pi].x, 0.012, -pts[pi].y));
       var edge = new T.LineLoop(
         new T.BufferGeometry().setFromPoints(v3),
-        new T.LineBasicMaterial({ color: 0x5b6cff, transparent: true, opacity: 0.5, fog: false })
+        new T.LineBasicMaterial({ color: 0x38dce8, transparent: true, opacity: 0.75, fog: false })
       );
       edge.frustumCulled = false;
       scene.add(edge);
-      inst.edge = edge;
+      inst.edge = edge; edge.visible = false;
     } catch (eEdge) { inst.edge = null; }
 
     /* ── 地点 → 世界坐标 + 分组（几何 + 材质 合批） ── */
@@ -493,17 +465,18 @@
     var groups = {};
     for (var i = 0; i < keys.length; i++) {
       var id = keys[i], d = places[id];
-      var h = heightOf(id);
+      var layout = CITY_LAYOUT[id];
+      var h = layout ? layout[4] : heightOf(id);
       var p = {
         id: id, data: d,
         name: d && d.n ? String(d.n) : id,
         color: toHex(d && d.c, 0x8fa0ff),
-        wx: (num(d.x, CX) - CX) / SX,
-        wz: (num(d.y, CY) - CY) / SZ,
+        wx: layout ? layout[0] : (num(d.x, CX) - CX) / SX,
+        wz: layout ? layout[1] : (num(d.y, CY) - CY) / SZ,
         h: h,
-        w: 0.94 + (hash32(id + "|w") % 5) * 0.05,
-        dp: 0.94 + (hash32(id + "|d") % 5) * 0.05,
-        style: hash32(id + "|s") % 2,
+        w: layout ? layout[2] : 1.4,
+        dp: layout ? layout[3] : 1.4,
+        style: (id === "office" || id === "capital") ? 1 : 0,
         bucket: h <= 3 ? 0 : (h === 4 ? 1 : 2),
         state: "locked", nodeId: null, tintHex: undefined,
         lift: 0, raise: 0, raiseT: 0, shakeAmp: 0, phase: rand01(id + "|p") * 6.283,
@@ -512,7 +485,7 @@
       inst.places[id] = p;
       inst.order.push(id);
       // 一层贴图 = 一层楼，按高度选密度档
-      p.rep = [2, 4, 6][p.bucket];
+      p.rep = Math.max(1, Math.round(p.h * 2.5));
       var gk = p.style * 3 + p.bucket;
       if (!groups[gk]) groups[gk] = { style: p.style, bucket: p.bucket, rep: p.rep, list: [] };
       groups[gk].list.push(p);
@@ -522,7 +495,7 @@
 
     /* ── 墙面材质：风格(2) × 状态(3) 共 6 套 ──
      *   贴图为中性灰，实际楼体颜色 = 贴图明度 × 该地点主题色（instanceColor）
-     *   normal : 常规        done : 压暗到 0.55 不透明度
+     *   normal : 常规        done : 保持实体轮廓，通过色彩区分完成状态
      *   avail  : 自发光 emissiveIntensity 0.35（emissive 取该地点主题色，色系一致）
      */
     var wallMats = [], wallTex = [];
@@ -534,8 +507,8 @@
       wallTex.push(wt);
       wallMats.push({
         normal: new T.MeshLambertMaterial({ map: wt, color: 0xffffff }),
-        done: new T.MeshLambertMaterial({ map: wt, color: 0xffffff, transparent: true, opacity: 0.55 }),
-        avail: new T.MeshLambertMaterial({ map: wt, color: 0xffffff, emissive: 0x8fa0ff, emissiveIntensity: 0.35 })
+        done: new T.MeshLambertMaterial({ map: wt, color: 0xffffff, transparent: true, opacity: 1 }),
+        avail: new T.MeshLambertMaterial({ map: wt, color: 0xffffff, emissive: 0x8fa0ff, emissiveIntensity: 0.06 })
       });
     }
     inst.wallMats = wallMats;
@@ -549,7 +522,7 @@
       var grp = groups[gkKeys[bi]];
       grp.key = gkKeys[bi];
       var geo = new T.BoxGeometry(1, 1, 1);
-      scaleUV(geo, 1, grp.rep);                    // 竖向平铺 rep 层
+      scaleUV(geo, 3, grp.rep);                    // 竖向平铺 rep 层
       grp.geo = geo;
       grp.batches = {};
       for (var si = 0; si < BSTATES.length; si++) {
@@ -573,7 +546,7 @@
       for (var j = 0; j < grp.list.length; j++) grp.list[j].gkey = gkKeys[bi];
     }
 
-    /* ── 屋顶板（同样按状态分 3 批，保证 done 半透明 / avail 发光一致） ── */
+    /* ── 屋顶板（同样按状态分 3 批，保证 done 实体 / avail 发光一致） ── */
     var rCv = makeRoofCanvas();
     if (rCv) {
       var rTex = newTex(T, rCv, 1, 1);
@@ -583,7 +556,7 @@
         var rst = BSTATES[rs];
         var rmat = new T.MeshLambertMaterial({
           map: rTex, color: 0xffffff,
-          transparent: (rst === "done"), opacity: (rst === "done" ? 0.55 : 1),
+          transparent: false, opacity: 1,
           emissive: (rst === "avail" ? 0x8fa0ff : 0x000000), emissiveIntensity: (rst === "avail" ? 0.35 : 0)
         });
         var roof = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), rmat, inst.order.length);
@@ -615,40 +588,18 @@
     scene.add(pad);
     inst.pad = pad;
     inst.padMat = pad.material;
-
-    /* ── 道路：NODES.next 邻接 + InstancedMesh 合批 ── */
-    var edges = buildEdges(places, nodes);
-    if (edges.length) {
-      var road = new T.InstancedMesh(
-        new T.BoxGeometry(1, 1, 1),
-        new T.MeshLambertMaterial({ color: 0x24223c, emissive: 0x0b0b1c }),
-        edges.length
-      );
-      road.receiveShadow = true;
-      road.frustumCulled = false;
-      for (var e = 0; e < edges.length; e++) {
-        var a = inst.places[edges[e][0]], b = inst.places[edges[e][1]];
-        var dx = b.wx - a.wx, dz = b.wz - a.wz;
-        var len = hypot(dx, dz);
-        _q0.setFromAxisAngle(_axisY, Math.atan2(-dz, dx));
-        _m4.compose(_v3.set((a.wx + b.wx) / 2, 0.015, (a.wz + b.wz) / 2), _q0, _v3b.set(len + 0.52, 0.05, 0.28));
-        road.setMatrixAt(e, _m4);
-      }
-      road.instanceMatrix.needsUpdate = true;
-      scene.add(road);
-      inst.road = road;
-    }
+    buildCityDistrict(inst);
 
     /* ── 标签 Sprite + avail 光环 + 光柱 ── */
     var labelGroup = new T.Group();
     for (var li = 0; li < inst.order.length; li++) {
       var lp = inst.places[inst.order[li]];
       makeLabel(inst, lp);
-      lp.label.position.set(lp.wx, lp.h + 0.80, lp.wz);
+      lp.label.position.set(lp.wx, lp.h + 0.55, lp.wz);
       labelGroup.add(lp.label);
 
       var ring = new T.Mesh(
-        new T.RingGeometry(0.52, 0.68, 40),
+        new T.RingGeometry(0.90, 1.00, 40),
         new T.MeshBasicMaterial({ color: lp.color, transparent: true, opacity: 0.0, side: T.DoubleSide, depthWrite: false, fog: false, blending: T.AdditiveBlending })
       );
       ring.rotation.x = -Math.PI / 2;
@@ -764,6 +715,152 @@
   }
 
   var _q0b = null;
+
+  var CITY_LAYOUT = {
+    rent: [-9,-6,2.6,1.8,2.0], capital: [-3,-6,1.9,1.8,4.6],
+    office: [-9,0,2.2,2.0,3.8], library: [-3,0,2.9,2.1,1.1],
+    park: [3,0,4.4,4.4,0.03], boxing: [9,0,2.6,1.9,1.4],
+    bar: [-3,6,2.5,1.7,1.0], ktv: [3,6,2.4,2.0,1.7], alley: [9,6,1.8,2.0,1.8]
+  };
+  var CITY_COLORS = {rent:0xd6c8ac,capital:0x8eabb9,office:0x779eaf,library:0xd7d5c9,park:0x55794b,boxing:0xc7b8a5,bar:0xb9b1a3,ktv:0xc8c4b8,alley:0xc1c2b8};
+
+  /** Continuous city blocks with batched streets, architecture, planting and traffic. */
+  function buildCityDistrict(inst) {
+    var T=inst.T, scene=inst.scene, box=new T.BoxGeometry(1,1,1);
+    var foliageGeo=new T.IcosahedronGeometry(1,2), buckets={}, meshes=[];
+    var concrete=new T.MeshLambertMaterial({color:0x8f948c});
+    var roof=new T.MeshLambertMaterial({color:0x777f7c});
+    var dark=new T.MeshLambertMaterial({color:0x3d5159});
+    var glass=new T.MeshLambertMaterial({color:0x819ca5,map:inst.wallTex[1]});
+    var masonry=new T.MeshLambertMaterial({color:0xcac4b6,map:inst.wallTex[0]});
+    var brick=new T.MeshLambertMaterial({color:0xae9b85,map:inst.wallTex[0]});
+    var pale=new T.MeshLambertMaterial({color:0xc0c5bd,map:inst.wallTex[0]});
+    var asphalt=new T.MeshLambertMaterial({color:0x454d50});
+    var sidewalk=new T.MeshLambertMaterial({color:0x8f958c});
+    var white=new T.MeshLambertMaterial({color:0xe3dfc9});
+    var yellow=new T.MeshLambertMaterial({color:0xd0bd70});
+    var grass=new T.MeshLambertMaterial({color:0x4e713e});
+    var bark=new T.MeshLambertMaterial({color:0x665e49});
+    var leaves=[0x35553a,0x526d3b,0x426538].map(function(c){return new T.MeshLambertMaterial({color:c});});
+    var water=new T.MeshPhongMaterial({color:0x669baf,shininess:65,specular:0xa3c8cc});
+    var carMats=[0xe5dbbc,0x637f8b,0xb8624e,0x303c44].map(function(c){return new T.MeshLambertMaterial({color:c});});
+    function part(parent,mat,x,y,z,w,h,d,geo,angle){
+      geo=geo||box; var key=parent.uuid+mat.uuid+geo.uuid;
+      var batch=buckets[key]||(buckets[key]={parent:parent,material:mat,geometry:geo,matrices:[]});
+      var q=new T.Quaternion();if(angle)q.setFromAxisAngle(new T.Vector3(0,1,0),angle);
+      batch.matrices.push(new T.Matrix4().compose(new T.Vector3(x,y,z),q,new T.Vector3(w,h,d)));
+    }
+    function tree(x,z,scale){
+      scale=scale||1;part(scene,bark,x,0.32*scale,z,0.06*scale,0.65*scale,0.06*scale);
+      part(scene,leaves[hash32(x+'t'+z)%3],x,0.79*scale,z,0.38*scale,0.48*scale,0.38*scale,foliageGeo);
+      part(scene,leaves[hash32(z+'b'+x)%3],x+0.15*scale,0.73*scale,z+0.12*scale,0.28*scale,0.32*scale,0.28*scale,foliageGeo);
+    }
+    function building(parent,x,z,w,d,h,style,seed){
+      var mat=style?glass:([masonry,brick,pale][hash32(seed)%3]);
+      part(parent,mat,x,h/2+0.08,z,w,h,d);
+      part(parent,roof,x,h+0.1,z,w+0.1,0.14,d+0.1);
+      part(parent,concrete,x,0.12,z,w+0.15,0.20,d+0.15);
+      // Setback rooftop floor, mechanical equipment and parapets.
+      part(parent,dark,x+0.15,h+0.27,z-0.13,w*0.45,0.22,d*0.40);
+      for(var a=0;a<3;a++) part(parent,concrete,x-w*0.28+a*w*0.22,h+0.24,z+d*0.25,0.21,0.15,0.23);
+      part(parent,concrete,x,h+0.20,z-d/2,w+0.06,0.14,0.05);
+      part(parent,concrete,x,h+0.20,z+d/2,w+0.06,0.14,0.05);
+      if(style && h>2.3){
+        part(parent,glass,x,h+0.34,z,w*0.72,0.6,d*0.72);
+        part(parent,roof,x,h+0.68,z,w*0.75,0.07,d*0.75);
+      }
+      if(!style && h<2.0){
+        part(parent,dark,x,0.28,z+d/2+0.035,w*0.70,0.32,0.055);
+        part(parent,seed.length%2?brick:white,x,0.49,z+d/2+0.14,w*0.8,0.075,0.26);
+      }
+      // Floor bands give residential and commercial blocks a readable scale.
+      for(var floor=0.45;floor<h;floor+=0.46)part(parent,style?dark:concrete,x,floor,z,w+0.025,0.035,d+0.025);
+    }
+    // Roads extend beyond the viewport, with curbs, centre lines and crossings.
+    for(var axis=-18;axis<=18;axis+=6){
+      part(scene,sidewalk,axis,0.008,0,1.48,0.08,36);
+      part(scene,asphalt,axis,0.055,0,1.05,0.015,36);
+      part(scene,sidewalk,0,0.009,axis,40,0.08,1.48);
+      part(scene,asphalt,0,0.057,axis,40,0.015,1.05);
+      for(var lane=-19;lane<20;lane+=0.65){
+        if(Math.abs((lane+3)%6-3)<0.85)continue;
+        part(scene,yellow,axis,0.068,lane,0.025,0.007,0.28);
+        part(scene,white,lane,0.071,axis,0.28,0.007,0.025);
+      }
+      for(var cross=-18;cross<=18;cross+=6){
+        for(var stripe=-0.36;stripe<=0.36;stripe+=0.14){
+          part(scene,white,axis+stripe,0.077,cross+0.72,0.08,0.008,0.28);
+          part(scene,white,axis+0.72,0.077,cross+stripe,0.28,0.008,0.08);
+        }
+      }
+    }
+    // Neighbourhood blocks: the playable landmarks occupy real plots among other buildings.
+    // Street grid shifted in Z so landmarks are at block centres.
+    // Landmarks use Z=-6,0,6; shift the road batches three units in Z below.
+    Object.keys(buckets).forEach(function(k){var b=buckets[k];if(b.material===asphalt||b.material===sidewalk||b.material===yellow||b.material===white)b.matrices.forEach(function(m){m.elements[14]+=3;});});
+    for(var x=-15;x<=15;x+=6){for(var z=-12;z<=12;z+=6){
+      var occupied=null; inst.order.forEach(function(id){var p=inst.places[id];if(Math.abs(p.wx-x)<0.2&&Math.abs(p.wz-z)<0.2)occupied=id;});
+      part(scene,sidewalk,x,0.012,z,4.54,0.08,4.54);
+      if(occupied==='park')continue;
+      var seed=x+'block'+z;
+      if(!occupied){
+        building(scene,x-1.0,z-0.9,1.45,1.60,1.3+rand01(seed)*2.2,hash32(seed)%2,seed);
+        building(scene,x+0.9,z+0.85,1.75,1.45,1.1+rand01(seed+'2')*1.8,hash32(seed+'2')%2,seed);
+        building(scene,x+1.1,z-1.15,1.0,1.2,0.55+rand01(seed+'3')*0.9,0,seed);
+      }else{
+        building(scene,x-1.35,z-1.6,1.1,0.72,0.65,0,seed);
+        part(scene,dark,x+1.35,0.07,z-1.55,0.9,0.018,0.8);
+        for(var pk=0;pk<3;pk++)part(scene,white,x+1.05+pk*0.25,0.084,z-1.55,0.018,0.005,0.7);
+      }
+      for(var ti=0;ti<3;ti++){tree(x-1.85+ti*1.75,z+2.05,0.65);}
+      tree(x-2.05,z-1.25,0.8);
+      part(scene,grass,x-2.02,0.069,z,0.20,0.07,3.6);
+      part(scene,grass,x,0.069,z+2.07,3.65,0.07,0.22);
+      for(var shrubs=0;shrubs<6;shrubs++)part(scene,leaves[1],x-1.8+shrubs*0.66,0.16,z+2.08,0.28,0.15,0.13,foliageGeo);
+    }}
+    // Landmark-specific forms follow original hover/state movement.
+    inst.order.forEach(function(id){
+      var p=inst.places[id],g=new T.Group();scene.add(g);p.detail=g;g.position.set(p.wx,0,p.wz);
+      if(id==='park')return;
+      part(g,roof,0,p.h+0.16,0,p.w+0.13,0.14,p.dp+0.13);
+      part(g,dark,0,p.h+0.34,0,p.w*0.40,0.25,p.dp*0.38);
+      for(var j=0;j<3;j++)part(g,concrete,-p.w*0.28+j*0.25,p.h+0.29,p.dp*0.25,0.18,0.12,0.22);
+      part(g,concrete,0,0.12,0,p.w+0.18,0.22,p.dp+0.18);
+      for(var floor=0.5;floor<p.h;floor+=0.46)part(g,(id==='capital'||id==='office')?dark:concrete,0,floor,0,p.w+0.03,0.035,p.dp+0.03);
+      part(g,dark,0,0.35,p.dp/2+0.04,p.w*0.40,0.43,0.08);
+      if(id==='office')building(g,1.3,-0.2,0.7,1.5,p.h*0.63,1,id);
+      if(id==='capital')part(g,glass,0,p.h+0.5,0,p.w*0.72,0.7,p.dp*0.72);
+      if(id==='library'){part(g,concrete,0,0.3,p.dp/2+0.3,p.w+0.4,0.2,0.5);for(var c=-1;c<=1;c++)part(g,concrete,c*0.9,0.6,p.dp/2+0.22,0.10,0.8,0.1);}
+      if(id==='bar'||id==='ktv')part(g,yellow,0,0.65,p.dp/2+0.08,p.w*0.64,0.18,0.06);
+    });
+    // Central garden: a looping promenade, pond, lawns, trees and seating.
+    part(scene,grass,3,0.10,0,4.48,0.12,4.48);
+    function path(points,width,material,y){
+      var curve=new T.CatmullRomCurve3(points.map(function(p){return new T.Vector3(p[0],y,p[1]);}));
+      var mesh=new T.Mesh(new T.TubeGeometry(curve,80,width,6,false),material);scene.add(mesh);mesh.receiveShadow=true;
+    }
+    path([[1.4,-1.8],[2.1,-1],[3.5,-0.6],[4.4,0.2],[3.8,1.4],[2.2,1.65],[1.3,0.6],[1.4,-1.8]],0.11,white,0.15);
+    path([[0.8,0.0],[2,0.25],[3.2,-0.2],[4.2,-1],[5.2,-1]],0.09,white,0.15);
+    var pond=new T.Mesh(new T.CircleGeometry(0.70,48),water);pond.rotation.x=-Math.PI/2;pond.position.set(3.9,0.17,0.8);pond.scale.set(1,0.70,1);scene.add(pond);
+    for(var t=0;t<35;t++){var tx=1.05+rand01('parkx'+t)*3.9,tz=-2+rand01('parkz'+t)*4;if(hypot(tx-3.9,tz-0.8)<0.9)continue;tree(tx,tz,0.75+rand01('parks'+t)*0.45);}
+    for(var bench=0;bench<4;bench++){part(scene,bark,1.4+bench*0.85,0.24,1.95,0.4,0.10,0.17);part(scene,dark,1.4+bench*0.85,0.15,1.95,0.3,0.18,0.04);}
+    // Cars and street lights introduce a human scale.
+    for(var car=0;car<30;car++){
+      var axis=-12+(car%5)*6, along=-14+rand01('car'+car)*28;
+      var mat=carMats[car%4];
+      if(car%2){part(scene,mat,axis+0.27,0.16,along,0.22,0.18,0.46);part(scene,dark,axis+0.27,0.27,along,0.20,0.09,0.24);}
+      else{part(scene,mat,along,0.16,axis+3.27,0.46,0.18,0.22);part(scene,dark,along,0.27,axis+3.27,0.24,0.09,0.20);}
+    }
+    for(var lx=-12;lx<=12;lx+=6)for(var lz=-10;lz<14;lz+=3){part(scene,dark,lx+0.65,0.45,lz,0.035,0.9,0.035);part(scene,white,lx+0.57,0.91,lz,0.19,0.055,0.08);}
+    Object.keys(buckets).forEach(function(k){var b=buckets[k],m=new T.InstancedMesh(b.geometry,b.material,b.matrices.length);b.matrices.forEach(function(matrix,i){m.setMatrixAt(i,matrix);});m.castShadow=b.material!==asphalt&&b.material!==sidewalk&&b.material!==white&&b.material!==yellow;m.receiveShadow=true;m.frustumCulled=false;b.parent.add(m);meshes.push(m);});
+    inst.cityMeshes=meshes;
+    // A compact district legend, outside the interaction layer.
+    var legend=document.createElement('div');legend.setAttribute('data-map3d-hud','1');
+    legend.style.cssText='position:absolute;left:24px;top:22px;pointer-events:none;color:#fff;text-shadow:0 2px 8px #243238;font-family:Microsoft YaHei,sans-serif;padding:12px 16px;background:linear-gradient(100deg,rgba(19,31,34,.70),rgba(19,31,34,0));border-left:2px solid #cfbf84';
+    legend.innerHTML='<div style="font-size:11px;letter-spacing:4px;opacity:.8">RESTART · CITY DISTRICT</div><div style="font-size:25px;font-weight:700;letter-spacing:3px;margin:5px 0">重启人生 · 城市漫游</div><div style="font-size:11px;opacity:.85">● 金色标记可前往　 ·　拖拽旋转 / 滚轮缩放</div>';
+    inst.el.appendChild(legend); inst.cityLegend = legend;
+  }
+
   function aniso(renderer) {
     try {
       if (renderer && renderer.capabilities && isFn(renderer.capabilities.getMaxAnisotropy)) {
@@ -781,7 +878,8 @@
       sx = Math.sin(inst.t * 47) * 0.11 * p.shakeAmp;
       sz = Math.cos(inst.t * 39) * 0.06 * p.shakeAmp;
     }
-    var dy = p.raise + p.lift * 0.13;             // raise：avail 整体抬高 0.35
+    var dy = p.id === "park" ? 0 : p.raise + p.lift * 0.06;
+    if (p.detail) p.detail.position.set(p.wx + sx, dy, p.wz + sz);             // raise：avail 整体抬高 0.35
     _q0.identity();
     _m4.compose(
       _v3.set(p.wx + sx, p.h / 2 + dy, p.wz + sz),
@@ -800,23 +898,23 @@
 
   /** 楼体颜色：地点主题色，降饱和 ~20% + 按状态压暗/提亮（提亮后裁顶，避免色相偏移） */
   function placeTint(T, p, state) {
-    var c = new T.Color(p.color);
+    var c = new T.Color(CITY_COLORS[p.id] || 0xb7b6b0);
     var l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
     c.lerp(new T.Color(l, l, l), 0.20);          // 降饱和 20%（15%~30% 区间内）
-    if (state === "done") c.multiplyScalar(0.60);      // done：压暗
-    else if (state === "locked") c.multiplyScalar(0.50); // locked：灰暗
-    else c.multiplyScalar(1.18);                        // avail：提亮
+    if (state === "done") c.multiplyScalar(0.88);      // done：压暗
+    else if (state === "locked") c.multiplyScalar(0.82); // locked：灰暗
+    else c.multiplyScalar(1.02);                        // avail：提亮
     return capColor(c);
   }
 
   /** 屋顶描边颜色：同色系（更暗更灰，避免抢主体） */
   function roofTint(T, p, state) {
-    var c = new T.Color(p.color);
+    var c = new T.Color(CITY_COLORS[p.id] || 0xb7b6b0);
     var l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
     c.lerp(new T.Color(l, l, l), 0.32);
     if (state === "done") c.multiplyScalar(0.62);
-    else if (state === "locked") c.multiplyScalar(0.48);
-    else c.multiplyScalar(1.05);
+    else if (state === "locked") c.multiplyScalar(0.70);
+    else c.multiplyScalar(1.02);
     return capColor(c);
   }
 
@@ -833,7 +931,7 @@
     var changed = (p.state !== state || p.nodeId !== nodeId);
     p.state = state;
     p.nodeId = nodeId || null;
-    p.raiseT = (state === "avail") ? 0.35 : 0;     // 可玩地点整体抬高 0.35
+    p.raiseT = 0;     // 可玩地点整体抬高 0.35
     if (changed) drawLabel(p);
     var on = state === "avail";
     if (p.ring) p.ring.visible = on || state === "done";
@@ -878,10 +976,10 @@
     // avail 批次的自发光取该风格第一个可玩地点的主题色（同色系）
     for (var s = 0; s < inst.wallMats.length; s++) {
       var am = inst.wallMats[s].avail;
-      if (am && am.emissive) am.emissive.setHex(availColorByStyle[s] || 0x8fa0ff);
+      if (am && am.emissive) am.emissive.setHex(0x314653);
     }
     if (inst.roofBatches && inst.roofBatches.avail && inst.roofBatches.avail.material.emissive) {
-      inst.roofBatches.avail.material.emissive.setHex(availColorRoof === null ? 0x8fa0ff : availColorRoof);
+      inst.roofBatches.avail.material.emissive.setHex(0x314653);
     }
 
     // 提交：count / visible / 脏标记
@@ -1079,7 +1177,7 @@
       if (cam) {
         var aspect = s.w / s.h;
         // 同时容纳世界 X 全宽（±11）与 Z 全高（±8.2）
-        var halfH = Math.max(8.2, 11.0 / aspect);
+        var halfH = Math.max(10.4, 15.5 / aspect);
         var halfW = halfH * aspect;
         cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
         cam.updateProjectionMatrix();
@@ -1291,13 +1389,13 @@
         else if (p.shakeAmp !== 0) { p.shakeAmp = 0; needWrite = true; }
         if (needWrite) writeBuildingMatrix(inst, p);
 
-        // —— 标签三态：avail 放大 1.15 + 0.6→1.0 呼吸 / done 灰绿 / locked 0.4 透明度 ——
+        // —— 标签三态：avail 放大 1.15 + 0.6→1.0 呼吸 / done 灰绿 / locked 0.82 透明度 ——
         var mat = p.lblMat;
         if (mat) {
-          var baseW = LABEL_W / LABEL_H * 0.47, baseH = 0.47;
+          var baseW = LABEL_W / LABEL_H * 0.62, baseH = 0.62;
           if (p.state === "avail") {
             var pulse = 0.5 + 0.5 * Math.sin(inst.t * 3.1 + p.phase);
-            mat.opacity = 0.60 + 0.40 * pulse;
+            mat.opacity = 1;
             var s1 = 1.15 + 0.05 * pulse + p.lift * 0.10;
             p.label.scale.set(baseW * s1, baseH * s1, 1);
             var br = 1.0 + 0.45 * pulse + p.lift * 0.45;
@@ -1309,13 +1407,13 @@
             var s2 = 1 + p.lift * 0.10;
             p.label.scale.set(baseW * s2, baseH * s2, 1);
           } else {
-            mat.opacity = 0.40;                                  // locked：0.4 不透明度
-            var br3 = 0.85 + (inst.hoverId === p.id ? 0.75 : 0);
+            mat.opacity = 1;                                  // locked：0.82 不透明度
+            var br3 = 1.0 + (inst.hoverId === p.id ? 0.75 : 0);
             mat.color.setRGB(br3, br3, br3);
             var s3 = 1 + p.lift * 0.10;
             p.label.scale.set(baseW * s3, baseH * s3, 1);
           }
-          p.label.position.set(p.wx, p.h + 0.80 + p.raise + p.lift * 0.22, p.wz);
+          p.label.position.set(p.wx, p.h + 0.55 + p.raise + p.lift * 0.22, p.wz);
         }
 
         // —— avail 光环 / 光柱 ——
@@ -1373,6 +1471,7 @@
   /* ───────────────────────────── 卸载 ───────────────────────────── */
 
   function disposeInstance(inst) {
+    if (inst && inst.cityLegend && inst.cityLegend.parentNode) inst.cityLegend.parentNode.removeChild(inst.cityLegend);
     try {
       inst.disposed = true;
       inst.ready = false;
@@ -1463,6 +1562,8 @@
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = T.PCFSoftShadowMap || T.PCFShadowMap;
       renderer.setClearColor(0x07070c, 1);
+      renderer.toneMapping = T.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.93;
 
       var cvs = renderer.domElement;
       cvs.style.display = "block";

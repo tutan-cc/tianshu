@@ -1,0 +1,10 @@
+const fs=require('node:fs'),path=require('node:path');
+const root=path.resolve(__dirname,'../..');
+const embed=file=>fs.readFileSync(path.join(root,file),'utf8').replace(/<\/script/gi,'<\\/script');
+const data=file=>'data:image/png;base64,'+fs.readFileSync(path.join(root,file)).toString('base64');
+const images={calm:data('art/characters/student/student-integrated.png'),original:data('art/icons/faces/stud_calm.png')};
+const style=fs.readFileSync(path.join(__dirname,'3d-preview.template.html'),'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+const source=fs.readFileSync(path.join(__dirname,'original-preview.template.html'),'utf8');
+const html=source.replace('/*STUDIO_STYLE*/',()=>style).replace('/*THREE_BUNDLE*/',()=>embed('three.min.js')).replace('/*CHARACTER_BUNDLE*/',()=>embed('breakfast-connected-rig.js')+'\n'+embed('breakfast-original3d.js')).replace('/*IMAGE_SOURCES*/',()=>JSON.stringify(images));
+for(const file of ['早餐人物-原画立体预览.html','早餐人物-自然合成与骨骼动画.html'])fs.writeFileSync(path.join(root,file),html,'utf8');
+console.log('Integrated-character standalone preview:',Buffer.byteLength(html),'bytes');

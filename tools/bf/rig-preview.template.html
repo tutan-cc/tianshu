@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>早餐店 · 学生动画样板</title>
+<style>
+:root{color-scheme:light;--paper:#f4ebd9;--ink:#382e26;--red:#a43b2e;--line:#d3c3aa}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Microsoft YaHei",sans-serif}
+main{max-width:1100px;margin:auto;padding:44px 36px}header{border-bottom:2px solid var(--ink);padding-bottom:25px;display:flex;align-items:end;justify-content:space-between;gap:20px}
+.eyebrow{font-size:12px;letter-spacing:.2em;color:var(--red)}h1{font:500 clamp(28px,4vw,44px)/1.3 "STZhongsong","SimSun",serif;margin:14px 0 0}a{color:var(--red)}
+.studio{display:grid;grid-template-columns:minmax(0,1fr) 280px;margin-top:28px;gap:32px}.stage{position:relative;background:#302e29;border:1px solid #595346;border-radius:4px;overflow:hidden}
+.stage:before{content:"学生 / 动作样板 01";position:absolute;left:22px;top:20px;font-size:12px;letter-spacing:.12em;color:#dfcfac}canvas{display:block;width:100%;aspect-ratio:1/1}
+.caption{position:absolute;bottom:20px;left:22px;color:#d9c8a7;font-size:13px}.sidebar{padding-top:8px}.num{font:italic 42px Georgia,serif;color:var(--red)}h2{font-size:20px;margin:8px 0 16px}p{font-size:14px;line-height:1.85;color:#6b5a48}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);padding:11px 16px;border-radius:3px}button:hover{background:#e7d9be}button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}.primary{display:block;width:100%;background:var(--red);color:#fff5e3;border-color:var(--red);margin:18px 0 24px}.primary:hover{background:#863125}.options{border-top:1px solid var(--line);padding-top:16px;display:grid;gap:14px;font-size:14px}label{display:flex;gap:9px;align-items:center;cursor:pointer}input{accent-color:var(--red)}
+footer{margin-top:24px;border-top:1px solid var(--line);padding-top:18px;font-size:12px;color:#786b5a;line-height:1.8}.status{min-height:25px;font-size:13px;color:var(--red)}
+@media(max-width:720px){main{padding:24px 18px}.studio{grid-template-columns:1fr;gap:18px}header{align-items:start}header a{font-size:12px;white-space:nowrap}.sidebar{padding:0}.options{grid-template-columns:1fr 1fr}}
+</style>
+<main>
+<header><div><div class="eyebrow">早餐店 / 人物动画实验</div><h1>等一份热乎早餐。</h1></div><a href="index.html">进入游戏 ↗</a></header>
+<div class="studio">
+<div class="stage"><canvas id="portrait" width="1000" height="1000" aria-label="学生顾客呼吸与点头动画"></canvas><span class="caption" id="caption">平静等餐 · 轻微呼吸与转头</span></div>
+<aside class="sidebar"><div class="num">01</div><h2>红帽子的学生</h2><p>保留原画，让身体轻轻呼吸。收到早餐后，点一下头，说声谢谢。</p>
+<div class="actions"><button data-mood="calm" aria-pressed="true">平静等餐</button><button data-mood="urgent" aria-pressed="false">着急催餐</button></div>
+<button class="primary" id="serve">送上早餐 · 看他点头</button>
+<div class="options"><label><input type="checkbox" id="bones">显示骨骼</label><label><input type="checkbox" id="mesh">显示网格</label><label><input type="checkbox" id="original">对比原图</label><label><input type="checkbox" id="pause">暂停动画</label></div>
+<p class="status" id="status" role="status">正在载入人物…</p>
+<p>这是半身动画样板。当前包含身体和头部两根骨骼；手臂动作需要补画素材。</p></aside>
+</div><footer>平静、着急、满意沿用游戏现有表情。游戏中已接入学生顾客，其他人物保持原样。<br>开启“对比原图”可观察头部与身体的独立运动；开启“暂停动画”可检查姿势。</footer>
+</main>
+<script src="breakfast-rig.js"></script>
+<script>
+(function(){
+  'use strict';
+  var canvas=document.getElementById('portrait'),g=canvas.getContext('2d');
+  var images={},mood='calm',time=0,last=null,foodAt=-100,loaded=0;
+  var reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+  var labels={calm:'平静等餐 · 轻微呼吸与转头',urgent:'着急催餐 · 头部轻轻左右晃动',happy:'收到早餐 · 满意点头'};
+  var checks={};['bones','mesh','original','pause'].forEach(function(k){checks[k]=document.getElementById(k);});
+  if(reduced.matches)checks.pause.checked=true;
+  ['calm','urgent','happy'].forEach(function(k){var img=new Image();images[k]=img;
+    img.onload=function(){loaded++;if(loaded===3)document.getElementById('status').textContent='人物已就绪 · 可切换动作';};
+    img.onerror=function(){document.getElementById('status').textContent='人物图片未能解码，请重新打开最新版预览页。';};
+    img.src='art/icons/faces/stud_'+k+'.png';});
+  document.querySelectorAll('[data-mood]').forEach(function(button){button.onclick=function(){mood=button.dataset.mood;foodAt=-100;
+    document.querySelectorAll('[data-mood]').forEach(function(b){b.setAttribute('aria-pressed',String(b===button));});};});
+  document.getElementById('serve').onclick=function(){foodAt=time;checks.pause.checked=false;};
+  function frame(now){
+    if(last!==null&&!checks.pause.checked&&!document.hidden)time+=Math.min((now-last)/1000,.05);last=now;
+    var since=time-foodAt,active=since>=0&&since<1.1,face=active?'happy':mood;
+    g.clearRect(0,0,1000,1000);
+    g.fillStyle='#302e29';g.fillRect(0,0,1000,1000);
+    g.strokeStyle='rgba(225,207,170,.055)';g.lineWidth=1;
+    for(var i=50;i<1000;i+=50){g.beginPath();g.moveTo(i,0);g.lineTo(i,1000);g.moveTo(0,i);g.lineTo(1000,i);g.stroke();}
+    g.fillStyle='rgba(0,0,0,.17)';g.beginPath();g.ellipse(500,850,265,22,0,0,Math.PI*2);g.fill();
+    var box={x:160,y:150,w:680,h:690};
+    if(images[face].naturalWidth)BreakfastRig.draw(g,images[face],box,{time:time,mood:face,sinceFood:active?since:-1,
+      reduced:checks.original.checked||reduced.matches,bones:checks.bones.checked,mesh:checks.mesh.checked});
+    document.getElementById('caption').textContent=checks.original.checked?'原始静态贴图':labels[face];
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</html>

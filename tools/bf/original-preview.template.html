@@ -1,0 +1,46 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>早餐店 · 原人物立体动画</title><style>/*STUDIO_STYLE*/</style>
+<main><header><div><div class="eyebrow">早餐店 / 原人物 · 自然合成与动画</div><h1>先合自然，再动起来。</h1></div><div class="edition">原画</div></header>
+<div class="layout"><div class="stage" id="stage"><div class="stage-label">原人物 / 红帽学生</div><div class="stage-note"><strong id="actionLabel">静态合成 · 检查比例与肩部连接</strong><br><span>完整形象统一绘制 · 肩肘腕连续绑定</span></div><div class="stage-tip">拖动轻转 · 滚轮缩放</div></div>
+<aside><div class="tag">ORIGINAL CHARACTER</div><h2>让双臂自然接上。</h2><p>按原人物形象统一肩宽、手臂比例、袖口、肤色和光影，再绑定骨骼。先看静态合成，也可以切换动作检查连接。</p>
+<div class="actions"><button data-action="original" aria-pressed="true"><span>01</span>静态合成 · 看整体比例</button><button data-action="idle" aria-pressed="false"><span>02</span>自然待机 · 呼吸转头</button><button data-action="wave" aria-pressed="false"><span>03</span>挥手招呼 · 手腕摆动</button><button data-action="receive" aria-pressed="false"><span>04</span>抬手接餐 · 点头致谢</button><button data-action="urgent" aria-pressed="false"><span>05</span>着急催餐 · 抬手示意</button></div>
+<div class="divider"></div><div class="camera"><button id="reset">恢复正面</button><button id="compare">对照原头像</button></div>
+<div class="options"><label><input id="bones" type="checkbox">显示骨骼</label><label><input id="spin" type="checkbox">轻微转动</label><label><input id="pause" type="checkbox">暂停动作</label><label><input id="wire" type="checkbox">查看网格</label></div>
+<p class="status" id="status" role="status">正在载入合成人物…</p><p>原素材只有正面半身，这版采用完整合成图的立体网格动画，转动范围以正面为主。</p></aside></div>
+<div class="foot">以原人物与手臂素材合成完整形象，再对整张人物进行连续网格绑定。图片与程序已内嵌，单独打开即可查看。</div></main>
+<script>/*THREE_BUNDLE*/</script><script>/*CHARACTER_BUNDLE*/</script>
+<script>
+(async function(){'use strict';
+  var sources=/*IMAGE_SOURCES*/,stage=document.getElementById('stage'),status=document.getElementById('status');
+  try{
+    var images={};await Promise.all(Object.keys(sources).map(function(key){return new Promise(function(resolve,reject){var img=new Image();images[key]=img;img.onload=resolve;img.onerror=function(){reject(Error('人物素材解码失败'));};img.src=sources[key];});}));
+    var T=THREE,renderer=new T.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputEncoding=T.sRGBEncoding;stage.prepend(renderer.domElement);
+    var scene=new T.Scene();scene.background=new T.Color(0xded7c4);
+    var camera=new T.PerspectiveCamera(34,1,.1,30),character=Breakfast3D.createCharacter(T,images.calm);scene.add(character.group);scene.add(character.helper);
+    var referenceTexture=new T.Texture(images.original);referenceTexture.encoding=T.sRGBEncoding;referenceTexture.needsUpdate=true;
+    var reference=new T.Mesh(new T.PlaneGeometry(1.86,2),new T.MeshBasicMaterial({map:referenceTexture,transparent:true}));reference.position.set(0,1.7,.4);reference.visible=false;scene.add(reference);
+    var action='original',time=0,actionTime=0,last=null,yaw=0,pitch=0,distance=5.65,drag=null,comparing=false;
+    var ui={};['bones','spin','pause','wire'].forEach(function(k){ui[k]=document.getElementById(k);});var reduced=matchMedia('(prefers-reduced-motion: reduce)');if(reduced.matches)ui.pause.checked=true;
+    var labels={original:'静态合成 · 检查比例与肩部连接',idle:'自然呼吸，轻轻转头',wave:'抬手招呼，手腕摆动',receive:'抬手接餐，点头致谢',urgent:'抬手示意，着急催餐'};
+    function select(next){action=next;actionTime=0;ui.pause.checked=false;document.querySelectorAll('[data-action]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.action===action));});document.getElementById('actionLabel').textContent=labels[action];}
+    document.querySelectorAll('[data-action]').forEach(function(b){b.onclick=function(){select(b.dataset.action);};});
+    document.getElementById('reset').onclick=function(){yaw=0;pitch=0;distance=5.65;ui.spin.checked=false;};
+    document.getElementById('compare').onclick=function(){comparing=!comparing;this.setAttribute('aria-pressed',String(comparing));this.textContent=comparing?'返回合成人物':'对照原头像';};
+    stage.addEventListener('pointerdown',function(e){drag={x:e.clientX,y:e.clientY};stage.setPointerCapture(e.pointerId);ui.spin.checked=false;});
+    stage.addEventListener('pointermove',function(e){if(!drag)return;yaw=Math.max(-.38,Math.min(.38,yaw-(e.clientX-drag.x)*.004));pitch=Math.max(-.12,Math.min(.12,pitch+(e.clientY-drag.y)*.003));drag={x:e.clientX,y:e.clientY};});
+    stage.addEventListener('pointerup',function(){drag=null;});stage.addEventListener('pointercancel',function(){drag=null;});stage.addEventListener('wheel',function(e){e.preventDefault();distance=Math.max(4.3,Math.min(7,distance+e.deltaY*.003));},{passive:false});
+    ui.wire.onchange=function(){character.group.traverse(function(o){if(o.isMesh)o.material.wireframe=ui.wire.checked;});};
+    function resize(){renderer.setSize(stage.clientWidth,stage.clientHeight);camera.aspect=stage.clientWidth/stage.clientHeight;camera.updateProjectionMatrix();}new ResizeObserver(resize).observe(stage);resize();
+    status.textContent='合成人物已就绪 · 可以检查静态和动作';
+    function frame(now){var dt=last===null?0:Math.min((now-last)/1000,.05);last=now;if(!document.hidden){
+      if(!ui.pause.checked){time+=dt;actionTime+=dt;}if(ui.spin.checked)yaw=Math.sin(time*.6)*.23;
+      var progress=(actionTime%3.2)/3.2;
+      character.animate(time,action,progress,reduced.matches&&ui.pause.checked);
+      character.group.visible=!comparing;character.helper.visible=ui.bones.checked&&!comparing;reference.visible=comparing;
+      var target=1.44,adjust=camera.aspect<.85?1.2:1;camera.position.set(Math.sin(yaw)*distance*adjust,target+pitch*distance,Math.cos(yaw)*distance*adjust);camera.lookAt(0,target,0);renderer.render(scene,camera);
+    }requestAnimationFrame(frame);}
+    window.OriginalStudentPreview={character:character,renderer:renderer,scene:scene,camera:camera,images:images,select:select,state:function(){return {action:action,time:time,yaw:yaw,comparing:comparing,boneCount:Object.keys(character.bones).length};}};
+    requestAnimationFrame(frame);
+  }catch(e){status.textContent='显示未能启动：'+e.message;status.style.color='#ae3e30';}
+})();
+</script></html>
