@@ -3,57 +3,146 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>3D 麻将桌（three.js 预览）</title>
+<title>重生2 · 3D麻将</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0a0f10; overflow: hidden;
-    font-family: "Microsoft YaHei", system-ui, sans-serif; }
+    font-family: "Microsoft YaHei", system-ui, sans-serif; color: #e8f2ee; }
   #stage { position: fixed; inset: 0; }
-  #hud { position: fixed; left: 16px; top: 14px; color: #e8f2ee; font-size: 14px;
-    line-height: 1.7; text-shadow: 0 1px 3px rgba(0,0,0,.7); pointer-events: none; }
-  #hud b { color: #ffd966; font-weight: 600; }
+  #hud { position: fixed; left: 16px; top: 14px; font-size: 13px; line-height: 1.65;
+    text-shadow: 0 1px 3px rgba(0,0,0,.75); pointer-events: none; }
+  #hud b { color: #ffd966; }
+  #diag { font-size: 11px; color: #7fb9aa; margin-top: 4px; }
   #bar { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 10px; }
-  button { background: #1c3a34; color: #d9f2e8; border: 1px solid #2f6b5d;
-    border-radius: 8px; padding: 9px 16px; font-size: 14px; cursor: pointer; }
-  button:hover { background: #265045; }
   #tip { position: fixed; right: 16px; bottom: 16px; color: #6f8b84; font-size: 12px; }
+
+  button { font-family: inherit; cursor: pointer; }
+  .btn { background: #1b332c; color: #d9f2e8; border: 1px solid #2f6b5d;
+    border-radius: 8px; padding: 9px 16px; font-size: 14px; }
+  .btn:hover { background: #265045; }
+
+  /* ── 开始界面 ── */
+  #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(4, 8, 8, .82); backdrop-filter: blur(2px); z-index: 10; }
+  #menu.hide { display: none; }
+  .panel { width: 460px; padding: 34px 34px 28px; border-radius: 14px;
+    background: linear-gradient(180deg, #10201c 0%, #0b1614 100%);
+    border: 1px solid #b8912e; box-shadow: 0 24px 70px rgba(0,0,0,.7); text-align: center; }
+  .panel h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: 3px; color: #ffd966; }
+  .panel .sub { color: #8fb3a9; font-size: 13px; margin-bottom: 4px; }
+  .panel .round { color: #7fa89c; font-size: 12px; margin-bottom: 20px; }
+  .panel .btn-main { display: block; width: 100%; margin: 10px 0; padding: 13px;
+    font-size: 17px; border-radius: 10px; }
+  #rules { display: none; text-align: left; font-size: 13px; line-height: 1.85;
+    color: #cfe3dc; max-height: 46vh; overflow-y: auto; margin-bottom: 12px; }
+  #rules.show { display: block; }
+  #rules b { color: #ffd966; }
+  #rules .k { color: #9ad0c0; }
+  #menu.exit .panel { display: none; }
 </style>
 </head>
 <body>
 <div id="stage"></div>
+
 <div id="hud">
-  <div><b>3D 麻将桌</b> · three.js 预览</div>
+  <div><b>重生2 · 3D麻将</b></div>
   <div id="info">牌墙 0 张</div>
-  <div id="diag" style="font-size:12px;color:#8fd0c0;margin-top:6px"></div>
+  <div id="diag"></div>
 </div>
+
 <div id="bar">
-  <button onclick="MJ3D.reset()">重新发牌</button>
+  <button class="btn" onclick="MJ3D.reset()">重新发牌</button>
 </div>
+<div id="errBar" style="display:none; position:fixed; left:12px; right:12px; top:60px; z-index:99;
+  background:rgba(90,10,10,.95); color:#ffd7d7; border:1px solid #ff6b6b; border-radius:8px;
+  padding:10px 14px; font-size:13px; white-space:pre-wrap;"></div>
+<div id="claimBar" style="display:none; position:fixed; left:50%; transform:translateX(-50%); bottom:70px; gap:10px;"></div>
+<div id="resultBar" style="display:none; position:fixed; left:50%; top:22%; transform:translateX(-50%);
+  background:rgba(10,20,18,.92); border:1px solid #b8912e; color:#ffd966; padding:14px 26px;
+  border-radius:12px; font-size:18px;"></div>
 <div id="tip">拖动旋转视角 · 滚轮缩放</div>
 
+<div id="menu">
+  <div class="panel">
+    <h1>重生2 · 3D麻将</h1>
+    <div class="sub">广东麻将 · 仅自摸 / 抢杠胡</div>
+    <div class="round" id="roundInfo">第 1 局 · 庄家 你</div>
+
+    <div id="rules">
+      <b>胡牌</b>　仅限自摸或抢杠胡；弃牌不能胡，没有点炮。<br>
+      <b>天胡</b>　庄家起手 14 张成牌，直接按自摸计分。<br>
+      <b>碰杠</b>　可响应弃牌；补杠可被抢杠；暗杠不可抢。<br>
+      <b>胡牌分</b>　自摸：小胡 4 / 碰碰胡 8 / 七对 16 / 龙七对 32；<br>
+      　　　　　抢杠：杠者单独承包 20 分。<br>
+      <b>杠分</b>　暗杠 +6（其余三家各 −2）；放杠 +3（放杠者 −3）；补杠 +3（其余三家各 −1）。<br>
+      <b>抢杠</b>　被抢的杠不计杠分，改为杠者单独付 20 分，其他两家不付。<br>
+      <b>庄家</b>　庄家胡牌连庄，其他家胡牌由下家坐庄；流局连庄。<br>
+      <b>操作</b>　左键出牌 · P 碰 · G 杠 · Esc 暂停/过 · R 规则 · M 静音
+    </div>
+
+    <button class="btn btn-main" onclick="startGame()">开始游戏</button>
+    <button class="btn btn-main" onclick="toggleRules()">规则与计分</button>
+    <button class="btn btn-main" onclick="hideMenu()">关闭菜单</button>
+  </div>
+</div>
+
+<script>
+  // 任何报错都直接显示到页面上，避免"点了没反应"
+  window.__err = function (msg) {
+    var el = document.getElementById("errBar");
+    if (!el) return;
+    el.style.display = "block";
+    el.textContent = String(msg).slice(0, 300);
+  };
+  window.onerror = function (m, s, l, c, e) { window.__err(m + "  @" + l + ":" + c); };
+  window.addEventListener("unhandledrejection", function (ev) { window.__err("Promise: " + ev.reason); });
+</script>
 <script src="three.min.js"></script>
+<script src="mahjong.js"></script>
 <script src="mahjong.gl3d.js"></script>
 <script>
   var stage = document.getElementById('stage');
+  var started = false;
   MJ3D.init(stage);
+
   function syncInfo() {
     var s = MJ3D.state();
-    document.getElementById('info').textContent = '牌墙 ' + s.wall + ' 张 · 手牌 ' + s.hands[0].length + ' 张';
+    document.getElementById('info').textContent =
+      '牌墙 ' + s.wallArr.length + ' 张 · 手牌 ' + s.hands[0].length + ' 张 · 点手牌即可打出';
   }
-  syncInfo();
-  (function () {
+
+  function showDiag() {
     try {
       var d = MJ3D.diag();
       document.getElementById('diag').textContent =
         'three r' + d.revision + ' · WebGL2=' + d.webgl2 + ' · 灯=' + d.lights +
-        ' · felt=' + d.feltColor + '(' + d.feltType + ')' +
         ' · 墙=' + d.wallTiles + ' 手=' + d.handTiles + ' 河=' + d.discTiles;
-    } catch (e) {
-      document.getElementById('diag').textContent = 'DIAG ERR: ' + e.message;
+    } catch (e) {}
+  }
+
+  function startGame() {
+    try { MJ3D.reset(); } catch (e) { window.__err("reset 失败: " + e.message); return; }
+    if (!MJ3D.hasEngine || !MJ3D.hasEngine()) {
+      window.__err("引擎未加载：window.Mahjong.test.Engine 不存在（mahjong.js 可能报错，见控制台）");
+      return;
     }
-  })();
-  document.querySelector('button').addEventListener('click', function () {
-    setTimeout(syncInfo, 30);
-  });
+    document.getElementById('menu').classList.add('hide');
+    started = true;
+    syncInfo(); showDiag();
+  }
+
+  function toggleRules() {
+    document.getElementById('rules').classList.toggle('show');
+  }
+
+  function hideMenu() {
+    document.getElementById('menu').classList.add('hide');
+  }
+
+  // 菜单显示期间不响应打牌
+  document.getElementById('menu').addEventListener('mousedown', function (e) { e.stopPropagation(); });
+
+  syncInfo(); showDiag();
+  setInterval(function () { syncInfo(); showDiag(); }, 1000);
 </script>
 </body>
 </html>
