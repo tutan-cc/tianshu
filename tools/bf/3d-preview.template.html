@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>早餐店 · 红帽少年 3D 动画</title>
+<style>
+:root{--paper:#f4eddc;--ink:#343d35;--red:#ae3e30;--line:#cfc6b2;--olive:#52604a}*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Microsoft YaHei",sans-serif}main{max-width:1320px;margin:auto;padding:30px 36px 24px}header{display:flex;align-items:end;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:20px;gap:20px}.eyebrow{font-size:11px;letter-spacing:.22em;color:var(--red)}h1{font:500 clamp(27px,3.2vw,42px)/1.4 "STZhongsong","SimSun",serif;margin:10px 0 0}.edition{font:italic 48px Georgia,serif;color:var(--red)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 284px;gap:28px;margin-top:22px}.stage{position:relative;background:#ded7c4;min-width:0;overflow:hidden;border-radius:6px;border:1px solid #c6bfaa;height:min(72vh,740px);min-height:480px;touch-action:none;cursor:grab}.stage:active{cursor:grabbing}.stage canvas{display:block;width:100%;height:100%}.stage-label{position:absolute;left:22px;top:20px;font-size:11px;letter-spacing:.14em;color:#596451;pointer-events:none}.stage-note{position:absolute;left:22px;bottom:21px;font-size:12px;line-height:1.8;color:#5a6451;pointer-events:none}.stage-note strong{font-size:17px;color:#384835}.stage-tip{position:absolute;right:20px;bottom:24px;font-size:11px;color:#6b705c;pointer-events:none}
+aside{padding:5px 0}h2{font:500 26px "STZhongsong","SimSun",serif;margin:10px 0}p{font-size:13px;line-height:1.9;color:#756b57}.tag{font-size:10px;letter-spacing:.15em;color:var(--red)}.actions{display:grid;gap:8px;margin:22px 0}.actions button{text-align:left;display:flex;align-items:center;gap:14px}.actions span{font:italic 19px Georgia,serif;opacity:.6}button{font:inherit;font-size:13px;color:var(--ink);border:1px solid var(--line);background:transparent;border-radius:3px;padding:11px 14px;cursor:pointer}button:hover{background:#e6dcc4}button[aria-pressed="true"]{color:#fff4dc;background:var(--red);border-color:var(--red)}.divider{border-top:1px solid var(--line);margin:20px 0 16px}.camera{display:flex;gap:6px;flex-wrap:wrap}.camera button{font-size:12px;padding:8px 13px}.options{display:grid;gap:13px;margin-top:19px;font-size:13px}label{display:flex;align-items:center;gap:8px;cursor:pointer}input{accent-color:var(--red)}.status{font-size:11px;color:var(--olive);min-height:20px;margin-top:19px}.foot{margin-top:20px;border-top:1px solid var(--line);padding-top:14px;font-size:11px;color:#7d7562;line-height:1.8}
+@media(max-width:760px){main{padding:22px 16px}.layout{grid-template-columns:1fr;gap:16px}.stage{height:58vh;min-height:390px}.edition{font-size:36px}aside{padding:0}.actions{grid-template-columns:1fr 1fr;margin:15px 0}.options{grid-template-columns:1fr 1fr}.stage-tip{top:43px;left:22px;right:auto;bottom:auto}.foot{margin-top:15px}}
+</style>
+<main><header><div><div class="eyebrow">早餐店 / 人物立体化 · 试做 02</div><h1>这次，伸手接住早餐。</h1></div><div class="edition">3D</div></header>
+<div class="layout"><div class="stage" id="stage"><div class="stage-label">红帽少年 / STUDENT No.01</div><div class="stage-note"><strong id="actionLabel">双手接餐，点头致谢</strong><br><span id="rigLabel">完整三维模型 · 肩肘腕骨骼联动</span></div><div class="stage-tip">拖动旋转 · 滚轮缩放</div></div>
+<aside><div class="tag">CHARACTER STUDY</div><h2>熟悉的红帽子。</h2><p>灰色上衣、反戴红帽和双肩包。补上完整双臂与手指，让每次招呼和接餐都看得见。</p>
+<div class="actions"><button data-action="idle" aria-pressed="false"><span>01</span>自然待机 · 呼吸转头</button><button data-action="wave" aria-pressed="false"><span>02</span>挥手招呼 · 手腕摆动</button><button data-action="receive" aria-pressed="true"><span>03</span>双手接餐 · 点头致谢</button><button data-action="urgent" aria-pressed="false"><span>04</span>着急催餐 · 抬手跺脚</button></div>
+<div class="divider"></div><div class="camera"><button data-view="front">正面</button><button data-view="side">侧面</button><button data-view="back">背面</button><button id="framing">看半身</button></div>
+<div class="options"><label><input id="bones" type="checkbox">透视骨骼</label><label><input id="spin" type="checkbox">自动旋转</label><label><input id="pause" type="checkbox">暂停动作</label><label><input id="wire" type="checkbox">查看线框</label></div>
+<p class="status" id="status" role="status">正在搭建 3D 人物…</p><p>这是保留角色辨识点的卡通 3D 样板。可以从侧面和背面查看体积、手臂与背包。</p></aside></div>
+<div class="foot">所有模型和动画程序已打包在此页面，无需联网加载素材。模型采用父子骨骼驱动的分件绑定，适合先验证角色比例和动作。</div></main>
+<script>/*THREE_BUNDLE*/</script>
+<script>/*CHARACTER_BUNDLE*/</script>
+<script>
+(function(){
+  'use strict';
+  var stage=document.getElementById('stage'),status=document.getElementById('status');
+  try{
+    var T=THREE,renderer=new T.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputEncoding=T.sRGBEncoding;
+    renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;renderer.physicallyCorrectLights=true;
+    renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;stage.prepend(renderer.domElement);
+    var scene=new T.Scene();scene.background=new T.Color(0xded7c4);
+    var camera=new T.PerspectiveCamera(35,1,.1,50),character=Breakfast3D.createCharacter(T);
+    scene.add(character.group);scene.add(character.helper);Breakfast3D.lights(T,scene,true);
+    var floor=new T.Mesh(new T.CylinderGeometry(1.11,1.16,.13,80),new T.MeshStandardMaterial({color:0xe8dfc8,roughness:.87}));
+    floor.material.color.convertSRGBToLinear();
+    floor.position.y=-.15;floor.receiveShadow=true;scene.add(floor);
+    var ring=new T.Mesh(new T.TorusGeometry(1.065,.008,6,100),new T.MeshStandardMaterial({color:0xb8ac8b}));ring.rotation.x=Math.PI/2;ring.position.y=-.078;scene.add(ring);
+    var ground=new T.Mesh(new T.PlaneGeometry(200,200),new T.ShadowMaterial({opacity:.14}));ground.rotation.x=-Math.PI/2;ground.position.y=-.225;ground.receiveShadow=true;scene.add(ground);
+    var action='receive',time=0,actionTime=.35,last=null,yaw=.24,pitch=.12,distance=5.1,bust=false,drag=null;
+    var reduced=matchMedia('(prefers-reduced-motion: reduce)');
+    var ui={};['bones','spin','pause','wire'].forEach(function(k){ui[k]=document.getElementById(k);});
+    if(reduced.matches)ui.pause.checked=true;
+    var labels={idle:'自然呼吸，轻轻转头',wave:'抬起手臂，挥手打个招呼',receive:'双手接餐，点头致谢',urgent:'等得着急了，抬手催一催'};
+    function select(next){action=next;actionTime=0;ui.pause.checked=false;document.querySelectorAll('[data-action]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.action===action));});document.getElementById('actionLabel').textContent=labels[action];}
+    document.querySelectorAll('[data-action]').forEach(function(b){b.onclick=function(){select(b.dataset.action);};});
+    document.querySelectorAll('[data-view]').forEach(function(b){b.onclick=function(){yaw={front:0,side:Math.PI/2,back:Math.PI}[b.dataset.view];pitch=.10;ui.spin.checked=false;};});
+    document.getElementById('framing').onclick=function(){bust=!bust;distance=bust?3.15:5.1;this.textContent=bust?'看全身':'看半身';};
+    stage.addEventListener('pointerdown',function(e){drag={x:e.clientX,y:e.clientY};stage.setPointerCapture(e.pointerId);ui.spin.checked=false;});
+    stage.addEventListener('pointermove',function(e){if(!drag)return;yaw-=(e.clientX-drag.x)*.008;pitch=Math.max(-.2,Math.min(.7,pitch+(e.clientY-drag.y)*.005));drag={x:e.clientX,y:e.clientY};});
+    stage.addEventListener('pointerup',function(){drag=null;});stage.addEventListener('pointercancel',function(){drag=null;});
+    stage.addEventListener('wheel',function(e){e.preventDefault();distance=Math.max(2.5,Math.min(8,distance+e.deltaY*.003));},{passive:false});
+    ui.wire.onchange=function(){character.group.traverse(function(o){if(o.isMesh)o.material.wireframe=ui.wire.checked;});};
+    function resize(){var w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}new ResizeObserver(resize).observe(stage);resize();
+    document.getElementById('rigLabel').textContent=Object.keys(character.bones).length+' 根骨骼 · 完整双臂与手指 · 可 360° 查看';
+    status.textContent='3D 人物已就绪 · 动作循环播放';
+    function frame(now){var dt=last===null?0:Math.min((now-last)/1000,.05);last=now;if(!document.hidden){
+      if(!ui.pause.checked){time+=dt;actionTime+=dt;}if(ui.spin.checked)yaw+=dt*.28;
+      character.animate(time,action,(actionTime%3.2)/3.2,reduced.matches&&ui.pause.checked);
+      character.helper.visible=ui.bones.checked;
+      var target=bust?1.74:1.29,adjust= camera.aspect<.9?1.12:1;
+      camera.position.set(Math.sin(yaw)*distance*adjust*Math.cos(pitch),target+distance*Math.sin(pitch),Math.cos(yaw)*distance*adjust*Math.cos(pitch));camera.lookAt(0,target,0);
+      renderer.render(scene,camera);
+    }requestAnimationFrame(frame);}
+    window.Student3DPreview={character:character,scene:scene,camera:camera,renderer:renderer,select:select,
+      state:function(){return {action:action,time:time,yaw:yaw,bust:bust,boneCount:Object.keys(character.bones).length};}};
+    requestAnimationFrame(frame);
+    window.addEventListener('pagehide',function(){renderer.dispose();character.dispose();});
+  }catch(e){status.textContent='3D 显示未能启动：'+e.message;status.style.color='#ae3e30';}
+})();
+</script></html>
