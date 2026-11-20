@@ -63,6 +63,40 @@ body.dev #dbgRow{display:flex}
 #map3d{position:absolute;inset:0;display:none;z-index:1}
 #map3d.on{display:block}
 #map3d canvas{display:block;outline:none}
+#game.map-walking:not(.map-side-open) #main{grid-template-columns:minmax(0,1fr)}
+#game.map-walking:not(.map-side-open) #side{display:none}
+#mapView[hidden],#mapLife[hidden],.walk-guide[hidden]{display:none}
+.walk-guide{position:absolute;top:17px;left:18px;z-index:3;pointer-events:none;max-width:46%;
+  padding:13px 17px 12px;border-left:3px solid #76dcc2;background:#162423e8;border-radius:2px 9px 9px 2px;color:#f4f2dc}
+.walk-guide strong{display:block;font-size:clamp(17px,2.2vw,25px);letter-spacing:.10em}
+.walk-guide p{margin:5px 0 0;color:#d2e3dc;font-size:12px;line-height:1.45}
+#mapWalkStatus:not(:empty){color:#ffe299;margin-top:8px;font-weight:650}
+#mapWalk{border-color:#487b6c;color:#c5f5e5}
+#mapStartBtn{margin-top:10px;padding:10px 24px;border:1px solid #557e70;color:#c4eadb;font-size:13px;letter-spacing:.2em;background:#16312899}
+body.city-trial #saveBtn,body.city-trial #resetBtn,body.city-trial #importBtn,body.city-trial #exportBtn,body.city-trial #buildStamp{display:none}
+@media(max-width:620px){.walk-guide{top:8px;left:8px;padding:8px 10px;max-width:41%}.walk-guide p{font-size:10px}
+#game.map-walking .map-route{max-width:49%}}
+.map-route,.map-camera{position:absolute;z-index:3}
+.map-route{right:16px;top:15px;max-width:min(300px,calc(100% - 32px));padding:10px 12px;
+  border:1px solid #756049;background:#151322f2;border-radius:9px;box-shadow:0 5px 22px #0008}
+.map-route h2{margin:0 0 5px;color:var(--gold);font-size:11px;letter-spacing:.14em}
+.map-route p{margin:0;color:#d2cde4;font-size:12px}
+.map-route button{display:flex;align-items:center;gap:15px;justify-content:space-between;width:100%;
+  border:0;background:transparent;color:#fff;text-align:left;padding:7px 0;cursor:pointer;font-size:14px}
+.map-route button+button{border-top:1px solid var(--line)}
+.map-route button small{color:#e8c67c;font-size:11px}
+.map-camera{left:16px;bottom:15px;display:flex;gap:6px}
+.map-camera[hidden]{display:none}
+.map-trial-games{display:none;bottom:54px}
+body.city-trial .map-trial-games{display:flex}
+.map-trial-games button{border-color:#8b7150;background:#281e1a;color:#ffe1a5}
+.map-camera button{border:1px solid #514660;background:#151322ec;color:#efe9f9;
+  border-radius:6px;font-size:12px;padding:6px 10px;cursor:pointer}
+.map-route button:hover,.map-camera button:hover,.hotspot:focus-visible .lbl{color:var(--gold)}
+.map-route button:focus-visible,.map-camera button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+@media(max-width:620px){.map-route{right:8px;top:8px;max-width:calc(100% - 16px);padding:6px 9px}
+.map-camera{left:8px;bottom:8px}.map-trial-games{bottom:46px}.map-route button{font-size:12px;padding:4px 0}}
+@media(prefers-reduced-motion:reduce){.hotspot .pin,.hotspot.avail .ring{animation:none}}
 #mapwrap::after{content:"";position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.7) 100%)}
 .hotspot{cursor:pointer}
@@ -210,11 +244,11 @@ body.dev #dbgRow{display:flex}
 .panel .sub2{font-size:12px;color:var(--dim);margin-bottom:16px}
 /* ══ 早餐店 · 拼手速（面板放大：1440 窗口下几乎铺满；文字全部走系统字体，正文 ≥16px）══ */
 .overlay.bf-overlay .bf-panel{width:min(1180px,96%);max-width:none}
-#bfGame .panel.bf-panel.bf-game-panel{padding:12px 14px 14px;max-height:calc(100vh - 20px);overflow-y:auto;overscroll-behavior:contain}
+#bfGame .panel.bf-panel.bf-game-panel{padding:12px 14px 14px;max-height:calc(100vh - 20px);
+  width:min(1180px,96%,calc(148vh - 172px));overflow-y:auto;overscroll-behavior:contain}
 .bf-wrap{display:flex;flex-direction:column;gap:8px;width:100%}
 .bf-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:16px}
-.bf-title{font-size:22px;font-weight:800;color:var(--gold);letter-spacing:2px}
-.bf-tip{flex:1;min-width:260px;font-size:15px;line-height:1.6;color:var(--dim)}
+.bf-title{flex:1;font-size:clamp(14px,2vw,20px);font-weight:800;color:var(--gold)}
 .bf-stage{position:relative;width:100%;background:#150d07;border:2px solid var(--line);border-radius:10px;overflow:hidden}
 .bf-cv{display:block;width:100%;height:auto;background:#150d07}
 .bf-btn{font:inherit;font-size:16px;padding:10px 20px;color:var(--gold);background:rgba(255,214,110,.08);
@@ -345,6 +379,7 @@ body.dev #dbgRow{display:flex}
 .mbtn b{display:block;font-size:10px;color:var(--dim);font-weight:400;margin-top:2px}
 /* toast */
 #toasts{position:fixed;top:64px;right:16px;z-index:200;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+@media(max-width:1150px){body:has(#mj.on) #toasts{max-width:34vw;overflow-wrap:anywhere}}
 .toast{background:rgba(16,14,24,.95);border:1px solid var(--line);border-left:3px solid var(--gold);
   padding:8px 14px;font-size:12px;animation:tin .3s;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 .toast b{color:var(--gold)}
@@ -374,6 +409,7 @@ body.dev #dbgRow{display:flex}
   <div class="tsub">重 启 人 生 · REBORN TWICE</div>
   <div class="tdesc">2025 年深夜，32 岁的陈默猝倒在办公室。<br>再睁眼，是 2015 年 9 月——22 岁，一无所有，却带着<b>未来十年的全部记忆</b>。<br>一本【重生手册】，几个会改变他命运的人。<br>这一次，换他把人生拿回来。</div>
   <button class="tbtn" id="startBtn">开 始 重 生</button>
+  <button type="button" id="mapStartBtn">城市漫游试玩</button>
   <div id="dbgRow" style="gap:10px;margin-top:12px">
     <button id="dbgJump" style="padding:9px 22px;border:1px solid var(--purple);color:var(--purple);font-size:12px;letter-spacing:2px;background:rgba(176,125,255,.08)">⚑ 跳到谈判（调试）</button>
     <button id="dbgFight" style="padding:9px 22px;border:1px solid var(--red);color:var(--red);font-size:12px;letter-spacing:2px;background:rgba(255,77,109,.08)">⚑ 跳到打斗</button>
@@ -398,23 +434,43 @@ body.dev #dbgRow{display:flex}
     <div class="clock"><b id="clockDay">Day 1</b><span id="clockPer">上午</span></div>
   </div>
   <div id="main">
-    <div id="mapwrap"><svg id="map" viewBox="0 0 800 520" preserveAspectRatio="xMidYMid meet"></svg><div id="map3d"></div></div>
+    <div id="mapwrap">
+      <svg id="map" viewBox="0 0 800 520" preserveAspectRatio="xMidYMid meet" aria-label="城市地图"></svg>
+      <div id="map3d"></div>
+      <div class="walk-guide" id="walkGuide" hidden>
+        <strong>滨河街区</strong>
+        <p>WASD / 方向键移动 · 点击地面前往</p>
+        <p id="mapWalkStatus"></p>
+      </div>
+      <section class="map-route" aria-label="剧情导航"><h2>当前行程</h2><div id="mapDestinations"></div></section>
+      <div class="map-camera" id="mapCamera" hidden>
+        <button id="mapWalk" type="button" aria-pressed="false">步行</button>
+        <button id="mapView" type="button">俯视</button><button id="mapReset" type="button">复位视角</button>
+        <button id="mapLife" type="button" aria-pressed="false" hidden>生活面板</button>
+        <button id="mapStyle" type="button" aria-label="抽象地图" aria-pressed="false" title="切换到旧抽象风格">地图：写实</button>
+      </div>
+      <div class="map-camera map-trial-games" role="group" aria-label="小游戏试玩">
+        <button id="trialMahjong" type="button">麻将试玩</button>
+        <button id="trialBreakfast" type="button">早餐试玩</button>
+      </div>
+    </div>
     <div id="side">
-      <div class="sec-t">羁 绊</div><div id="bonds"></div>
-      <div class="sec-t">任 务</div><div id="quests"></div>
-      <div class="sec-t">成 就</div><div id="achvs"></div>
-      <button class="btn-m" id="equipBtn">🎒 随身装备</button>
+      <div class="sec-t">小 游 戏</div>
       <button class="btn-m" id="lotteryBtn"><img class="gm-ico" src="art/icons/game/lottery.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🎟</span> 刮刮乐（¥20）</button>
       <button class="btn-m" id="mjFreeBtn"><img class="gm-ico" src="art/icons/game/mahjong.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🀄</span> 找人打两圈</button>
+      <div id="mjRec" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:6px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="bfBtn" style="border-color:#ff9ec7;color:#ffd76e"><img class="gm-ico" src="art/icons/game/breakfast.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🍳</span> 做份早餐</button>
       <div id="bfNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
-      <div id="mjRec" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:6px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="jadeBtn" style="border-color:#c9a24a;color:#ffd76e"><img class="gm-ico" src="art/icons/game/jade.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🪨</span> 开窗（赌石）</button>
       <div id="jadeNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="slashBtn" style="border-color:#ff7d9c;color:#5dffa0"><img class="gm-ico" src="art/icons/game/slash.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🍉</span> 一刀两断（切果）</button>
       <div id="slashNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
       <button class="btn-m" id="coBtn" style="border-color:#4a6fd8;color:#bcd4ff"><img class="gm-ico" src="art/icons/game/clockout.png" alt="" onload="this.style.display='inline-block';this.nextSibling.style.display='none'" onerror="this.remove()"><span class="gm-emj">🚪</span> 准点下班</button>
       <div id="coNote" style="font-size:10px;color:var(--dim);line-height:1.7;margin-top:4px;padding:6px 8px;border:1px dashed var(--line);background:#0b0a13"></div>
+      <div class="sec-t">羁 绊</div><div id="bonds"></div>
+      <div class="sec-t">任 务</div><div id="quests"></div>
+      <div class="sec-t">成 就</div><div id="achvs"></div>
+      <button class="btn-m" id="equipBtn">🎒 随身装备</button>
       <button class="btn-m" id="saveBtn">▣ 保存进度</button>
       <button class="btn-m" id="exportBtn">⇪ 导出存档</button>
       <button class="btn-m" id="importBtn">⇩ 导入存档</button>
@@ -708,6 +764,9 @@ body.dev #dbgRow{display:flex}
 
 <script src="three.min.js"></script>
 <script src="mahjong.js"></script>
+<script src="city-walk.js"></script>
+<script src="art/city/plant-textures.js"></script>
+<script src="city-vegetation.js"></script>
 <script src="map3d.js"></script>
 <script src="breakfast-rig.js"></script>
 <!-- Image-deformation rig disabled: replace only after the full 3D skin is reviewed. -->
@@ -1414,6 +1473,7 @@ function grantItem(id){ const r=S.rpg; if(!r || r.owned.includes(id)) return;
 
 /* ═══════════════ 状态层（含安全存档校验：借鉴 restore 白名单思路） ═══════════════ */
 let S;
+const cityTrial = typeof location!=="undefined" && /(?:^|[?&])walk=1(?:&|$)/.test(location.search || "");
 const SAVE_VER = 2;
 function newState(){ return {version:SAVE_VER, done:[], stats:{cash:10, cha:5, phy:5, int:5},
   bonds:{fang:0,su:0,lin:0,wen:0,lei:0,hong:0,guo:0,lu:0,man:0},
@@ -1430,7 +1490,10 @@ function newState(){ return {version:SAVE_VER, done:[], stats:{cash:10, cha:5, p
   /* ── 准点下班：局数 / 累计净收支 / 单局最好 / 三关全通 / 全程零被发现 ── */
   coRuns:0, coNet:0, coBest:0, coAllClear:false, coGhost:false,
   rpg:{xp:0, owned:[], equipped:{hand:null,outfit:null,accessory:null}, bag:{}}, buffs:{time:0,window:0,hp:0,capital:0}}; }
-function save(){ try{ localStorage.setItem("cs2_save", JSON.stringify(S)); }catch(e){} }
+function save(){
+  if(typeof cityTrial!=="undefined" && cityTrial) return;
+  try{ localStorage.setItem("cs2_save", JSON.stringify(S)); }catch(e){}
+}
 /* 唯一入口：量纲 → 引用白名单 → 状态机边界 → 子系统缺省补齐；坏档一律返回 null */
 function restore(raw){
   try{
@@ -1620,49 +1683,139 @@ function isAvail(id){
   for(const pid in NODES) if(NODES[pid].next && NODES[pid].next.includes(id)) return S.done.includes(pid);
   return false;
 }
-function nextAvail(){ for(const id in NODES) if(isAvail(id)) return id; return null; }
+function availableNodes(){ return Object.keys(NODES).filter(isAvail); }
+function nextAvail(){ return availableNodes()[0] || null; }
+function enterMapNode(id){
+  if(!isAvail(id)) return;
+  AudioSys.click();
+  playNode(id);
+}
 
 /* ═══════════════ 3D 沙盘（借鉴 tianshu：Three.js 等距地图 + 射线拾取 + 氛围联动） ═══════════════ */
-let map3dReady=false, mapMode="3d";
+let map3dReady=false, mapMode="3d", mapTop=false, mapWalking=false;
+const mapStyleKey="cs2_map_style";
+let mapStyle="realistic";
+try{ if(localStorage.getItem(mapStyleKey)==="abstract") mapStyle="abstract"; }catch(e){}
+const mapCoveringPanels = ["cine","mj","bfGame","jade","slash","co"].map($);
+if(window.MutationObserver){
+  const watcher = new MutationObserver(()=>{
+    if(map3dReady) updateMapActivity();
+  });
+  mapCoveringPanels.forEach(el=>watcher.observe(el, {attributes:true, attributeFilter:["class"]}));
+}
+function updateMapActivity(){
+  const covered=mapCoveringPanels.some(el=>el.classList.contains("on"));
+  Map3D.setActive(mapMode==="3d" && !covered);
+}
 function map3dPause(on){
-  try{
-    if(on){ if(map3dReady){ Map3D.dispose(); map3dReady=false; } }
-    else if(!map3dReady){ $("map3d").innerHTML=""; init3D(); }
-  }catch(e){}
+  if(on){ if(map3dReady) Map3D.setActive(false); }
+  else if(!map3dReady) init3D();
+  else applyMapMode();
 }
 function init3D(){
-  if($("map3d") && !$("map3d").childElementCount) { /* 空容器，待挂载 */ }
   if(map3dReady || !window.Map3D || !$("map3d")) return;
   try{
-    map3dReady = Map3D.mount($("map3d"), { places:PLACES, nodes:NODES,
-      onPick:(placeId, nodeId)=>{ AudioSys.click(); if(nodeId) playNode(nodeId); } }) === true;
+    map3dReady = Map3D.mount($("map3d"), { places:PLACES, nodes:NODES, active:false, style:mapStyle,
+      onPick:(_place, id)=>{ if(id) enterMapNode(id); },
+      onWalkStatus:status=>{ $("mapWalkStatus").textContent=status; } }) === true;
   }catch(e){ map3dReady=false; }
-  if(!map3dReady){ $("mapbtn").textContent="🧭 仅 2D"; $("mapbtn").title="此设备不支持 WebGL，已自动使用 2D 沙盘"; }
+  if(!map3dReady){ $("mapbtn").textContent="🧭 仅 2D"; $("mapbtn").title="此设备不支持 WebGL，继续使用 2D 沙盘"; }
+  updateMapStyleButton();
   applyMapMode(); sync3D();
 }
 function applyMapMode(){
   const use3d = map3dReady && mapMode==="3d";
-  if($("map3d")) $("map3d").classList.toggle("on", use3d);
+  $("map3d").classList.toggle("on", use3d);
   $("map").style.display = use3d ? "none" : "block";
-  if(map3dReady) $("mapbtn").textContent = use3d ? "🧭 切 2D" : "🧭 切 3D";
+  $("mapCamera").hidden = !use3d;
+  const walking=use3d && mapWalking;
+  $("game").classList.toggle("map-walking",walking);
+  $("walkGuide").hidden=!walking;
+  $("mapLife").hidden=!walking;
+  $("mapView").hidden=walking;
+  if(map3dReady){
+    $("mapbtn").textContent = use3d ? "🧭 切 2D" : "🧭 切 3D";
+    updateMapActivity();
+  }
 }
 function sync3D(){
-  if(!map3dReady) return;
-  try{ Map3D.refresh({ done:S.done, avail:nextAvail() }); }catch(e){}
+  if(map3dReady) Map3D.refresh({done:S.done, avail:availableNodes()});
 }
 $("mapbtn").addEventListener("click",()=>{ AudioSys.click();
   if(!map3dReady){ init3D(); if(!map3dReady){ toast("此设备不支持 WebGL，继续使用 2D 沙盘"); return; } }
   mapMode = mapMode==="3d" ? "2d" : "3d"; applyMapMode(); });
+$("mapView").addEventListener("click",()=>{
+  mapTop=!mapTop;
+  Map3D.setMode(mapTop ? "top" : "orbit");
+  $("mapView").textContent=mapTop ? "斜视" : "俯视";
+});
+$("mapReset").addEventListener("click",()=>Map3D.resetView());
+function updateMapStyleButton(){
+  const abstractStyle=mapStyle==="abstract";
+  const button=$("mapStyle");
+  button.textContent=abstractStyle ? "地图：抽象" : "地图：写实";
+  button.title=abstractStyle ? "切换到新写实风格" : "切换到旧抽象风格";
+  button.setAttribute("aria-pressed", String(abstractStyle));
+}
+$("mapStyle").addEventListener("click",()=>{
+  const next=mapStyle==="realistic" ? "abstract" : "realistic";
+  if(!map3dReady || !Map3D.setStyle(next)) return;
+  mapStyle=next;
+  updateMapStyleButton();
+  try{ localStorage.setItem(mapStyleKey,mapStyle); }catch(e){}
+});
+function toggleMapWalk(){
+  if(!map3dReady || !Map3D.setMode(mapWalking ? "orbit" : "walk")) return false;
+  mapWalking=!mapWalking;
+  mapTop=false;
+  $("mapWalk").textContent=mapWalking ? "街区总览" : "步行";
+  $("mapWalk").setAttribute("aria-pressed",String(mapWalking));
+  $("mapView").textContent="俯视";
+  applyMapMode();
+  return true;
+}
+$("mapWalk").addEventListener("click",toggleMapWalk);
+$("mapLife").addEventListener("click",()=>{
+  const open=$("game").classList.toggle("map-side-open");
+  $("mapLife").setAttribute("aria-pressed",String(open));
+  $("mapLife").textContent=open ? "收起生活面板" : "生活面板";
+});
 
+let mapRouteKey;
 function renderMap(){
   const map=$("map");
+  const available=availableNodes();
+  const routeKey=JSON.stringify([S.done, available]);
+  if(routeKey===mapRouteKey) return;
+  mapRouteKey=routeKey;
+  const list=$("mapDestinations");
+  list.textContent="";
+  if(!available.length){
+    const msg=document.createElement("p");
+    msg.textContent=S.done.length ? "当前没有待开启的剧情" : "序章结束后即可探索城市";
+    list.appendChild(msg);
+  }
+  for(const id of available){
+    const node=NODES[id], button=document.createElement("button");
+    button.type="button"; button.dataset.node=id;
+    button.textContent=node.name;
+    const place=document.createElement("small");
+    place.textContent=PLACES[node.loc].n+" ↗";
+    button.appendChild(place);
+    button.addEventListener("click",()=>{
+      if(mapWalking && map3dReady && mapMode==="3d"){
+        if(!Map3D.walkTo(node.loc)) toast("试试从街道绕到目的地");
+      }else enterMapNode(id);
+    });
+    list.appendChild(button);
+  }
   let inner=`<defs><pattern id="gd" width="40" height="40" patternUnits="userSpaceOnUse">
     <path d="M40 0H0V40" fill="none" stroke="#1a1830" stroke-width="1"/></pattern></defs>
     <rect width="800" height="520" fill="url(#gd)"/>`;
   const order=["rent","park","office","library","boxing","bar","alley","capital","ktv"];
   for(let i=0;i<order.length-1;i++){ const a=PLACES[order[i]], b=PLACES[order[i+1]];
     inner+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#232040" stroke-width="2" stroke-dasharray="5 6"/>`; }
-  const avail=nextAvail();
+  const avail=available[0];
   for(const k in PLACES){ const p=PLACES[k];
     let st="locked", nid=null;
     for(const id in NODES){ if(NODES[id].loc!==k) continue;
@@ -1676,7 +1829,14 @@ function renderMap(){
       <text class="lbl" y="30">${p.n}</text></g>`;
   }
   map.innerHTML=inner;
-  map.querySelectorAll(".hotspot.avail").forEach(h=>h.addEventListener("click",()=>{ AudioSys.click(); const id=h.dataset.node; if(id) playNode(id); }));
+  map.querySelectorAll(".hotspot.avail").forEach(h=>{
+    h.setAttribute("tabindex", "0"); h.setAttribute("role", "button");
+    h.addEventListener("click",()=>enterMapNode(h.dataset.node));
+    h.addEventListener("keydown",ev=>{
+      if(ev.key==="Enter" || ev.key===" "){ ev.preventDefault(); enterMapNode(h.dataset.node); }
+    });
+  });
+  sync3D();
 }
 
 /* ═══════════════ 演出层 ═══════════════ */
@@ -5508,18 +5668,20 @@ $("dbgTalk").addEventListener("click",()=>{ AudioSys.init(); CS2_DEBUG.unlockAll
 /* ═══ 进入游戏运行时（开始重生 / 各调试跳转共用，避免 S 未初始化就 render） ═══ */
 function enterGame(){
   AudioSys.init();
-  S = load() || newState();
+  S = cityTrial ? newState() : (load() || newState());
+  if(cityTrial) S.done.push("intro");
   $("title").classList.add("hide");
   $("game").classList.add("on");
   /* 预热打斗 2.0 的立绘：等真进战斗再开始下载，头几帧会是骨骼回落（虽然过场有 1.6 秒遮着，
      但没必要赌网速/磁盘）。无头测试环境没有 Image，出错就静默跳过。 */
   try{ Fight2Stage.loadSprites(); }catch(e){}
   render();
-  AudioSys.bgm("night");
+  if(!cityTrial) AudioSys.bgm("night");
   $("vobtn").textContent="🎙 "+voModeLabel();
   $("vobtn").classList.toggle("off", S.voMode==="off");
   init3D();
   if(window.Breakfast && Breakfast.debug) window.__cs2.bf = Breakfast.debug;
+  if(cityTrial) return S;
   probeVoice();          // 探测配音素材是否存在；没有就置灰 🎙
   // 启动自检：能否取到 video/ 资源
   probeMedia().then(r=>{
@@ -5529,6 +5691,18 @@ function enterGame(){
     else toast("<b>媒体自检通过</b> · 视频与剧照均可读取");
   });
   return S;
+}
+$("mapStartBtn").addEventListener("click",()=>{ location.href="城市漫游试玩.html"; });
+if(cityTrial){
+  document.body.classList.add("city-trial");
+  enterGame();
+  $("trialMahjong").addEventListener("click",()=>{
+    AudioSys.init();
+    AudioSys.click();
+    runMjGame({ stake:10, style:"serious", cash:false, countNet:false });
+  });
+  $("trialBreakfast").addEventListener("click",()=>startBreakfastGame("fang", { practice:true, force:true }));
+  if(!toggleMapWalk()) $("mapDestinations").append(" · 此设备未启用 WebGL");
 }
 $("startBtn").addEventListener("click",()=>{
   enterGame();

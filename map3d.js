@@ -8,7 +8,8 @@
  *   Map3D.mount(el, { places, nodes, onPick })          -> true | false
  *   Map3D.refresh({ done:[nodeId], avail:nodeId|null }) -> boolean
  *   Map3D.setMood('calm'|'city'|'tense'|'night'|'dark') -> boolean
- *   Map3D.setMode('orbit'|'top')                        -> boolean
+ *   Map3D.setMode('orbit'|'top'|'walk')                 -> boolean
+ *   Map3D.setStyle('abstract'|'realistic')              -> boolean
  *   Map3D.isReady()                                     -> boolean
  *   Map3D.dispose() / Map3D.info()                      （附加，非必需）
  *
@@ -16,11 +17,11 @@
  * 都返回 false，绝不抛错（调用方据此回落 2D 沙盘）。
  *
  * 设计要点：
- *   · 建筑按「几何 + 材质」InstancedMesh 合批（2 种墙面风格 × 3 档层数密度 ≤ 6 个批次）
+ *   · 抽象墙体：2 种风格 × 3 档密度，每组按状态分批。写实街景按共享几何和材质合批。
  *   · 标签 = CanvasTexture + Sprite（256×56，仅在状态变化时重绘）
  *   · 相机 = OrthographicCamera，等距机位 (38,38,38) → lookAt 场景中心；setMode('top') 平滑俯视
  *   · 坐标 = PLACES 的 (x:0~800, y:0~520) 线性映射为 wx=(x-400)/40, wz=(y-260)/40
- *   · 小地图 = 第二个正交相机 + scissor 视口（右下角 120×120）+ DOM 外框
+ *   · 小地图与地点标签由独立的 2D Canvas 绘制。
  * ═══════════════════════════════════════════════════════════════════════════ */
 (function (global) {
   "use strict";
@@ -39,6 +40,7 @@
   var CAM_DIST = 68;                                // 相机轨道半径
   var CAM_TARGET_Y = 1.1;
 
+  var PICK_LAYER = 2;
   var MM_SIZE = 120, MM_MARGIN = 10, MM_HALF = 19;   // 小地图
 
   /* 氛围预设：雾 / 背景 / 光色温 / 环境光强度
@@ -46,8 +48,8 @@
    *       因此 fogNear/fogFar 必须落在该区间之外，否则整个沙盘会被雾吃成全黑。
    * floor = 楼体最低亮度（自发光下限），保证夜间/暗场也能看清建筑轮廓。 */
   var MOODS = {
-    calm:  { bg: 0x869eab, fog: 0x9eaeb0, fogNear: 95, fogFar: 180, amb: 0.30, hemi: 0.45, sun: 0xffeed8, sunI: 0.85, fill: 0xb8d5ef, fillI: 0.25, night: false, floor: 0.025 },
-    city:  { bg: 0x849daa, fog: 0xa2b8c2, fogNear: 95, fogFar: 180, amb: 0.32, hemi: 0.46, sun: 0xfff5e8, sunI: 0.85, fill: 0xb1d7ed, fillI: 0.28, night: false, floor: 0.025 },
+    calm:  { bg: 0x9eabaa, fog: 0xaeb4aa, fogNear: 95, fogFar: 180, amb: 0.23, hemi: 0.44, sun: 0xffe5be, sunI: 1.03, fill: 0xb8d5ef, fillI: 0.08, night: false, floor: 0.025 },
+    city:  { bg: 0x99a8ab, fog: 0xa8b6b2, fogNear: 95, fogFar: 180, amb: 0.25, hemi: 0.44, sun: 0xffe9cd, sunI: 1.04, fill: 0xb1d7ed, fillI: 0.09, night: false, floor: 0.025 },
     tense: { bg: 0x7b767a, fog: 0xa39491, fogNear: 90, fogFar: 170, amb: 0.55, hemi: 0.52, sun: 0xffc49a, sunI: 0.9, fill: 0xaab9cf, fillI: 0.22, night: false, floor: 0.045 },
     night: { bg: 0x142533, fog: 0x203b50, fogNear: 95, fogFar: 165, amb: 0.42, hemi: 0.42, sun: 0xa9c9ec, sunI: 0.55, fill: 0xffc38b, fillI: 0.18, night: true, floor: 0.08 },
     dark:  { bg: 0x101b2b, fog: 0x1d2d43, fogNear: 90, fogFar: 160, amb: 0.32, hemi: 0.35, sun: 0xa9bada, sunI: 0.48, fill: 0xd4b498, fillI: 0.16, night: true, floor: 0.09 }
@@ -250,20 +252,20 @@
   }
 
   /** 地面网格（128×128，RepeatWrapping，repeat 在材质上调） */
-  function makeGroundCanvas() {
+  function makeGroundCanvas(abstractStyle) {
     var cv = document.createElement("canvas");
     cv.width = cv.height = 128;
     var g = cv.getContext("2d");
     if (!g) return null;
-    g.fillStyle = "#718073"; g.fillRect(0, 0, 128, 128);
+    g.fillStyle = abstractStyle ? "#171524" : "#718073"; g.fillRect(0, 0, 128, 128);
     for (var i = 0; i < 260; i++) {
       var v = 120 + (hash32("g" + i) % 100);
       g.fillStyle = "rgba(" + v + "," + (v - 20) + "," + (v + 40) + ",.16)";
       g.fillRect(hash32("x" + i) % 128, hash32("y" + i) % 128, 2, 2);
     }
-    g.strokeStyle = "rgba(113,125,110,.04)"; g.lineWidth = 2;
+    g.strokeStyle = abstractStyle ? "rgba(96,90,168,.30)" : "rgba(113,125,110,.04)"; g.lineWidth = 2;
     g.strokeRect(1, 1, 126, 126);
-    g.strokeStyle = "rgba(113,125,110,.02)"; g.lineWidth = 1;
+    g.strokeStyle = abstractStyle ? "rgba(96,90,168,.10)" : "rgba(113,125,110,.02)"; g.lineWidth = 1;
     for (var k = 32; k < 128; k += 32) {
       g.beginPath(); g.moveTo(k, 0); g.lineTo(k, 128); g.stroke();
       g.beginPath(); g.moveTo(0, k); g.lineTo(128, k); g.stroke();
@@ -303,6 +305,7 @@
       map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: 1
     });
     var sp = new T.Sprite(mat);
+    sp.layers.set(PICK_LAYER);
     sp.scale.set(LABEL_W / LABEL_H * 0.62, 0.62, 1);
     sp.renderOrder = 20;
     p.lblCanvas = cv; p.lblCtx = ctx; p.lblTex = tex; p.lblMat = mat; p.label = sp;
@@ -373,6 +376,7 @@
     scene.background = new T.Color(0x07070c);
     scene.fog = new T.Fog(0x121026, 24, 86);
     inst.scene = scene;
+    inst.shadowDirty=true;
 
     /* ── 光照 ── */
     inst.amb = new T.AmbientLight(0xb9c2e8, 0.36);
@@ -380,10 +384,11 @@
     inst.hemi = new T.HemisphereLight(0xddeeff, 0x68705c, 0.30);
     scene.add(inst.hemi);
     inst.sun = new T.DirectionalLight(0xfff2d6, 0.62);
-    inst.sun.position.set(26, 46, 18);
+    inst.sun.position.set(-24, 39, -15);
     inst.sun.castShadow = true;
     var sc = inst.sun.shadow;
     sc.mapSize.width = 1024; sc.mapSize.height = 1024;
+    sc.radius = 2;
     sc.camera.left = -27; sc.camera.right = 27;
     sc.camera.top = 27; sc.camera.bottom = -27;
     sc.camera.near = 1; sc.camera.far = 140;
@@ -444,6 +449,7 @@
     ground.receiveShadow = true;
     scene.add(ground);
     inst.ground = ground;
+    inst.districtGroundMap = gTex;
 
     // 地块发光描边
     try {
@@ -529,8 +535,8 @@
         var stName = BSTATES[si];
         var cap = grp.list.length;
         var im = new T.InstancedMesh(geo, wallMats[grp.style][stName], cap);
-        im.castShadow = (stName === "normal");
-        im.receiveShadow = true;
+        im.layers.set(PICK_LAYER);
+        im.castShadow = false;
         im.frustumCulled = false;
         im.count = 0;
         im.visible = false;
@@ -560,7 +566,8 @@
           emissive: (rst === "avail" ? 0x8fa0ff : 0x000000), emissiveIntensity: (rst === "avail" ? 0.35 : 0)
         });
         var roof = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), rmat, inst.order.length);
-        roof.castShadow = false;          // 屋顶不投影（省一次深度绘制）
+        roof.layers.set(PICK_LAYER);
+        roof.castShadow = false;
         roof.receiveShadow = true;
         roof.frustumCulled = false;
         roof.count = 0;
@@ -577,7 +584,8 @@
 
     /* ── 地点基座（方垫，主题色微光） ── */
     var pad = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshLambertMaterial({ color: 0xffffff }), inst.order.length);
-    pad.receiveShadow = true;
+    pad.layers.set(PICK_LAYER);
+    pad.receiveShadow = false;
     pad.frustumCulled = false;
     for (var k3 = 0; k3 < inst.order.length; k3++) {
       var pq = inst.places[inst.order[k3]];
@@ -592,6 +600,7 @@
 
     /* ── 标签 Sprite + avail 光环 + 光柱 ── */
     var labelGroup = new T.Group();
+    labelGroup.visible = false; // 始终由 Canvas 叠层绘制地点标签
     for (var li = 0; li < inst.order.length; li++) {
       var lp = inst.places[inst.order[li]];
       makeLabel(inst, lp);
@@ -602,6 +611,7 @@
         new T.RingGeometry(0.90, 1.00, 40),
         new T.MeshBasicMaterial({ color: lp.color, transparent: true, opacity: 0.0, side: T.DoubleSide, depthWrite: false, fog: false, blending: T.AdditiveBlending })
       );
+      ring.layers.set(PICK_LAYER);
       ring.rotation.x = -Math.PI / 2;
       ring.position.set(lp.wx, 0.05, lp.wz);
       ring.visible = false;
@@ -614,6 +624,7 @@
         new T.CylinderGeometry(0.075, 0.075, 1, 8),
         new T.MeshBasicMaterial({ color: lp.color, transparent: true, opacity: 0.0, depthWrite: false, fog: false, blending: T.AdditiveBlending })
       );
+      beacon.layers.set(PICK_LAYER);
       beacon.position.set(lp.wx, lp.h + 0.95, lp.wz);
       beacon.visible = false;
       beacon.renderOrder = 6;
@@ -680,6 +691,15 @@
     mmCam.lookAt(0, 0, 0);
     mmCam.updateProjectionMatrix();
     inst.mm = mmCam;
+    var overlay=document.createElement("canvas");
+    overlay.style.cssText="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2";
+    inst.el.appendChild(overlay);
+    inst.cityOverlay=overlay;
+    inst.cityOverlayCtx=overlay.getContext("2d");
+    inst.projectedLabel=new T.Vector3();
+    inst.miniCanvas=document.createElement("canvas");
+    inst.miniCanvas.width=inst.miniCanvas.height=MM_SIZE;
+    inst.miniDirty=true;
 
     /* ── 小地图外框（DOM，pointer-events:none） ── */
     try {
@@ -716,6 +736,21 @@
 
   var _q0b = null;
 
+  var STREET = {
+    x:[-18,-12,-6,0,6,12,18], z:[-15,-9,-3,3,9,15,21],
+    halfLane:.54, roadY:.054, curbY:.104, slope:.19, crossing:.77, corner:.24
+  };
+  var BUILDING_STYLES = {
+    office:{bay:.40, upper:.48, door:.63, min:4,max:6},
+    housing:{bay:.52, upper:.48, door:.60, min:3,max:5},
+    civic:{bay:.46, upper:.48, door:.65, min:3,max:4},
+    retail:{bay:.50, upper:.43, door:.70, min:1,max:2}
+  };
+  var CURBSIDE_PROPS = [
+    [1.40,3.32,0,0],[-4.1,2.68,0,1],[7.9,-2.68,0,0],
+    [-.32,-1.16,Math.PI/2,0],[6.32,.98,Math.PI/2,1],[-6.32,-7.4,Math.PI/2,0],
+    [2.70,9.32,0,1],[-11.68,5.32,Math.PI/2,0],[13.3,3.32,0,0]
+  ];
   var CITY_LAYOUT = {
     rent: [-9,-6,2.6,1.8,2.0], capital: [-3,-6,1.9,1.8,4.6],
     office: [-9,0,2.2,2.0,3.8], library: [-3,0,2.9,2.1,1.1],
@@ -724,141 +759,513 @@
   };
   var CITY_COLORS = {rent:0xd6c8ac,capital:0x8eabb9,office:0x779eaf,library:0xd7d5c9,park:0x55794b,boxing:0xc7b8a5,bar:0xb9b1a3,ktv:0xc8c4b8,alley:0xc1c2b8};
 
+  /** Fine-scale material layers. Building openings and trim are modelled separately. */
+  function citySurface(inst, kind) {
+    var T=inst.T, cv=document.createElement("canvas"), size=256;
+    cv.width=cv.height=size;
+    var g=cv.getContext("2d"), seed=hash32("material:"+kind);
+    function random(){ seed=(Math.imul(seed,1664525)+1013904223)>>>0; return seed/4294967296; }
+    var colors={stone:[198,189,172],brick:[138,98,77],roof:[116,116,106],road:[133,132,123],
+      paving:[178,172,153],grass:[112,132,80]};
+    if(kind==="glass"){
+      var sky=g.createLinearGradient(0,0,0,size);
+      sky.addColorStop(0,"#809fb0"); sky.addColorStop(.56,"#52727f"); sky.addColorStop(.72,"#607c83"); sky.addColorStop(1,"#263a3e");
+      g.fillStyle=sky; g.fillRect(0,0,size,size);
+      for(var k=0;k<13;k++){
+        var x=k*21, h=18+random()*65;
+        g.fillStyle=k%2?"rgba(42,61,64,.23)":"rgba(30,45,47,.15)";
+        g.fillRect(x,190-h,10+random()*12,h+68);
+      }
+      g.fillStyle="rgba(220,232,228,.09)";
+      g.beginPath(); g.moveTo(0,198); g.lineTo(145,0); g.lineTo(185,0); g.lineTo(0,240); g.fill();
+    }else{
+      var rgb=colors[kind], data=g.createImageData(size,size);
+      for(var y=0;y<size;y++)for(var x0=0;x0<size;x0++){
+        var i=(y*size+x0)*4;
+        var grain=(random()-.5)*(kind==="road"?22:20);
+        var cloud=Math.cos(x0*Math.PI/64+Math.sin(y*Math.PI/64))*3 + Math.sin(y*Math.PI/32)*2;
+        var seam=0;
+        if(kind==="brick"){
+          var xx=(x0+((y>>4)%2)*16)%32, yy=y%16;
+          seam=xx<2||yy<2 ? 40 : (hash32((x0>>5)+":"+(y>>4))%16)-8;
+        }else if(kind==="paving" && ((y%64)<2 || ((x0+(y>>6)%2*32)%64)<2)) seam=-22;
+        else if(kind==="roof" && (y%64)<2) seam=-12;
+        for(var c=0;c<3;c++) data.data[i+c]=rgb[c]+grain+cloud+seam+(seam>20 && c>0?15:0);
+        data.data[i+3]=255;
+      }
+      g.putImageData(data,0,0);
+    }
+    var texture=newTex(T,cv,1,1);
+    texture.encoding=T.sRGBEncoding;
+    texture.anisotropy=aniso(inst.renderer);
+    return texture;
+  }
+
+  function worldSurface(material,repeat) {
+    material.onBeforeCompile=function(shader){
+      shader.vertexShader="varying vec3 vCityWorld;\n"+shader.vertexShader.replace("#include <project_vertex>", [
+        "vec4 cityPosition = vec4(transformed, 1.0);",
+        "#ifdef USE_INSTANCING",
+        "cityPosition = instanceMatrix * cityPosition;",
+        "#endif",
+        "vCityWorld = (modelMatrix * cityPosition).xyz;",
+        "#include <project_vertex>"
+      ].join("\n"));
+      shader.fragmentShader="varying vec3 vCityWorld;\n"+shader.fragmentShader.replace("#include <map_fragment>",
+        "diffuseColor *= texture2D(map, vCityWorld.xz * "+repeat.toFixed(3)+");");
+    };
+    material.customProgramCacheKey=function(){return "city-world-"+repeat;};
+    return material;
+  }
+
   /** Continuous city blocks with batched streets, architecture, planting and traffic. */
+  function cityReflection(T) {
+    var faces=[];
+    for(var i=0;i<6;i++){
+      var cv=document.createElement("canvas");cv.width=cv.height=32;
+      var g=cv.getContext("2d"), sky=g.createLinearGradient(0,0,0,32);
+      sky.addColorStop(0,i===2?"#e6e5d0":"#b9d2cb");
+      sky.addColorStop(.58,"#779da0");sky.addColorStop(1,"#424e48");
+      g.fillStyle=sky;g.fillRect(0,0,32,32);
+      if(i!==2 && i!==3){
+        g.fillStyle="#607067";
+        for(var j=0;j<5;j++){
+          var rise=3+hash32("reflect:"+i+":"+j)%10;
+          g.fillRect(j*7,32-rise,5,rise);
+        }
+      }
+      faces.push(cv);
+    }
+    var env=new T.CubeTexture(faces);
+    env.encoding=T.sRGBEncoding;env.needsUpdate=true;
+    return env;
+  }
+
+  function streetHeight(x,z) {
+    var dx=Math.abs(x-Math.round(x/6)*6);
+    var dz=Math.abs(z-(3+Math.round((z-3)/6)*6));
+    var edge=Math.min(dx,dz);
+    var crossing=STREET.crossing, near=Math.abs(dz-crossing)<.16 || Math.abs(dx-crossing)<.16;
+    if(edge>STREET.halfLane)return STREET.curbY;
+    if(near && edge>STREET.halfLane-STREET.slope)
+      return STREET.curbY-(STREET.curbY-STREET.roadY-.008)*(STREET.halfLane-edge)/STREET.slope;
+    return STREET.roadY+.008;
+  }
+
   function buildCityDistrict(inst) {
-    var T=inst.T, scene=inst.scene, box=new T.BoxGeometry(1,1,1);
-    var foliageGeo=new T.IcosahedronGeometry(1,2), buckets={}, meshes=[];
-    var concrete=new T.MeshLambertMaterial({color:0x8f948c});
-    var roof=new T.MeshLambertMaterial({color:0x777f7c});
-    var dark=new T.MeshLambertMaterial({color:0x3d5159});
-    var glass=new T.MeshLambertMaterial({color:0x819ca5,map:inst.wallTex[1]});
-    var masonry=new T.MeshLambertMaterial({color:0xcac4b6,map:inst.wallTex[0]});
-    var brick=new T.MeshLambertMaterial({color:0xae9b85,map:inst.wallTex[0]});
-    var pale=new T.MeshLambertMaterial({color:0xc0c5bd,map:inst.wallTex[0]});
-    var asphalt=new T.MeshLambertMaterial({color:0x454d50});
-    var sidewalk=new T.MeshLambertMaterial({color:0x8f958c});
+    var T=inst.T, scene=new T.Group(), box=new T.BoxGeometry(1,1,1);
+    inst.district=scene;
+    inst.scene.add(scene);
+    var buckets={}, meshes=[], shadowMatrices=[];
+    var vegetation=global.CityVegetation ? global.CityVegetation.create(T) : null;
+    var planted={palm:0,tree:0,fern:0,maxHeight:0};
+    inst.planting=planted; inst.vegetation=vegetation;
+    var stoneTex=citySurface(inst,"stone"), glassTex=citySurface(inst,"glass");
+    var concrete=new T.MeshLambertMaterial({color:0xfff4dc,map:stoneTex});
+    var roof=new T.MeshLambertMaterial({color:0xd2d4cb,map:citySurface(inst,"roof")});
+    var dark=new T.MeshLambertMaterial({color:0x35464a});
+    var frames=new T.MeshLambertMaterial({color:0x788580});
+    var reflection=cityReflection(T);
+    var glass=new T.MeshPhongMaterial({color:0xb8e1de,map:glassTex,envMap:reflection,reflectivity:.24,
+      combine:T.MixOperation,shininess:74,specular:0x859dac});
+    var glassPale=glass.clone(); glassPale.color.setHex(0xf2edcf);
+    var masonry=new T.MeshLambertMaterial({color:0xf9f6e7,map:stoneTex});
+    var brick=new T.MeshLambertMaterial({color:0xf4e6da,map:citySurface(inst,"brick")});
+    var pale=new T.MeshLambertMaterial({color:0xd9ddd4,map:stoneTex});
+    var asphalt=worldSurface(new T.MeshLambertMaterial({color:0xdfded8,map:citySurface(inst,"road")}),.67);
+    var sidewalk=worldSurface(new T.MeshLambertMaterial({color:0xe4e1d4,map:citySurface(inst,"paving")}),.51);
     var white=new T.MeshLambertMaterial({color:0xe3dfc9});
     var yellow=new T.MeshLambertMaterial({color:0xd0bd70});
-    var grass=new T.MeshLambertMaterial({color:0x4e713e});
+    var grass=worldSurface(new T.MeshLambertMaterial({color:0xcadbb9,map:citySurface(inst,"grass")}),.61);
     var bark=new T.MeshLambertMaterial({color:0x665e49});
-    var leaves=[0x35553a,0x526d3b,0x426538].map(function(c){return new T.MeshLambertMaterial({color:c});});
-    var water=new T.MeshPhongMaterial({color:0x669baf,shininess:65,specular:0xa3c8cc});
-    var carMats=[0xe5dbbc,0x637f8b,0xb8624e,0x303c44].map(function(c){return new T.MeshLambertMaterial({color:c});});
+    var soil=new T.MeshLambertMaterial({color:0x55513b});
+    var water=new T.MeshPhongMaterial({color:0x4d8e91,shininess:70,specular:0xa3c8bf});
+    var tealAwning=new T.MeshLambertMaterial({color:0x417d75});
+    var ochreAwning=new T.MeshLambertMaterial({color:0xbaa569});
+    var roundTower=new T.CylinderGeometry(.5,.5,1,18);
+    var ventGeo=new T.CylinderGeometry(.5,.5,1,10);
+    var obstacles=[{x:3.9,z:0.8,w:1.38,d:1.0}];
+    inst.walkObstacles=obstacles;
+    inst.streetHeight=streetHeight;
+    var carMats=[0xece8da,0x637f8b].map(function(c){return new T.MeshLambertMaterial({color:c});});
+    var sharedPlain=white.clone(); sharedPlain.color.setHex(0xffffff);
+    var sharedStone=concrete.clone(); sharedStone.color.setHex(0xffffff);
+    var sharedGlass=glass.clone(); sharedGlass.color.setHex(0xffffff);
+    var plain=[dark,frames,white,yellow,bark,soil,tealAwning,ochreAwning].concat(carMats);
+    var contact=document.createElement("canvas"); contact.width=contact.height=32;
+    var ao=contact.getContext("2d"), feather=ao.createRadialGradient(16,16,3,16,16,16);
+    feather.addColorStop(0,"rgba(36,31,22,.42)");feather.addColorStop(.52,"rgba(36,31,22,.20)");
+    feather.addColorStop(1,"rgba(36,31,22,0)");
+    ao.fillStyle=feather;ao.fillRect(0,0,32,32);
+    var contactMat=new T.MeshBasicMaterial({map:new T.CanvasTexture(contact),transparent:true,depthWrite:false});
+    var contactPlane=new T.PlaneGeometry(1,1); contactPlane.rotateX(-Math.PI/2);
+    var rotationAxis=new T.Vector3(0,1,0);
+    var tmpPosition=new T.Vector3(), tmpScale=new T.Vector3(), tmpRotation=new T.Quaternion();
     function part(parent,mat,x,y,z,w,h,d,geo,angle){
-      geo=geo||box; var key=parent.uuid+mat.uuid+geo.uuid;
-      var batch=buckets[key]||(buckets[key]={parent:parent,material:mat,geometry:geo,matrices:[]});
-      var q=new T.Quaternion();if(angle)q.setFromAxisAngle(new T.Vector3(0,1,0),angle);
-      batch.matrices.push(new T.Matrix4().compose(new T.Vector3(x,y,z),q,new T.Vector3(w,h,d)));
+      geo=geo||box;
+      if(parent!==scene){x+=parent.position.x;y+=parent.position.y;z+=parent.position.z;}
+      var merged=mat.map===stoneTex?sharedStone:(mat.map===glassTex?sharedGlass:(plain.indexOf(mat)>=0?sharedPlain:mat));
+      var key=merged.uuid+geo.uuid;
+      var batch=buckets[key]||(buckets[key]={material:merged,geometry:geo,matrices:[],colors:[]});
+      tmpRotation.setFromAxisAngle(rotationAxis,angle||0);
+      batch.matrices.push(new T.Matrix4().compose(tmpPosition.set(x,y,z),tmpRotation,tmpScale.set(w,h,d)));
+      batch.colors.push(merged!==mat?mat.color:null);
     }
-    function tree(x,z,scale){
-      scale=scale||1;part(scene,bark,x,0.32*scale,z,0.06*scale,0.65*scale,0.06*scale);
-      part(scene,leaves[hash32(x+'t'+z)%3],x,0.79*scale,z,0.38*scale,0.48*scale,0.38*scale,foliageGeo);
-      part(scene,leaves[hash32(z+'b'+x)%3],x+0.15*scale,0.73*scale,z+0.12*scale,0.28*scale,0.32*scale,0.28*scale,foliageGeo);
+    function plant(species,x,y,z,scale){
+      if(!vegetation)return;
+      var id=hash32(species+":"+x+":"+z);
+      var height=vegetation.part(part,scene,species,id%3,x,y,z,scale,(id%628)*.01);
+      planted[species]++;
+      planted.maxHeight=Math.max(planted.maxHeight,height);
+      if(species!=="fern"){
+        obstacles.push({x:x,z:z,w:.12,d:.12});
+        part(scene,contactMat,x,streetHeight(x,z)+.002,z,scale*.67,1,scale*.56,contactPlane);
+      }
     }
+    function planter(x,z,wide){
+      part(scene,concrete,x,.095,z,wide,.07,.34);
+      part(scene,soil,x,.135,z,wide-.07,.014,.27);
+      for(var i=0;i<3;i++){
+        var offset=(i-1)*wide*.29;
+        plant("fern",x+offset,.143,z,.27+rand01(x+":"+z+":"+i)*.10);
+      }
+    }
+    function rooftop(parent,x,z,w,d,top,style,seed){
+      part(parent,roof,x,top,z,w,d > 1.8 ? .10 : .08,d);
+      var edge=style==="retail"?ochreAwning:concrete;
+      for(var side=-1;side<=1;side+=2){
+        part(parent,edge,x,top+.10,z+side*(d/2-.028),w,.16,.056);
+        part(parent,edge,x+side*(w/2-.028),top+.10,z,.056,.16,d);
+      }
+      part(parent,pale,x-w*.16,top+.19,z-d*.14,w*.34,.27,d*.33);
+      part(parent,roof,x-w*.16,top+.34,z-d*.14,w*.39,.049,d*.38);
+      if(w<1.1||d<1.1)return;
+      var units=style==="office"?3:2;
+      for(var n=0;n<units;n++){
+        var ux=x+w*(.10+n*.095), uz=z+d*.21;
+        part(parent,frames,ux,top+.107,uz,.115,.12,.22);
+        part(parent,dark,ux,top+.174,uz,.083,.015,.083,ventGeo);
+        part(parent,pale,ux,top+.186,uz,.022,.012,.113);
+      }
+      if(style==="office"||hash32(seed)%3===0){
+        part(parent,dark,x+w*.28,top+.36,z-d*.29,.018,.65,.018);
+        part(parent,frames,x+w*.28,top+.61,z-d*.29,.21,.016,.017);
+      }
+    }
+
     function building(parent,x,z,w,d,h,style,seed){
-      var mat=style?glass:([masonry,brick,pale][hash32(seed)%3]);
-      part(parent,mat,x,h/2+0.08,z,w,h,d);
-      part(parent,roof,x,h+0.1,z,w+0.1,0.14,d+0.1);
-      part(parent,concrete,x,0.12,z,w+0.15,0.20,d+0.15);
-      // Setback rooftop floor, mechanical equipment and parapets.
-      part(parent,dark,x+0.15,h+0.27,z-0.13,w*0.45,0.22,d*0.40);
-      for(var a=0;a<3;a++) part(parent,concrete,x-w*0.28+a*w*0.22,h+0.24,z+d*0.25,0.21,0.15,0.23);
-      part(parent,concrete,x,h+0.20,z-d/2,w+0.06,0.14,0.05);
-      part(parent,concrete,x,h+0.20,z+d/2,w+0.06,0.14,0.05);
-      if(style && h>2.3){
-        part(parent,glass,x,h+0.34,z,w*0.72,0.6,d*0.72);
-        part(parent,roof,x,h+0.68,z,w*0.75,0.07,d*0.75);
+      var wx=x+(parent===scene?0:parent.position.x), wz=z+(parent===scene?0:parent.position.z);
+      obstacles.push({x:wx,z:wz,w:w+.18,d:d+.22});
+      var modern=style==="office", civic=style==="civic", retail=style==="retail";
+      var outer=modern?dark:(retail?brick:(hash32(seed)%2?masonry:pale));
+      // A recessed core leaves daylight between the glass plane and the projecting piers.
+      var skin=.095, base=.07;
+      part(parent,outer,x,base+h/2,z,Math.max(.3,w-skin*2),h,Math.max(.3,d-skin*2));
+      part(scene,contactMat,wx,STREET.curbY+.004,wz,w+.65,1,d+.65,contactPlane);
+      shadowMatrices.push(new T.Matrix4().compose(tmpPosition.set(wx,base+h/2,wz),tmpRotation.identity(),
+        tmpScale.set(w-.06,h,d-.06)));
+      part(parent,concrete,x,.082,z,w+.10,.10,d+.14);
+      var plinth=Math.min(h*.43,civic ? .69 : .53);
+      var recipe=BUILDING_STYLES[style];
+      var floors=Math.max(1,Math.round((h-plinth)/recipe.upper)), storey=(h-plinth)/floors;
+      for(var side=0;side<4;side++){
+        var angle=side*Math.PI/2, sx=Math.sin(angle), sz=Math.cos(angle);
+        var span=side%2?d:w, surface=(side%2?w:d)/2;
+        var bays=Math.max(1,Math.round(span/recipe.bay));
+        var bayWidth=span/bays, mullion=modern ? .035 : (civic ? .11 : .078);
+        function facade(u,y,depth,width,height,thick,mat){
+          part(parent,mat,x+sz*u+sx*(surface+depth),y,z-sx*u+sz*(surface+depth),width,height,thick,box,angle);
+        }
+        for(var f=0;f<=floors;f++){
+          var y=base+plinth+f*storey;
+          facade(0,y,0,span+.012,modern ? .048 : .074,.13,modern?frames:outer);
+        }
+        for(var j=0;j<=bays;j++){
+          var u=-span/2+j*bayWidth;
+          facade(u,base+(h+plinth)/2,.021,mullion,Math.max(.14,h-plinth),.135,modern?frames:outer);
+        }
+        for(var row=0;row<floors;row++)for(var bay=0;bay<bays;bay++){
+          var cy=base+plinth+(row+.5)*storey, cx=-span/2+(bay+.5)*bayWidth;
+          var pane=hash32(seed+":"+side+":"+row+":"+bay)%5===0?glassPale:glass;
+          facade(cx,cy,-.066,bayWidth-mullion*.72,storey*.80,.018,pane);
+          if(!modern||w>1.4)facade(cx,cy,-.031,.016,storey*.82,.021,frames);
+          if(!modern)facade(cx,cy-storey*.36,.049,bayWidth*.78,.035,.116,concrete);
+        }
+        if(side===0 && span>1.1){
+          var door=span*recipe.door, y0=base+plinth*.50;
+          facade(0,y0,-.047,door,plinth*.80,.025,glassPale);
+          for(var j2=-1;j2<=1;j2++)facade(j2*door/2,y0,.006,.030,plinth*.85,.05,dark);
+          facade(0,base+plinth*.88,.16,door+.20,.055,.37,retail?tealAwning:concrete);
+          facade(0,.089,.18,door+.27,.105,.36,concrete);
+          facade(0,.063,.30,door+.34,.061,.22,concrete);
+          if(civic){
+            for(var col=-1;col<=1;col+=2)facade(col*door*.55,base+plinth*.45,.18,.10,plinth*.88,.11,concrete);
+          }
+        }else{
+          facade(0,base+plinth*.52,.003,span-.035,plinth*.95,.15,outer);
+        }
       }
-      if(!style && h<2.0){
-        part(parent,dark,x,0.28,z+d/2+0.035,w*0.70,0.32,0.055);
-        part(parent,seed.length%2?brick:white,x,0.49,z+d/2+0.14,w*0.8,0.075,0.26);
+      rooftop(parent,x,z,w+.07,d+.07,base+h,style,seed);
+      if(modern && h>2.7 && w>=1.65){
+        var radius=w*.43, towerX=x-w*.30,towerZ=z+d*.21;
+        part(parent,glass,towerX,base+h*.42,towerZ,radius*2,h*.84,radius*2,roundTower);
+        part(parent,concrete,towerX,base+h*.85,towerZ,radius*2+.07,.12,radius*2+.07,roundTower);
+        for(var band=.50;band<h*.83;band+=.43)
+          part(parent,frames,towerX,band,towerZ,radius*2+.031,.026,radius*2+.031,roundTower);
+        for(var fin=0;fin<12;fin++){
+          var ag=fin*Math.PI/6;
+          part(parent,dark,towerX+Math.sin(ag)*radius*.98,base+h*.43,towerZ+Math.cos(ag)*radius*.98,
+            .014,h*.79,.044,box,ag);
+        }
+        obstacles.push({x:wx-w*.30,z:wz+d*.21,w:radius*1.6,d:radius*1.6});
       }
-      // Floor bands give residential and commercial blocks a readable scale.
-      for(var floor=0.45;floor<h;floor+=0.46)part(parent,style?dark:concrete,x,floor,z,w+0.025,0.035,d+0.025);
     }
-    // Roads extend beyond the viewport, with curbs, centre lines and crossings.
-    for(var axis=-18;axis<=18;axis+=6){
-      part(scene,sidewalk,axis,0.008,0,1.48,0.08,36);
-      part(scene,asphalt,axis,0.055,0,1.05,0.015,36);
-      part(scene,sidewalk,0,0.009,axis,40,0.08,1.48);
-      part(scene,asphalt,0,0.057,axis,40,0.015,1.05);
-      for(var lane=-19;lane<20;lane+=0.65){
-        if(Math.abs((lane+3)%6-3)<0.85)continue;
-        part(scene,yellow,axis,0.068,lane,0.025,0.007,0.28);
-        part(scene,white,lane,0.071,axis,0.28,0.007,0.025);
-      }
-      for(var cross=-18;cross<=18;cross+=6){
-        for(var stripe=-0.36;stripe<=0.36;stripe+=0.14){
-          part(scene,white,axis+stripe,0.077,cross+0.72,0.08,0.008,0.28);
-          part(scene,white,axis+0.72,0.077,cross+stripe,0.28,0.008,0.08);
+    // 道路、标线和铺装共用同一组路轴。
+    var road=STREET, lineY=road.roadY+.012, half=road.halfLane;
+    function stroke(x,z,w,d){
+      part(scene,white,x,lineY,z,w,.003,d);
+    }
+    function nearAxis(value, origin) {
+      return Math.abs(value-(origin+Math.round((value-origin)/6)*6));
+    }
+    for(var vi=0;vi<road.x.length;vi++){
+      var vx=road.x[vi];
+      part(scene,asphalt,vx,road.roadY-.005,3,half*2,.010,36);
+      for(var vz=-14.8;vz<21;vz+=.65)if(nearAxis(vz,3)>1.05)stroke(vx,vz,.023,.24);
+    }
+    for(var hi=0;hi<road.z.length;hi++){
+      var hz=road.z[hi];
+      part(scene,asphalt,0,road.roadY-.004,hz,39,.010,half*2);
+      for(var hx=-19.2;hx<19;hx+=.65)if(nearAxis(hx,0)>1.05)stroke(hx,hz,.24,.023);
+    }
+    var blockHalf=3-half, radius=road.corner;
+    var outline=new T.Shape();
+    outline.moveTo(-blockHalf+radius,-blockHalf);
+    outline.lineTo(blockHalf-radius,-blockHalf);
+    outline.quadraticCurveTo(blockHalf,-blockHalf,blockHalf,-blockHalf+radius);
+    outline.lineTo(blockHalf,blockHalf-radius);
+    outline.quadraticCurveTo(blockHalf,blockHalf,blockHalf-radius,blockHalf);
+    outline.lineTo(-blockHalf+radius,blockHalf);
+    outline.quadraticCurveTo(-blockHalf,blockHalf,-blockHalf,blockHalf-radius);
+    outline.lineTo(-blockHalf,-blockHalf+radius);
+    outline.quadraticCurveTo(-blockHalf,-blockHalf,-blockHalf+radius,-blockHalf);
+    var curb=new T.ExtrudeGeometry(outline,{depth:road.curbY-.034,bevelEnabled:false,curveSegments:3});
+    curb.rotateX(-Math.PI/2); curb.clearGroups();
+    var ramp=new T.BufferGeometry();
+    ramp.setAttribute("position",new T.Float32BufferAttribute([
+      0,0,-.16,road.slope,road.curbY-road.roadY,-.16,
+      0,0,.16,road.slope,road.curbY-road.roadY,.16],3));
+    ramp.setAttribute("uv",new T.Float32BufferAttribute([0,0,1,0,0,1,1,1],2));
+    ramp.setIndex([0,2,1,1,2,3]); ramp.computeVertexNormals();
+    for(var i=0;i<road.x.length;i++)for(var j=0;j<road.z.length;j++){
+      var ix=road.x[i], iz=road.z[j];
+      for(var edge=-1;edge<=1;edge+=2){
+        for(var k=-2;k<=2;k++){
+          stroke(ix+k*.154,iz+edge*road.crossing,.079,.27);
+          stroke(ix+edge*road.crossing,iz+k*.154,.27,.079);
+        }
+        stroke(ix,iz+edge*1.04,.88,.023);
+        stroke(ix+edge*1.04,iz,.023,.88);
+        for(var side=-1;side<=1;side+=2){
+          part(scene,sidewalk,ix+side*(half-road.slope),road.roadY+.002,iz+edge*road.crossing,
+            1,1,1,ramp,side>0?0:Math.PI);
+          part(scene,sidewalk,ix+edge*road.crossing,road.roadY+.002,iz+side*(half-road.slope),
+            1,1,1,ramp,side>0?-Math.PI/2:Math.PI/2);
         }
       }
     }
-    // Neighbourhood blocks: the playable landmarks occupy real plots among other buildings.
-    // Street grid shifted in Z so landmarks are at block centres.
-    // Landmarks use Z=-6,0,6; shift the road batches three units in Z below.
-    Object.keys(buckets).forEach(function(k){var b=buckets[k];if(b.material===asphalt||b.material===sidewalk||b.material===yellow||b.material===white)b.matrices.forEach(function(m){m.elements[14]+=3;});});
     for(var x=-15;x<=15;x+=6){for(var z=-12;z<=12;z+=6){
       var occupied=null; inst.order.forEach(function(id){var p=inst.places[id];if(Math.abs(p.wx-x)<0.2&&Math.abs(p.wz-z)<0.2)occupied=id;});
-      part(scene,sidewalk,x,0.012,z,4.54,0.08,4.54);
+      part(scene,sidewalk,x,.034,z,1,1,1,curb);
       if(occupied==='park')continue;
       var seed=x+'block'+z;
       if(!occupied){
-        building(scene,x-1.0,z-0.9,1.45,1.60,1.3+rand01(seed)*2.2,hash32(seed)%2,seed);
-        building(scene,x+0.9,z+0.85,1.75,1.45,1.1+rand01(seed+'2')*1.8,hash32(seed+'2')%2,seed);
-        building(scene,x+1.1,z-1.15,1.0,1.2,0.55+rand01(seed+'3')*0.9,0,seed);
+        var type=hash32(seed)%2?"office":"housing", rules=BUILDING_STYLES[type];
+        var storeys=rules.min+hash32(seed+"floor")%(rules.max-rules.min+1);
+        building(scene,x-1.0,z-.90,1.45,1.60,.51+(storeys-1)*rules.upper,type,seed);
+        building(scene,x+.90,z+.85,1.75,1.45,.51+(Math.max(3,storeys-1)-1)*.48,"housing",seed+"-rear");
+        building(scene,x+1.1,z-1.15,1.0,1.2,0.55+rand01(seed+'3')*0.9,"retail",seed+"-lane");
       }else{
-        building(scene,x-1.35,z-1.6,1.1,0.72,0.65,0,seed);
+        building(scene,x-1.35,z-1.6,1.1,0.72,0.65,"retail",seed+"-service");
         part(scene,dark,x+1.35,0.07,z-1.55,0.9,0.018,0.8);
         for(var pk=0;pk<3;pk++)part(scene,white,x+1.05+pk*0.25,0.084,z-1.55,0.018,0.005,0.7);
       }
-      for(var ti=0;ti<3;ti++){tree(x-1.85+ti*1.75,z+2.05,0.65);}
-      tree(x-2.05,z-1.25,0.8);
-      part(scene,grass,x-2.02,0.069,z,0.20,0.07,3.6);
-      part(scene,grass,x,0.069,z+2.07,3.65,0.07,0.22);
-      for(var shrubs=0;shrubs<6;shrubs++)part(scene,leaves[1],x-1.8+shrubs*0.66,0.16,z+2.08,0.28,0.15,0.13,foliageGeo);
+      // Stagger small plants at block corners and leave most of the pavement clear.
+      var landscaping=hash32(seed+"plant")%4;
+      if(landscaping!==0)plant("tree",x-1.93,.085,z+1.94,.50+landscaping*.067);
+      if(landscaping>=2)planter(x+.85,z+1.98,1.04);
     }}
-    // Landmark-specific forms follow original hover/state movement.
+    // 地标使用街区的可见几何，拾取沿用单独的建筑盒。
     inst.order.forEach(function(id){
-      var p=inst.places[id],g=new T.Group();scene.add(g);p.detail=g;g.position.set(p.wx,0,p.wz);
-      if(id==='park')return;
-      part(g,roof,0,p.h+0.16,0,p.w+0.13,0.14,p.dp+0.13);
-      part(g,dark,0,p.h+0.34,0,p.w*0.40,0.25,p.dp*0.38);
-      for(var j=0;j<3;j++)part(g,concrete,-p.w*0.28+j*0.25,p.h+0.29,p.dp*0.25,0.18,0.12,0.22);
-      part(g,concrete,0,0.12,0,p.w+0.18,0.22,p.dp+0.18);
-      for(var floor=0.5;floor<p.h;floor+=0.46)part(g,(id==='capital'||id==='office')?dark:concrete,0,floor,0,p.w+0.03,0.035,p.dp+0.03);
-      part(g,dark,0,0.35,p.dp/2+0.04,p.w*0.40,0.43,0.08);
-      if(id==='office')building(g,1.3,-0.2,0.7,1.5,p.h*0.63,1,id);
-      if(id==='capital')part(g,glass,0,p.h+0.5,0,p.w*0.72,0.7,p.dp*0.72);
-      if(id==='library'){part(g,concrete,0,0.3,p.dp/2+0.3,p.w+0.4,0.2,0.5);for(var c=-1;c<=1;c++)part(g,concrete,c*0.9,0.6,p.dp/2+0.22,0.10,0.8,0.1);}
-      if(id==='bar'||id==='ktv')part(g,yellow,0,0.65,p.dp/2+0.08,p.w*0.64,0.18,0.06);
+      var p=inst.places[id], g=new T.Group();
+      scene.add(g); p.detail=g; g.position.set(p.wx,0,p.wz);
+      if(id==="park")return;
+      var style=id==="library"?"civic":(id==="office"||id==="capital"?"office":(id==="rent"?"housing":"retail"));
+      building(g,0,0,p.w,p.dp,p.h,style,id);
+      if(id==="library"){
+        part(g,dark,0,p.h+.169,-.08,p.w*.46,.09,.54);
+        part(g,glass,0,p.h+.226,-.08,p.w*.39,.06,.47);
+        for(var rib=-1;rib<=1;rib++)part(g,frames,rib*.29,p.h+.268,-.08,.025,.019,.48);
+      }else if(id==="capital"){
+        rooftop(g,0,-.1,p.w*.58,p.dp*.62,p.h+.54,"office",id+"-crown");
+        part(g,glass,0,p.h+.27,-.1,p.w*.54,.48,p.dp*.56);
+      }
     });
+    // 街角便民店招牌使用原创字样，附在现有商铺体量上。
+    var shopSign=document.createElement("canvas"); shopSign.width=256; shopSign.height=64;
+    var lettering=shopSign.getContext("2d");
+    lettering.fillStyle="#d6a635"; lettering.fillRect(0,0,256,64);
+    lettering.fillStyle="#232821"; lettering.font="700 39px Microsoft YaHei,sans-serif";
+    lettering.textAlign="center"; lettering.textBaseline="middle"; lettering.fillText("滨河便利",128,34);
+    var signage=new T.MeshLambertMaterial({map:newTex(T,shopSign,1,1),color:0xfff2cd});
+    part(scene,signage,7.65,.67,-1.22,.89,.195,.018);
     // Central garden: a looping promenade, pond, lawns, trees and seating.
     part(scene,grass,3,0.10,0,4.48,0.12,4.48);
-    function path(points,width,material,y){
-      var curve=new T.CatmullRomCurve3(points.map(function(p){return new T.Vector3(p[0],y,p[1]);}));
-      var mesh=new T.Mesh(new T.TubeGeometry(curve,80,width,6,false),material);scene.add(mesh);mesh.receiveShadow=true;
+    function path(points,half,material){
+      var curve=new T.CatmullRomCurve3(points.map(function(p){return new T.Vector3(p[0],.165,p[1]);}));
+      var vertices=[], indices=[], uv=[];
+      for(var i=0;i<=64;i++){
+        var a=curve.getPoint(i/64), dir=curve.getTangent(i/64);
+        vertices.push(a.x-dir.z*half,a.y,a.z+dir.x*half,a.x+dir.z*half,a.y,a.z-dir.x*half);
+        uv.push(0,i/8,1,i/8);
+        if(i<64){var n=i*2; indices.push(n,n+2,n+1,n+1,n+2,n+3);}
+      }
+      var geo=new T.BufferGeometry();
+      geo.setAttribute("position",new T.Float32BufferAttribute(vertices,3));
+      geo.setAttribute("uv",new T.Float32BufferAttribute(uv,2));
+      geo.setIndex(indices); geo.computeVertexNormals();
+      var mesh=new T.Mesh(geo,material);
+      mesh.receiveShadow=true; scene.add(mesh);
     }
-    path([[1.4,-1.8],[2.1,-1],[3.5,-0.6],[4.4,0.2],[3.8,1.4],[2.2,1.65],[1.3,0.6],[1.4,-1.8]],0.11,white,0.15);
-    path([[0.8,0.0],[2,0.25],[3.2,-0.2],[4.2,-1],[5.2,-1]],0.09,white,0.15);
+    path([[1.4,-1.8],[2.1,-1],[3.5,-0.6],[4.4,0.2],[3.8,1.4],[2.2,1.65],[1.3,0.6],[1.4,-1.8]],.13,sidewalk);
+    path([[0.8,0.0],[2,0.25],[3.2,-0.2],[4.2,-1],[5.2,-1]],.10,sidewalk);
     var pond=new T.Mesh(new T.CircleGeometry(0.70,48),water);pond.rotation.x=-Math.PI/2;pond.position.set(3.9,0.17,0.8);pond.scale.set(1,0.70,1);scene.add(pond);
-    for(var t=0;t<35;t++){var tx=1.05+rand01('parkx'+t)*3.9,tz=-2+rand01('parkz'+t)*4;if(hypot(tx-3.9,tz-0.8)<0.9)continue;tree(tx,tz,0.75+rand01('parks'+t)*0.45);}
+    // Open lawn in the centre, with planted groups clear of the paths.
+    [[1.22,-1.72],[4.85,-1.84],[4.91,1.21],[1.04,1.75],[4.62,1.76],[2.45,-1.84]].forEach(function(p,i){
+      plant("tree",p[0],.17,p[1],.65+(i%3)*.075);
+      plant("fern",p[0]+.20,.17,p[1]-.18,.39+(i%2)*.10);
+      plant("fern",p[0]-.18,.17,p[1]+.12,.31+(i%3)*.06);
+    });
+    [[.91,1.98,1.01],[5.10,1.98,.88],[-.94,4.05,.90],[6.96,3.93,1.02],[-5.16,2.02,.95],[-.85,-1.94,.86]].forEach(function(p){
+      plant("palm",p[0],.084,p[1],p[2]);
+    });
     for(var bench=0;bench<4;bench++){part(scene,bark,1.4+bench*0.85,0.24,1.95,0.4,0.10,0.17);part(scene,dark,1.4+bench*0.85,0.15,1.95,0.3,0.18,0.04);}
-    // Cars and street lights introduce a human scale.
-    for(var car=0;car<30;car++){
-      var axis=-12+(car%5)*6, along=-14+rand01('car'+car)*28;
-      var mat=carMats[car%4];
-      if(car%2){part(scene,mat,axis+0.27,0.16,along,0.22,0.18,0.46);part(scene,dark,axis+0.27,0.27,along,0.20,0.09,0.24);}
-      else{part(scene,mat,along,0.16,axis+3.27,0.46,0.18,0.22);part(scene,dark,along,0.27,axis+3.27,0.24,0.09,0.20);}
+    // 停放车辆朝向车道，路灯与候行区保持距离。
+    CURBSIDE_PROPS.forEach(function(prop){
+      var cx=prop[0],cz=prop[1],rt=prop[2],s=Math.sin(rt),c=Math.cos(rt);
+      var paint=prop[3]?carMats[1]:carMats[0];
+      part(scene,paint,cx,.137,cz,.49,.096,.236,box,rt);
+      part(scene,glass,cx-.038*c,.213,cz+.038*s,.28,.078,.193,box,rt);
+      part(scene,paint,cx-.042*c,.253,cz+.042*s,.208,.019,.177,box,rt);
+      for(var wheel=-1;wheel<=1;wheel+=2)for(var tire=-1;tire<=1;tire+=2){
+        part(scene,dark,cx+c*wheel*.148+s*tire*.106,.091,cz-s*wheel*.148+c*tire*.106,.077,.082,.035,box,rt);
+      }
+      part(scene,white,cx+c*.248,.153,cz-s*.248,.017,.028,.180,box,rt);
+    });
+    // 等距总览保留行人的尺度参照，步行视角继续使用原有动画人物。
+    var pedestrianCoat=new T.MeshLambertMaterial({color:0x6d8077});
+    plain.push(pedestrianCoat);
+    [[-.83,1.77,.15],[1.20,2.29,.55],[5.17,-.94,.76],[-4.81,3.80,.43],
+      [6.85,3.88,.31],[7.50,-2.17,.61],[-5.15,-2.21,.52]].forEach(function(person){
+      var x=person[0],z=person[1],y=streetHeight(x,z),ang=person[2]*Math.PI;
+      part(scene,pedestrianCoat,x,y+.282,z,.103,.18,.077,box,ang);
+      part(scene,concrete,x,y+.403,z,.066,.070,.067,box,ang);
+      for(var shoe=-1;shoe<=1;shoe+=2)
+        part(scene,dark,x+Math.cos(ang)*shoe*.029,y+.103,z-Math.sin(ang)*shoe*.029,.045,.178,.047,box,ang);
+    });
+    for(var lx=-12;lx<=12;lx+=6)for(var lz=-9;lz<=15;lz+=6){
+      part(scene,dark,lx+.82,.406,lz+1.17,.027,.65,.027);
+      part(scene,dark,lx+.725,.722,lz+1.17,.204,.021,.028);
+      part(scene,white,lx+.633,.705,lz+1.17,.065,.026,.063);
     }
-    for(var lx=-12;lx<=12;lx+=6)for(var lz=-10;lz<14;lz+=3){part(scene,dark,lx+0.65,0.45,lz,0.035,0.9,0.035);part(scene,white,lx+0.57,0.91,lz,0.19,0.055,0.08);}
-    Object.keys(buckets).forEach(function(k){var b=buckets[k],m=new T.InstancedMesh(b.geometry,b.material,b.matrices.length);b.matrices.forEach(function(matrix,i){m.setMatrixAt(i,matrix);});m.castShadow=b.material!==asphalt&&b.material!==sidewalk&&b.material!==white&&b.material!==yellow;m.receiveShadow=true;m.frustumCulled=false;b.parent.add(m);meshes.push(m);});
+    Object.keys(buckets).forEach(function(k){
+      var b=buckets[k], mesh=new T.InstancedMesh(b.geometry,b.material,b.matrices.length);
+      b.matrices.forEach(function(matrix,i){mesh.setMatrixAt(i,matrix);});
+      if(b.colors.some(function(color){return !!color;})){
+        var neutral=new T.Color(0xffffff);
+        b.colors.forEach(function(color,i){mesh.setColorAt(i,color||neutral);});
+      }
+      mesh.receiveShadow=b.material!==contactMat; mesh.frustumCulled=false;
+      if(b.material===contactMat){
+        mesh.name="contact-shadow";
+        mesh.renderOrder=2;
+      } else if(b.material===asphalt)mesh.name="street-asphalt";
+      else if(b.material===sidewalk && b.geometry===curb)mesh.name="street-curb";
+      else if(b.material===sidewalk && b.geometry===ramp)mesh.name="street-ramp";
+      else if(b.material===sharedPlain && b.geometry===box)mesh.name="street-markings-and-props";
+      scene.add(mesh); meshes.push(mesh);
+    });
+    var shadowMaterial=new T.MeshBasicMaterial({colorWrite:false,depthWrite:false});
+    var cityShadows=new T.InstancedMesh(box,shadowMaterial,shadowMatrices.length);
+    shadowMatrices.forEach(function(matrix,i){cityShadows.setMatrixAt(i,matrix);});
+    cityShadows.name="district-shadow-proxy";
+    cityShadows.castShadow=true; cityShadows.frustumCulled=false;
+    scene.add(cityShadows);
     inst.cityMeshes=meshes;
     // A compact district legend, outside the interaction layer.
     var legend=document.createElement('div');legend.setAttribute('data-map3d-hud','1');
     legend.style.cssText='position:absolute;left:24px;top:22px;pointer-events:none;color:#fff;text-shadow:0 2px 8px #243238;font-family:Microsoft YaHei,sans-serif;padding:12px 16px;background:linear-gradient(100deg,rgba(19,31,34,.70),rgba(19,31,34,0));border-left:2px solid #cfbf84';
     legend.innerHTML='<div style="font-size:11px;letter-spacing:4px;opacity:.8">RESTART · CITY DISTRICT</div><div style="font-size:25px;font-weight:700;letter-spacing:3px;margin:5px 0">重启人生 · 城市漫游</div><div style="font-size:11px;opacity:.85">● 金色标记可前往　 ·　拖拽旋转 / 滚轮缩放</div>';
     inst.el.appendChild(legend); inst.cityLegend = legend;
+  }
+
+  /** 恢复旧版剧情邻接线与网格材质，复用现有地点坐标和抽象楼体。 */
+  function buildAbstractStyle(inst) {
+    var T = inst.T;
+    var groundMap = newTex(T, makeGroundCanvas(true), 9, 7);
+    groundMap.anisotropy = aniso(inst.renderer);
+    var edges = buildEdges(inst.opts.places, inst.opts.nodes);
+    if (edges.length) {
+      var road = new T.InstancedMesh(
+        new T.BoxGeometry(1, 1, 1),
+        new T.MeshLambertMaterial({ color: 0x24223c, emissive: 0x0b0b1c }),
+        edges.length
+      );
+      road.name = "abstract-roads";
+      road.layers.set(PICK_LAYER);
+      road.frustumCulled = false;
+      for (var i = 0; i < edges.length; i++) {
+        var a = inst.places[edges[i][0]], b = inst.places[edges[i][1]];
+        var dx = b.wx - a.wx, dz = b.wz - a.wz;
+        _q0.setFromAxisAngle(_axisY, Math.atan2(-dz, dx));
+        _m4.compose(_v3.set((a.wx + b.wx) / 2, 0.015, (a.wz + b.wz) / 2),
+          _q0, _v3b.set(hypot(dx, dz) + 0.52, 0.05, 0.28));
+        road.setMatrixAt(i, _m4);
+      }
+      road.instanceMatrix.needsUpdate = true;
+      inst.scene.add(road);
+    }
+    inst.abstractEdges = edges;
+    inst.abstractGroundMap = groundMap;
+  }
+
+  function setStyle(inst, style) {
+    if (style !== "abstract" && style !== "realistic") return false;
+    if (style === inst.style) return true;
+    var abstractStyle = style === "abstract";
+    if (abstractStyle && !inst.abstractGroundMap) buildAbstractStyle(inst);
+    inst.style = style;
+    inst.district.visible = !abstractStyle;
+    inst.ground.material.map = abstractStyle ? inst.abstractGroundMap : inst.districtGroundMap;
+    if (inst.edge) inst.edge.visible = abstractStyle;
+    inst.streetHeight = abstractStyle ? abstractStreetHeight : streetHeight;
+    syncStyleCamera(inst, inst.camera);
+    if (inst.walk) syncStyleCamera(inst, inst.walk.camera);
+    syncCityLegend(inst);
+    inst.miniDirty = true;
+    inst.shadowDirty = true;
+    return true;
+  }
+
+  function abstractStreetHeight() { return 0.04; }
+
+  function syncStyleCamera(inst, camera) {
+    if (inst.style === "abstract") camera.layers.enable(PICK_LAYER);
+    else camera.layers.disable(PICK_LAYER);
+  }
+
+  function syncCityLegend(inst) {
+    if (inst.cityLegend) inst.cityLegend.hidden = inst.style === "abstract" || inst.mode === "walk";
   }
 
   function aniso(renderer) {
@@ -878,7 +1285,7 @@
       sx = Math.sin(inst.t * 47) * 0.11 * p.shakeAmp;
       sz = Math.cos(inst.t * 39) * 0.06 * p.shakeAmp;
     }
-    var dy = p.id === "park" ? 0 : p.raise + p.lift * 0.06;
+    var dy = 0;
     if (p.detail) p.detail.position.set(p.wx + sx, dy, p.wz + sz);             // raise：avail 整体抬高 0.35
     _q0.identity();
     _m4.compose(
@@ -936,6 +1343,7 @@
     var on = state === "avail";
     if (p.ring) p.ring.visible = on || state === "done";
     if (p.beacon) p.beacon.visible = on;
+    return changed;
   }
 
   /** 按状态把每个实例分配进对应批次，并刷新颜色 / 自发光色 */
@@ -1017,10 +1425,11 @@
         if (a === null || a === undefined || a === "") continue;
         a = String(a);
         var nd = nodes ? nodes[a] : null;
-        if (nd && nd.loc && inst.places[nd.loc]) availByPlace[nd.loc] = a;
-        else if (inst.places[a]) availByPlace[a] = a;   // 兼容：直接传 placeId
+        var placeId = nd && inst.places[nd.loc] ? nd.loc : a;
+        if (inst.places[placeId] && !availByPlace[placeId]) availByPlace[placeId] = a;
       }
 
+      var batchesDirty = !inst.batchesBuilt;
       for (var k = 0; k < inst.order.length; k++) {
         var p = inst.places[inst.order[k]];
         var state = "locked", nid = null;
@@ -1036,9 +1445,13 @@
           }
           state = (anyNode && anyDone) ? "done" : "locked";
         }
-        setPlaceState(inst, p, state, nid);
+        if (setPlaceState(inst, p, state, nid)) batchesDirty = true;
       }
-      rebuildBatches(inst);
+      if(batchesDirty) inst.miniDirty=true;
+      if (batchesDirty) {
+        rebuildBatches(inst);
+        inst.batchesBuilt = true;
+      }
       return true;
     } catch (e) {
       try { if (global.console) global.console.warn("[Map3D] refresh failed:", e); } catch (e2) {}
@@ -1110,6 +1523,7 @@
       c.setRGB(0.30 + m.fog.r * 0.85, 0.32 + m.fog.g * 0.85, 0.45 + m.fog.b * 0.85);
     }
     if (inst.winMesh) inst.winMesh.visible = !!m.night;
+    if(inst.miniNight!==!!m.night){inst.miniNight=!!m.night;inst.miniDirty=true;}
     if (inst.edge && inst.edge.material) inst.edge.material.opacity = m.night ? 0.8 : 0.5;
     applyLightFloor(inst, m);
   }
@@ -1171,6 +1585,11 @@
       var s = measure(inst);
       if (!force && s.w === inst.size.w && s.h === inst.size.h) return;
       inst.size = s;
+      if(inst.cityOverlay){
+        inst.overlayRatio=Math.min(global.devicePixelRatio || 1,2);
+        inst.cityOverlay.width=Math.round(s.w*inst.overlayRatio);
+        inst.cityOverlay.height=Math.round(s.h*inst.overlayRatio);
+      }
       inst.renderer.setPixelRatio(Math.min(global.devicePixelRatio || 1, 2));
       inst.renderer.setSize(s.w, s.h, false);
       var cam = inst.camera;
@@ -1182,6 +1601,7 @@
         cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
         cam.updateProjectionMatrix();
       }
+      if (inst.walk) inst.walk.resize(s.w/s.h);
       if (inst.mm) inst.mm.updateProjectionMatrix();
     } catch (e) {}
   }
@@ -1248,15 +1668,23 @@
         if (inst.pinch && ids.length >= 2) {
           var a = inst.pointers[ids[0]], b = inst.pointers[ids[1]];
           var d = hypot(a.x - b.x, a.y - b.y);
-          if (inst.pinch.d > 6) setZoom(inst, inst.pinch.z * (d / inst.pinch.d));
+          if (inst.pinch.d > 6 && d > 6) {
+            if (inst.mode === "walk") {
+              inst.walk.zoom(-Math.log(d/inst.pinch.d)/0.0012);
+              inst.pinch.d=d;
+            } else setZoom(inst, inst.pinch.z * (d / inst.pinch.d));
+          }
           return;
         }
         if (inst.drag && ev.pointerId === inst.drag.id) {
           var dx = ev.clientX - inst.drag.x, dy = ev.clientY - inst.drag.y;
           inst.drag.moved += Math.abs(dx) + Math.abs(dy);
           inst.drag.x = ev.clientX; inst.drag.y = ev.clientY;
-          inst.tYaw -= dx * 0.0062;
-          inst.tPitch = clamp(inst.tPitch + dy * 0.0050, 0.20, TOP_PITCH);
+          if (inst.mode === "walk") inst.walk.rotate(dx);
+          else {
+            inst.tYaw -= dx * 0.0062;
+            inst.tPitch = clamp(inst.tPitch + dy * 0.0050, 0.20, TOP_PITCH);
+          }
           inst.hoverId = null;
           return;
         }
@@ -1278,7 +1706,7 @@
           inst.drag = null;
           if (isFn(cvs.releasePointerCapture)) { try { cvs.releasePointerCapture(ev.pointerId); } catch (e) {} }
           // 轻点（位移小 + 时间短）→ 拾取
-          if (wasDrag.moved < 8 && (nowMs() - wasDrag.t) < 700) pick(inst, ev.clientX, ev.clientY, true);
+          if (ev.type === "pointerup" && wasDrag.moved < 8 && (nowMs() - wasDrag.t) < 700) pick(inst, ev.clientX, ev.clientY, true);
           inst.hoverEnabled = true;
         }
       } catch (e) {}
@@ -1300,9 +1728,20 @@
         ev.preventDefault();
         var d = num(ev.deltaY, 0);
         if (ev.deltaMode === 1) d *= 16;
-        setZoom(inst, inst.tZoom * Math.exp(-d * 0.0012));
+        if (inst.mode === "walk") inst.walk.zoom(d);
+        else setZoom(inst, inst.tZoom * Math.exp(-d * 0.0012));
       } catch (e) {}
     }, { passive: false });
+
+    on(global, "keydown", function (ev) {
+      if (!inst.active || inst.mode !== "walk" || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
+      var el=ev.target;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (inst.walk.key(ev.code,true,ev.repeat)) ev.preventDefault();
+    });
+    on(global, "keyup", function (ev) { if (inst.walk) inst.walk.key(ev.code,false,false); });
+    on(global, "blur", function () { if (inst.walk) inst.walk.release(); });
+    on(global.document, "visibilitychange", function () { if (inst.walk && global.document.hidden) inst.walk.release(); });
 
     if (global.ResizeObserver) {
       try {
@@ -1323,8 +1762,13 @@
       var r = inst.renderer.domElement.getBoundingClientRect();
       if (!r.width || !r.height) return;
       _ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
-      _ray.setFromCamera(_ndc, inst.camera);
+      _ray.setFromCamera(_ndc, viewCamera(inst));
       var p = rayPlace(inst);
+      if (click && inst.mode === "walk") {
+        if (p && p.state==="avail") walkToPlace(inst,p);
+        else inst.walk.click(_ray.ray);
+        return;
+      }
       if (!click) { inst.hoverId = p ? p.id : null; return; }
       if (!p) return;
       if (p.state === "avail") {
@@ -1337,6 +1781,7 @@
 
   /** 返回射线命中的 place（无命中返回 null） */
   function rayPlace(inst) {
+    _ray.layers.set(PICK_LAYER);
     var hits = _ray.intersectObjects(inst.pickables, false);
     for (var i = 0; i < hits.length; i++) {
       var h = hits[i];
@@ -1352,13 +1797,14 @@
   /* ───────────────────────────── 主循环 ───────────────────────────── */
 
   function tick(inst, now) {
-    if (!inst || inst.disposed) return;
+    if (!inst || inst.disposed || !inst.active) return;
     inst.raf = global.requestAnimationFrame(function (t) { tick(inst, t); });
     try {
       if (global.document && global.document.hidden) return;
 
       var t = (typeof now === "number" ? now : nowMs()) * 0.001;
-      var dt = clamp(t - inst.t, 0.0001, 0.05);
+      var elapsed = t - inst.t;
+      var dt = clamp(elapsed, 0.0001, 0.05);
       inst.t = t;
       inst.frame++;
 
@@ -1366,13 +1812,14 @@
       if ((inst.frame % 20) === 0) resize(inst, false);
 
       stepMood(inst, dt);
-      updateCamera(inst, dt);
+      if (inst.mode === "walk") inst.walk.tick(clamp(elapsed,0.0001,0.16), t);
+      else updateCamera(inst, dt);
 
       // 悬停拾取（节流 1/3 帧，拖拽中跳过）
       if (inst.hoverEnabled && !inst.drag && !inst.pinch && inst.pointerNDC && (inst.frame % 3) === 0) {
         try {
           _ndc.set(inst.pointerNDC.x, inst.pointerNDC.y);
-          _ray.setFromCamera(_ndc, inst.camera);
+          _ray.setFromCamera(_ndc, viewCamera(inst));
           var hp = rayPlace(inst);
           inst.hoverId = hp ? hp.id : null;
         } catch (eH) {}
@@ -1392,7 +1839,9 @@
         // —— 标签三态：avail 放大 1.15 + 0.6→1.0 呼吸 / done 灰绿 / locked 0.82 透明度 ——
         var mat = p.lblMat;
         if (mat) {
-          var baseW = LABEL_W / LABEL_H * 0.62, baseH = 0.62;
+          var walking=inst.mode==="walk";
+          p.label.visible=!walking || p.state==="avail" || hypot(p.wx-inst.walk.x,p.wz-inst.walk.z)<5.6;
+          var baseH = walking ? 0.41 : 0.62, baseW = LABEL_W / LABEL_H * baseH;
           if (p.state === "avail") {
             var pulse = 0.5 + 0.5 * Math.sin(inst.t * 3.1 + p.phase);
             mat.opacity = 1;
@@ -1433,39 +1882,89 @@
     }
   }
 
-  function render(inst) {
-    var renderer = inst.renderer, scene = inst.scene, cam = inst.camera;
-    if (!renderer || !scene || !cam) return;
-    var w = inst.size.w, h = inst.size.h;
+  function viewCamera(inst) { return inst.mode==="walk" ? inst.walk.camera : inst.camera; }
 
-    renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, w, h);
-    renderer.render(scene, cam);
+  function walkToPlace(inst,p) {
+    if (!inst || !p || inst.mode!=="walk" || p.state!=="avail") return false;
+    var node=p.nodeId;
+    return inst.walk.goTo(p,function(){
+      if (p.state==="avail" && p.nodeId===node && inst.active && inst.opts.onPick) inst.opts.onPick(p.id,node);
+    });
+  }
 
-    // ── 右下角 120×120 小地图：第二个正交相机 + scissor ──
-    if (inst.mm && w > MM_SIZE + MM_MARGIN * 2 + 40 && h > MM_SIZE + MM_MARGIN * 2 + 20) {
-      var mx = Math.max(0, w - MM_SIZE - MM_MARGIN);
-      var my = MM_MARGIN;                                     // GL 坐标自下而上
-      var lg = inst.labelGroup, lgVis = lg ? lg.visible : false;
-      var skyVis = inst.sky ? inst.sky.visible : false;
-      if (lg) lg.visible = false;
-      if (inst.sky) inst.sky.visible = false;
-      try {
-        renderer.setScissorTest(true);
-        renderer.setViewport(mx, my, MM_SIZE, MM_SIZE);
-        renderer.setScissor(mx, my, MM_SIZE, MM_SIZE);
-        renderer.setClearColor(0x05050c, 1);
-        renderer.clear();
-        renderer.render(scene, inst.mm);
-      } finally {
-        renderer.setScissorTest(false);
-        renderer.setViewport(0, 0, w, h);
-        if (lg) lg.visible = lgVis;
-        if (inst.sky) inst.sky.visible = true;
-        var bg = inst.moodCur ? inst.moodCur.bg : null;
-        if (bg) renderer.setClearColor(bg, 1);
+  function drawCityOverlay(inst,cam) {
+    var g=inst.cityOverlayCtx;
+    if(!g)return;
+    var w=inst.size.w,h=inst.size.h, ratio=inst.overlayRatio || 1;
+    g.setTransform(ratio,0,0,ratio,0,0);
+    g.clearRect(0,0,w,h);
+    for(var i=0;i<inst.order.length;i++){
+      var p=inst.places[inst.order[i]], label=p.label;
+      if(!label || !label.visible || !p.lblCanvas)continue;
+      var point=inst.projectedLabel.copy(label.position).project(cam);
+      if(point.z<-1||point.z>1)continue;
+      var scale=cam.isPerspectiveCamera ?
+        h*.5*cam.projectionMatrix.elements[5]/Math.max(.25,-inst.projectedLabel.copy(label.position).applyMatrix4(cam.matrixWorldInverse).z) :
+        h*cam.zoom/(cam.top-cam.bottom);
+      point.copy(label.position).project(cam);
+      var bw=label.scale.x*scale, bh=label.scale.y*scale;
+      if(p.state==="avail"){
+        g.strokeStyle="#efc571";g.lineWidth=1.15;
+        var gx=(point.x+1)*w*.5,gy=(1-point.y)*h*.5;
+        g.globalAlpha=.48+.21*Math.sin(inst.t*3);
+        g.beginPath();g.moveTo(gx,gy+bh*.30);g.lineTo(gx,gy+bh*.93);g.stroke();
       }
+      g.globalAlpha=p.lblMat.opacity;
+      g.drawImage(p.lblCanvas,(point.x+1)*w*.5-bw*.5,(1-point.y)*h*.5-bh*.5,bw,bh);
     }
+    g.globalAlpha=1;
+    if(w<=MM_SIZE+MM_MARGIN*2+40||h<=MM_SIZE+MM_MARGIN*2+20)return;
+    if(inst.miniDirty){
+      var mini=inst.miniCanvas.getContext("2d");
+      mini.fillStyle=inst.miniNight?"#203339":"#686c60";
+      mini.fillRect(0,0,MM_SIZE,MM_SIZE);
+      var z0=MM_SIZE/2-3*3, x0=MM_SIZE/2;
+      mini.fillStyle=inst.miniNight?"#31484f":"#3b4849";
+      if (inst.style === "abstract") {
+        mini.strokeStyle = "#77729c";
+        mini.lineWidth = 1;
+        mini.beginPath();
+        inst.abstractEdges.forEach(function (edge) {
+          var a = inst.places[edge[0]], b = inst.places[edge[1]];
+          mini.moveTo(x0+a.wx*3,z0+a.wz*3);
+          mini.lineTo(x0+b.wx*3,z0+b.wz*3);
+        });
+        mini.stroke();
+      } else {
+        for(var ix=0;ix<STREET.x.length;ix++)mini.fillRect(x0+STREET.x[ix]*3-1.5,0,3,MM_SIZE);
+        for(var iz=0;iz<STREET.z.length;iz++)mini.fillRect(0,z0+STREET.z[iz]*3-1.5,MM_SIZE,3);
+      }
+      for(var id in inst.places){
+        var p0=inst.places[id];
+        mini.fillStyle=p0.state==="avail"?"#ffce64":(p0.id==="park"?"#76905b":"#bcc0ad");
+        mini.fillRect(x0+p0.wx*3-2,z0+p0.wz*3-2,4,4);
+      }
+      inst.miniDirty=false;
+    }
+    var left=w-MM_SIZE-MM_MARGIN,top=h-MM_SIZE-MM_MARGIN;
+    g.drawImage(inst.miniCanvas,left,top);
+    if(inst.mode==="walk"){
+      g.fillStyle="#88ffdc";g.beginPath();
+      g.arc(left+MM_SIZE*.5+inst.walk.x*3,top+MM_SIZE*.5+(inst.walk.z-3)*3,2.7,0,Math.PI*2);g.fill();
+    }
+  }
+
+  function render(inst) {
+    var renderer=inst.renderer, scene=inst.scene, cam=viewCamera(inst);
+    if(!renderer||!scene||!cam)return;
+    var shadows=renderer.shadowMap;
+    shadows.autoUpdate=false;
+    if(inst.shadowDirty || (inst.mode==="walk" && inst.frame%3===0)){
+      shadows.needsUpdate=true; inst.shadowDirty=false;
+    }
+    renderer.setViewport(0,0,inst.size.w,inst.size.h);
+    renderer.render(scene,cam);
+    drawCityOverlay(inst,cam);
   }
 
   /* ───────────────────────────── 卸载 ───────────────────────────── */
@@ -1485,6 +1984,8 @@
         inst.handlers = null;
       }
       for (var id in inst.places) disposeLabel(inst.places[id]);
+      var inactiveGroundMap = inst.style === "abstract" ? inst.districtGroundMap : inst.abstractGroundMap;
+      if (inactiveGroundMap) inactiveGroundMap.dispose();
       if (inst.scene) {
         inst.scene.traverse(function (o) {
           try {
@@ -1502,6 +2003,7 @@
           } catch (e) {}
         });
       }
+      if(inst.cityOverlay&&inst.cityOverlay.parentNode)inst.cityOverlay.parentNode.removeChild(inst.cityOverlay);
       if (inst.mmFrame && inst.mmFrame.parentNode) inst.mmFrame.parentNode.removeChild(inst.mmFrame);
       var cvs = inst.renderer ? inst.renderer.domElement : null;
       if (cvs && cvs.parentNode) cvs.parentNode.removeChild(cvs);
@@ -1542,10 +2044,10 @@
         el: el, opts: opts, T: T, ready: false, disposed: false,
         places: {}, order: [], state: "avail", done: {}, avail: {},
         batches: [], pickables: [], labels: null,
-        hoverId: null, hoverEnabled: true, raf: 0, ro: null,
+        hoverId: null, hoverEnabled: true, active: false, raf: 0, ro: null,
         t: 0, frame: 0, size: { w: 0, h: 0 },
         moodKey: MOOD_FALLBACK, moodCur: null, moodTo: null, moodFrom: null, moodT: 1,
-        mode: "orbit", yaw: ISO_YAW, pitch: ISO_PITCH, zoom: 1,
+        style: "realistic", mode: "orbit", yaw: ISO_YAW, pitch: ISO_PITCH, zoom: 1,
         tYaw: ISO_YAW, tPitch: ISO_PITCH, tZoom: 1,
         pointers: {}, drag: null, pinch: null, pointerNDC: null,
         mm: null, mmFrame: null
@@ -1574,6 +2076,7 @@
       el.appendChild(cvs);
 
       buildScene(inst);                       // 场景 / 光照 / 相机 / 建筑 / 道路 / 标签 / 小地图
+      if (opts.style === "abstract") setStyle(inst, opts.style);
       bindEvents(inst);                       // 交互
       resize(inst, true);
       applyMood(inst, MOOD_FALLBACK, true);   // 初始氛围
@@ -1581,8 +2084,7 @@
       refresh(inst, { done: [], avail: null });
 
       current = inst;
-      inst.t = nowMs() * 0.001;
-      inst.raf = global.requestAnimationFrame(function (t) { tick(inst, t); });
+      setActive(inst, opts.active !== false);
       return true;
     } catch (e) {
       try {
@@ -1594,6 +2096,25 @@
       if (current === pending) current = null;
       return false;
     }
+  }
+
+  function setActive(inst, active) {
+    if (!inst || !inst.ready || inst.active === active) return false;
+    inst.active = active;
+    if (active) {
+      inst.t = nowMs() * 0.001;
+      resize(inst, false);
+      inst.raf = global.requestAnimationFrame(function (t) { tick(inst, t); });
+    } else {
+      global.cancelAnimationFrame(inst.raf);
+      inst.raf = 0;
+      inst.hoverId = null;
+      inst.pointerNDC = null;
+      inst.drag = inst.pinch = null;
+      inst.pointers = {};
+      if (inst.walk) inst.walk.release();
+    }
+    return true;
   }
 
   /* ───────────────────────────── 公开 API ───────────────────────────── */
@@ -1617,18 +2138,49 @@
       } catch (e) { return false; }
     },
 
+    setStyle: function (style) {
+      try {
+        return !!(current && current.ready && setStyle(current, style));
+      } catch (e) { return false; }
+    },
+
+    setActive: function (active) { return setActive(current, !!active); },
+
+    resetView: function () {
+      if (!current || !current.ready) return false;
+      current.tZoom = 1;
+      if (current.mode==="walk") { current.walk.resetView(); return true; }
+      return Map3D.setMode(current.mode);
+    },
+
     setMode: function (mode) {
       try {
         if (!current || !current.ready) return false;
         var m = String(mode === undefined || mode === null ? "" : mode).toLowerCase();
+        if (m === "walk") {
+          if (!global.CityWalk) return false;
+          if (!current.walk) {
+            current.walk=global.CityWalk.create(current,current.walkObstacles);
+            current.walk.resize(current.size.w/current.size.h);
+            syncStyleCamera(current, current.walk.camera);
+          }
+          current.mode="walk";
+          current.walk.setEnabled(true);
+          syncCityLegend(current);
+          return true;
+        }
         if (m === "top" || m === "plan" || m === "俯视") {
+          if (current.walk) current.walk.setEnabled(false);
           current.mode = "top";
+          syncCityLegend(current);
           current.tPitch = TOP_PITCH;
           current.tYaw = 0;
           return true;
         }
         if (m === "orbit" || m === "iso" || m === "3d" || m === "等距") {
+          if (current.walk) current.walk.setEnabled(false);
           current.mode = "orbit";
+          syncCityLegend(current);
           current.tPitch = ISO_PITCH;
           current.tYaw = ISO_YAW;
           return true;
@@ -1636,6 +2188,8 @@
         return false;
       } catch (e) { return false; }
     },
+
+    walkTo: function (placeId) { return current ? walkToPlace(current,current.places[placeId]) : false; },
 
     isReady: function () { return !!(current && current.ready); },
 
@@ -1662,9 +2216,11 @@
           };
         }
         return {
-          ready: true, version: VERSION, mood: current.moodKey, mode: current.mode,
-          count: current.order.length, size: { w: current.size.w, h: current.size.h },
-          batches: current.batches.length, states: states
+          ready: true, version: VERSION, mood: current.moodKey, mode: current.mode, style: current.style,
+          active: current.active, frame: current.frame, count: current.order.length, size: { w: current.size.w, h: current.size.h },
+          batches: current.batches.length, states: states,
+          player: current.walk ? current.walk.info() : null,
+          planting: current.planting, plantTextures: current.vegetation ? current.vegetation.ready() : 0
         };
       } catch (e) { return { ready: false, version: VERSION }; }
     }

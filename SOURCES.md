@@ -131,3 +131,12 @@
 接入过程见 `docs/满意表情与麻将桌装饰接入报告.md`。
 
 
+
+
+## 滨河街区 · 植物贴图
+
+下列 Poly Haven 素材采用 CC0。游戏使用压缩后的树皮、叶片裁片与蕨叶透明贴图，打包于 `art/city/plant-textures.js`。
+
+- [Palm Tree Bark](https://polyhaven.com/a/palm_tree_bark) · Dimitrios Savva、Rico Cilliers
+- [Tree Small 02](https://polyhaven.com/a/tree_small_02) · Rico Cilliers
+- [Fern 02](https://polyhaven.com/a/fern_02) · Rico Cilliers、Rob Tuytel
