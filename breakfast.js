@@ -1094,8 +1094,8 @@
     return false;
   }
   /** 挑顾客：返回 st.customers 下标，没人要返回 -1（规则见上）*/
-  function pickServeTarget(st, foodId) {
-    var cands = serveCandidates(st, foodId);
+  function pickServeTarget(st, foodId, candidates) {
+    var cands = candidates || serveCandidates(st, foodId);
     if (!cands.length) return -1;
     var best = -1, bestKey = null;
     for (var k = 0; k < cands.length; k++) {
@@ -1106,6 +1106,24 @@
       if (!bestKey || keyLess(key, bestKey)) { bestKey = key; best = i; }
     }
     return best;
+  }
+  function kitchenCue(st, index) {
+    var food = foodOfColumn(index);
+    var customers = serveCandidates(st, food);
+    var station = stationByIdx(st, index);
+    var plate = plateOfStation(st, index);
+    var cue = { waiting:customers.length, action:"prep", target:null };
+    if (plate) {
+      if (plate.state === "burnt") cue.action = "clear";
+      else if (customers.length) {
+        cue.action = "serve";
+        cue.target = st.customers[pickServeTarget(st, food, customers)].id;
+      } else cue.action = "hold";
+    } else if (station && station.food) {
+      if (station.state === "burnt") cue.action = "clear";
+      else cue.action = isServeWindowOpen(station) ? "lift" : "cooking";
+    }
+    return cue;
   }
   /** 兼容旧名字（单测 / 无头验收 / debug.pickFor 都读它）：语义 = pickServeTarget */
   function pickCustomerIndexFor(st, foodId) { return pickServeTarget(st, foodId); }
@@ -2283,12 +2301,6 @@
     var bar = el("div", "bf-bar");
     bar.appendChild(el("div", "bf-title", "🍳 早餐店 · 拼手速" + (cfg.target ? ("　→ " + cfg.target.name) : "") +
       (cfg.practice ? "　🎯 练手局 · 不影响好感" : "")));
-    bar.appendChild(el("div", "bf-tip",
-      "① 点食材 → 自动进它正上方那一列的锅 ｜ ② 锅里熟了要在 " + SERVE_WINDOW + " 秒内**点一下锅起锅**" +
-      "（落到本列专属盘）—— 盘被占了就没地方放，只能等它糊掉 ｜ " +
-      "③ 点专属盘 → 自动送给最急的顾客（耐心最少 / 快走的那位优先） ｜ " +
-      "④ 双击盘 / 锅 → 丢垃圾桶（不扣分）；**糊了必须双击丢掉才能再用这口锅** ｜ " +
-      "⑤ 盘上永久保鲜：没有倒计时、不会凉、不会糊，放多久都能上"));
     /* 声音开关：早餐店此前没有任何静音 / 音量设置 → 按用户要求用 localStorage.bfSoundOn（默认开），
        这里给一个真实按钮（与「收 摊」同款木牌样式，风格一致）；图例条左端的徽章是同一个开关的第二入口。 */
     var btnSound = mkBtn(soundLabel(), "bf-wood");
@@ -2301,6 +2313,7 @@
     var stage = el("div", "bf-stage");
     var cv = doc.createElement("canvas");
     cv.className = "bf-cv";
+    if (cv.setAttribute) cv.setAttribute("aria-label", "早餐工位：点食材下锅，熟后点锅起锅，点盘送餐，双击清理。");
     stage.appendChild(cv);
     var panel = el("div", "bf-result");
     panel.style.display = "none";
@@ -2502,7 +2515,14 @@
       close(true);
     }
     if (doc && doc.addEventListener) { doc.addEventListener("keydown", onEsc); IA.escOn = true; lifecycle.escBound++; }
+    function onVisibility() {
+      IA.last = nowMs();
+      IA.acc = 0;
+      if (doc.hidden) IA.drag = null;
+    }
+    if (doc && doc.addEventListener) doc.addEventListener("visibilitychange", onVisibility);
     IA.detach = function () {
+      if (doc && doc.removeEventListener) doc.removeEventListener("visibilitychange", onVisibility);
       cv.removeEventListener("mousedown", onDown);
       cv.removeEventListener("mousemove", onMove);
       root.removeEventListener("mouseup", onUp);
@@ -2820,7 +2840,7 @@
       g.fillText(f.n + " · " + STATION_NAME[f.kind] + " · " + f.dur.toFixed(1) + "s", colCX(i), LAY.colHeaderY);
       g.restore();
     }
-    function drawStations() {
+    function drawStations(cues) {
       var pans = 0, plates = 0;
       for (var i = 0; i < st.stations.length; i++) {
         var s = st.stations[i], b = stationBox(i), pb = plateBox(i);
@@ -2831,7 +2851,7 @@
         drawColumnGuide(i);
         drawColumnHeader(i);
         drawPan(b, s, !!plate, IA.hover === i);          // 盘里还有一份 → 锅位半透明（不能下料）
-        drawPlate(pb, plate, s);
+        drawPlate(pb, plate, s, cues[i]);
         plates++;
         pans++;
       }
@@ -2981,7 +3001,7 @@
        有食物 = 食物 + 档位 + **静态的「∞ 可一直放着」**（bf-13：盘上没有倒计时）；
        糊盘 = 红叉 + 「只能丢」（唯一的来源是「锅里糊了再端上盘」） */
 
-    function drawPlate(b, p, s) {
+    function drawPlate(b, p, s, cue) {
       var cx = b.x + b.w / 2, cy = b.y + 46;
       var rw = b.w / 2 - 6, rh = 30;
       var tier = p ? (p.tier || "warm") : null;
@@ -3036,8 +3056,8 @@
       g.fillStyle = TIER_COLOR[tier] || PAL.ink;
       g.fillText((FOOD[p.food] || {}).n + "·" + (TIER_NAME[tier] || ""), cx, b.y + b.h - 24);
       g.font = fontOf(FONT.micro, false);
-      g.fillStyle = "rgba(93,255,160,.85)";
-      g.fillText(PLATE_KEEP_TEXT, cx, b.y + b.h - 10);
+      g.fillStyle = cue.action === "serve" ? "#8dffbf" : "rgba(232,229,214,.78)";
+      g.fillText(cue.action === "serve" ? "点盘 → #" + cue.target : PLATE_KEEP_TEXT, cx, b.y + b.h - 10);
       g.textAlign = "left";
 
     }
@@ -3076,13 +3096,17 @@
       g.textAlign = "left";
       IA.drawn.legend = true;
     }
-    function drawBuckets() {
+    var cueLabels = { cooking:"烹饪中", lift:"点锅起锅", clear:"双击清理", serve:"点上方盘送餐", hold:"已备好 · 等单" };
+    function drawBuckets(cues) {
       for (var i = 0; i < FOOD_IDS.length; i++) {
         var b = bucketBox(i), fd = FOOD[FOOD_IDS[i]], hov = IA.hoverBucket === i;
+        var cue = cues[i], actionable = cue.action === "serve" || cue.action === "lift" || (cue.action === "prep" && cue.waiting > 0);
         var grad = g.createLinearGradient(0, b.y, 0, b.y + b.h);
-        grad.addColorStop(0, "#6d4629"); grad.addColorStop(1, "#2c1a10");
+        grad.addColorStop(0, actionable ? "#3d5a41" : "#6d4629");
+        grad.addColorStop(1, actionable ? "#172b21" : "#2c1a10");
         g.fillStyle = grad; roundRect(g, b.x, b.y, b.w, b.h, 14); g.fill();
-        g.strokeStyle = hov ? PAL.gold : "rgba(255,204,140,.42)"; g.lineWidth = hov ? 4 : 2;
+        g.strokeStyle = hov ? PAL.gold : (actionable ? "#8dc99b" : "rgba(255,204,140,.42)");
+        g.lineWidth = hov ? 4 : 2;
         roundRect(g, b.x, b.y, b.w, b.h, 14); g.stroke();
         g.fillStyle = "rgba(0,0,0,.24)"; roundRect(g, b.x + 8, b.y + 8, b.w - 16, 76, 12); g.fill();
         g.save(); g.translate(b.x + b.w / 2, b.y + 46); drawFood(g, FOOD_IDS[i], FS.bucket, "perfect"); g.restore();
@@ -3090,9 +3114,12 @@
         g.font = fontOf(FONT.bucket, true); g.fillStyle = PAL.ink;
         g.fillText(fd.n, b.x + b.w / 2, b.y + 100);
         g.font = fontOf(FONT.small, false); g.fillStyle = PAL.dim;
-        g.fillText(STATION_NAME[fd.kind] + " · " + fd.dur.toFixed(1) + "s", b.x + b.w / 2, b.y + 122);
-        g.font = fontOf(FONT.micro, true); g.fillStyle = "rgba(255,214,110,.78)";
-        g.fillText("点我下锅", b.x + b.w / 2, b.y + 142);
+        g.fillStyle = cue.waiting ? "#eff6cf" : PAL.dim;
+        g.fillText(cue.waiting ? cue.waiting + " 份待上" : "暂无订单", b.x + b.w / 2, b.y + 122);
+        g.font = fontOf(FONT.micro, true);
+        g.fillStyle = actionable ? "#a9ffd0" : "rgba(255,214,110,.84)";
+        var instruction = cueLabels[cue.action] || (cue.waiting ? "点食材下锅" : "可提前备菜");
+        g.fillText(instruction, b.x + b.w / 2, b.y + 142);
         g.textAlign = "left";
       }
     }
@@ -3160,9 +3187,10 @@
         g.fillText("顾客马上进门 —— 先把 " + COL_N + " 列的食材点上；锅里一熟就点锅起锅（" + SERVE_WINDOW + "s 内），落到本列盘上等着 —— 盘上放多久都能上", b0.x + wAll / 2, b0.y + LAY.cards.h / 2);
         g.textAlign = "left";
       }
-      drawStations();
+      var cues = st.stations.map(function (_s, index) { return kitchenCue(st, index); });
+      drawStations(cues);
       drawPlates();
-      drawBuckets();
+      drawBuckets(cues);
       drawTopBar();
       drawLegend();
       positionFloats();
@@ -3175,9 +3203,10 @@
 
     function loop() {
       if (IA.finished) return;
+      if (doc.hidden) { IA.raf = RAF.call(root, loop); return; }
       var t = nowMs(), dt = (t - IA.last) / 1000; IA.last = t;
       if (!(dt >= 0)) dt = 0;
-      IA.acc += dt;
+      IA.acc += Math.min(dt, 0.1);
       var guard = 0;
       while (IA.acc >= 1 / 60 && guard++ < 6) { step(st, 1 / 60); IA.acc -= 1 / 60; }
       render();
@@ -3322,7 +3351,7 @@
     serveStationIndices: serveStationIndices, isServeWindowOpen: isServeWindowOpen,
     serveFoodToCustomer: serveFoodToCustomer, serveFromColumn: serveFromColumn,
     pickCustomerIndexFor: pickCustomerIndexFor, pickServeTarget: pickServeTarget,
-    serveCandidates: serveCandidates, SERVE_DANGER_SEC: SERVE_DANGER_SEC,
+    serveCandidates: serveCandidates, kitchenCue:kitchenCue, SERVE_DANGER_SEC: SERVE_DANGER_SEC,
     PARTIAL_PATIENCE_BONUS: PARTIAL_PATIENCE_BONUS, givePartialPatience: givePartialPatience,
     pickPlateIndex: pickPlateIndex,
     serveCustomer: serveCustomer, spawnCustomer: spawnCustomer,

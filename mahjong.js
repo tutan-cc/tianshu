@@ -1660,8 +1660,10 @@
     this.logSeq = 0;            // 累计入账事件数（**只增不减**：log 满 400 会被 shift 截断）
     this.result = null;
   }
-  Engine.prototype.push = function (seat, kind, text, tile) {
-    this.log.push({ seat: seat, kind: kind, text: text, tile: tile || "" });
+  Engine.prototype.push = function (seat, kind, text, tile, source) {
+    var event = { seat: seat, kind: kind, text: text, tile: tile || "" };
+    if (source) event.source = source;
+    this.log.push(event);
     /* 累计事件数（**只增不减**）：日志超过 400 条会 shift 掉最旧一条，长度从此不再变 ——
        任何拿「长度」当游标的消费者（语音报牌 / 音效 / 日志面板）都会从那一刻起永远停在原地。
        这类停摆是完全静默的：计数、队列、面板看起来都正常，只是再也没有声音/更新。 */
@@ -1893,7 +1895,7 @@
     var p = this.P[seat], t = this.wall.pop();
     p.hand.push(t); p.drawn = t; p.kongDraw = true;
     normalizeHand(p);
-    this.push(seat, "draw", this.nameOf(seat) + " 杠后补牌");
+    this.push(seat, "draw", this.nameOf(seat) + " 杠后从牌墙尾补牌", null, "kong");
     var ev = evaluate(p.hand, p.melds);
     if (ev) { this.settle(seat, { selfDraw: true, kongDraw: true }, ev); return; }
     this.setTurn(seat);
@@ -2276,7 +2278,7 @@
     back: { wide: 26, depth: 30, step: 26 },
     meldSide: { tw: 34, th: 30, gap: 3, groupGap: 12 },
     meldTop: { tw: 34, th: 30, gap: 4, groupGap: 14 },
-    disc: { tw: 36, th: 48, sx: 38, sy: 50 },
+    disc: { tw: 30, th: 25, step: 33, depth: 30, perRow: 6, rows: 6, thickness: 3 },
     /* 牌墙一墩 = **上下两枚立牌**（照放大参考图）：单枚牌背深 tileDepth，一墩两枚 = stackDepth。
        stackDepth 46 = 旧的「双层 22 + 缝 2 + 22」→ 方环占位没变，同心几何与装饰安全区都不用重算。*/
     wall: { tw: 30, tileDepth: 23, stackDepth: 46, side: { tw: 23, th: 30 }, step: 30 },
@@ -2307,14 +2309,13 @@
       因为画布是 1240×860（1.44:1），正方形方环不可能同时满足两个比例。
       由中心向外：① 圆形指示盘 → ② 牌河 → ③ 牌墙方环 → ④ 四家手牌 / 副露 / 座位牌。 */
   var RING = { cx: 620, cy: 380, rInX: 318, rInY: 279, gap: 2, depth: 22 };
-  /** 弃牌区（牌河）：**紧贴指示盘外圈**、朝心排列、每行 6 张、牌牌紧密。
-      牌河带宽：竖 279−58 = 221px（4 行 × 50）· 横 318−58 = 260px（4 列 × 38）。 */
-  var DISC_ZONE = {
-    0: { x: 507, y: 609, perRow: 6, dir: "up" },
-    1: { x: 680, y: 231, perRow: 6, dir: "right" },
-    2: { x: 507, y: 103, perRow: 6, dir: "down" },
-    3: { x: 524, y: 231, perRow: 6, dir: "left" }
-  };
+  /** 牌河贴近中央盘。按各家座位方向摆放，满六张再朝该座位开一排。 */
+  var DISC_ZONE = [
+    { x: 525, y: 451, alongX: 1, alongY: 0, outX: 0, outY: 1, rot: 0 },
+    { x: 724, y: 445, alongX: 0, alongY: -1, outX: 1, outY: 0, rot: -Math.PI / 2 },
+    { x: 685, y: 283, alongX: -1, alongY: 0, outX: 0, outY: -1, rot: Math.PI },
+    { x: 492, y: 285, alongX: 0, alongY: 1, outX: -1, outY: 0, rot: Math.PI / 2 }
+  ];
   /** 门风：你(下) / 金老板(右) / 红姐(上) / 顾曼(左)
       同心重排后：三家座位牌一律贴在自己**副露的外侧**（朝方环反向），三家对称。 */
   /** 门风：你(下) / 金老板(右) / 红姐(上) / 顾曼(左)
@@ -2733,7 +2734,8 @@
     var along = vert ? fw : fh;                                // 顶面沿「切分轴」的长度
     /* 象牙白棱边厚：牌墙「外枚」用 thin（窄白棱压在本段外沿）；牌墙「内枚」用 noEdge（不画白棱，
        只靠分界阴影线区分两枚）→ 整段看起来是**一条连续绿带 + 上沿一条白棱**，而不是一圈白条纹。*/
-    var e = o.noEdge ? 0 : Math.max(2, along * (o.thin ? B.edgeThin : B.edge));
+    var e = o.layers ? Math.max(4, along * 0.23)
+      : (o.noEdge ? 0 : Math.max(2, along * (o.thin ? B.edgeThin : B.edge)));
     var ln = Math.max(1, along * B.line);                      // 绿面 / 白棱 之间的细阴影线
     var gd = Math.max(2, along - e - ln);                      // 绿面厚
     var gA = g.createLinearGradient(fx, fy, fx, fy + fh);
@@ -2769,6 +2771,10 @@
     seg(0, gd, gA);
     seg(gd, gd + ln, null, B.lineC);
     seg(gd + ln, along, iA);
+    if (o.layers === 2 && e >= 4) {
+      var seam = gd + ln + e * 0.48;
+      seg(seam, seam + 1, null, "rgba(96,80,59,.67)");
+    }
     /* 绿面远端高光（光源左上，与棱边相反那一侧）→ 立体感；仍然零花纹 */
     var hl = Math.max(1, m * .065), hp = Math.max(1.2, along * .10), hx, hy;
     g.strokeStyle = "rgba(226,255,238,.28)"; g.lineWidth = hl;
@@ -2968,7 +2974,7 @@
   }
   /** 牌桌上「会变的东西」的保守外接矩形（宁可估大也不能漏；与 layout_a 的常量一一对应）*/
   function decorReserved() {
-    var out = [], i, s, slots = wallSlots(), d = LAYOUT.disc;
+    var out = [], i, s, slots = wallSlots();
     /* 牌墙：满墙 34 墩 × 双层 = 68 块，逐块进保留框（最保守） */
     for (i = 0; i < slots.length; i++) { s = slots[i]; out.push({ name: "wall", side: s.side, x: s.x, y: s.y, w: s.w, h: s.h }); }
     /* 四家手牌：下 186..1054（14 张最宽）· 右 x992..1022 · 上 x438..802 · 左 x218..248
@@ -2982,12 +2988,7 @@
     out.push({ name: "melds1", x: 1028, y: 190, w: 34, h: 380 });
     out.push({ name: "melds2", x: 30, y: 16, w: 400, h: 34 });
     out.push({ name: "melds3", x: 178, y: 190, w: 34, h: 380 });
-    /* 牌河：四家统一每行 6 张，全部落在方环**内表面之内**、紧贴指示盘外圈；
-       行 / 列组数按「一轮长局最多 4 组」保守估（均由 DISC_ZONE 推出，不写死）*/
-    out.push({ name: "disc0", x: DISC_ZONE[0].x, y: DISC_ZONE[0].y - 3 * d.sy, w: 5 * d.sx + d.tw, h: 3 * d.sy + d.th });
-    out.push({ name: "disc2", x: DISC_ZONE[2].x, y: DISC_ZONE[2].y, w: 5 * d.sx + d.tw, h: 3 * d.sy + d.th });
-    out.push({ name: "disc1", x: DISC_ZONE[1].x, y: DISC_ZONE[1].y, w: 3 * d.sx + d.tw, h: 5 * d.sy + d.th });
-    out.push({ name: "disc3", x: DISC_ZONE[3].x - 3 * d.sx, y: DISC_ZONE[3].y, w: 3 * d.sx + d.tw, h: 5 * d.sy + d.th });
+    for (i = 0; i < 4; i++) out.push(discardBounds(i));
 
     out.push({ name: "center", x: LAYOUT.center.x - LAYOUT.center.w / 2, y: LAYOUT.center.y - LAYOUT.center.h / 2,
                w: LAYOUT.center.w, h: LAYOUT.center.h });
@@ -3139,21 +3140,34 @@
   function drawWall(g, remaining) {
     var stacks = Math.ceil(remaining / 4), need = wallCounts(stacks), slots;
     var vis = Math.ceil(remaining / 2);             // 可见枚数：每枚代表 2 张（一墩两枚 = 4 张）
-    var i, s, t, drawn = 0, want, drawnStacks = [];
+    var i, s, t, drawn = 0;
     G.stat.wallStacks = stacks;
-    slots = wallSlots(need);                        // 按当前墩数摆（不是「满墙取前缀」）
-    for (i = 0; i < slots.length && drawn < vis; i++) {
-      s = slots[i];
-      want = Math.min(2, vis - drawn);
-      if (want === 2) {                             // 外枚：垫在下面、压暗
-        t = s.tiles[0]; drawTileBack(g, t.x, t.y, t.w, t.h, t); drawn++;
+    if (G.wallLayoutN !== remaining || !G.wallLayout) {
+      slots = wallSlots(need).slice(0, stacks);
+      var visible = 0;
+      for (i = 0; i < slots.length; i++) {
+        s = slots[i];
+        var count = Math.min(2, vis - visible);
+        s.drawnTiles = s.tiles.slice(2 - count);
+        for (var j = 0; j < s.drawnTiles.length; j++, visible++) {
+          t = s.drawnTiles[j];
+          t.layers = (remaining % 2 && visible === vis - 1) ? 1 : 2;
+        }
       }
-      t = s.tiles[1]; drawTileBack(g, t.x, t.y, t.w, t.h, t); drawn++;   // 内枚：盖在上面
-      drawnStacks.push(s);
+      G.wallLayoutN = remaining;
+      G.wallLayout = slots;
+      G.wallSpan = wallSpan(slots);
     }
-    G.stat.wallTiles = drawn;                       // 画出枚数（应 = ceil(余牌 / 2)）
-    G.stat.wallDrawnStacks = drawnStacks.length;    // 画出墩数（每墩 1~2 枚）
-    G.wallSpan = wallSpan(drawnStacks);             // 本帧真实画出去的四段跨度（取证用）
+    for (i = 0; i < G.wallLayout.length; i++) {
+      s = G.wallLayout[i];
+      for (var k = 0; k < s.drawnTiles.length; k++) {
+        t = s.drawnTiles[k];
+        drawTileBack(g, t.x, t.y, t.w, t.h, t);
+        drawn++;
+      }
+    }
+    G.stat.wallTiles = drawn;
+    G.stat.wallDrawnStacks = G.wallLayout.length;
   }
   /** ①「四段成环」取证（纯几何）：四面牌墙的**内表面到中心的距离**是否四面全等、
       四段是否各自落在自己那一侧、每段是否都有牌。用户 2025 明确要求
@@ -3335,39 +3349,54 @@
   }
 
   function drawDiscards(g, seat) {
-    var p = G.E.P[seat], zone = DISC_ZONE[seat], d = LAYOUT.disc, i, pos, last = p.discards.length - 1, out = [];
-    /* 刚落河的那张牌：在 DISCARD_ANIM_MS 内从上方滑入 + 淡入（"啪"地落进牌河）。
-       这个时长与报牌延迟（SAY_AFTER_DISCARD_MS）是**同一个常量** ——
-       用户要求「牌出现 → 报牌」，靠的就是两者同源，而不是各写一个毫秒数去凑。 */
+    var p = G.E.P[seat], d = LAYOUT.disc, last = p.discards.length - 1;
     var a = G.anim.disc, k = 0;
-    if (a && a.seat === seat) {
-      k = (Date.now() - a.at) / DISCARD_ANIM_MS;
-      k = (k > 0 && k < 1) ? (1 - k) : 0;          // 1 → 0：越接近 0 越落定
-    }
-    for (i = 0; i < p.discards.length; i++) {
-      pos = discardPos(seat, i);
-      if (i === last && k > 0) {
-        g.save();
+    var count = Math.max(d.perRow, Math.ceil(p.discards.length / d.perRow) * d.perRow);
+    var rail = discardBounds(seat, count);
+    g.fillStyle = ["rgba(82,122,174,.24)", "rgba(164,133,73,.24)", "rgba(157,90,82,.23)", "rgba(78,133,99,.24)"][seat];
+    rr(g, rail.x - 3, rail.y - 3, rail.w + 6, rail.h + 6, 4); g.fill();
+    var recent = a && a.seat === seat && a.index === last && p.discards[last] === a.tile;
+    if (recent) k = Math.max(0, 1 - (Date.now() - a.at) / DISCARD_ANIM_MS);
+    for (var i = 0; i <= last; i++) {
+      var pos = discardPos(seat, i, p.discards.length), active = recent && i === last;
+      g.save();
+      if (active && k > 0) {
         g.globalAlpha = 1 - k * 0.5;
         g.translate(0, -Math.round(k * DISCARD_FALL_PX));
-        drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: true });
-        g.restore();
-      } else {
-        drawTileFace(g, p.discards[i], pos.x, pos.y, d.tw, d.th, { hl: i === last });
       }
-      out.push({ x: pos.x, y: pos.y, w: d.tw, h: d.th });
+      g.fillStyle = "#b7b2a2";
+      rr(g, pos.x, pos.y + d.thickness, pos.w, pos.h, 3); g.fill();
+      g.translate(pos.x + pos.w / 2, pos.y + pos.h / 2);
+      if (pos.rot) g.rotate(pos.rot);
+      if (pos.scale < 1) g.scale(1, pos.scale);
+      drawTileFace(g, p.discards[i], -d.tw / 2, -d.th / 2, d.tw, d.th,
+        { hl: active });
+      g.restore();
     }
     G.stat.discards += p.discards.length;
-    return out;
   }
 
-  function discardPos(seat, i) {
-    var z = DISC_ZONE[seat], d = LAYOUT.disc, r, c;
-    if (seat === 0) { r = Math.floor(i / z.perRow); c = i % z.perRow; return { x: z.x + c * d.sx, y: z.y - r * d.sy }; }
-    if (seat === 2) { r = Math.floor(i / z.perRow); c = i % z.perRow; return { x: z.x + c * d.sx, y: z.y + r * d.sy }; }
-    c = Math.floor(i / z.perRow); r = i % z.perRow;
-    if (seat === 3) return { x: z.x - c * d.sx, y: z.y + r * d.sy };
-    return { x: z.x + c * d.sx, y: z.y + r * d.sy };
+  function discardPos(seat, i, count) {
+    var z = DISC_ZONE[seat], d = LAYOUT.disc;
+    var along = (i % d.perRow) * d.step;
+    var scale = Math.min(1, d.rows / Math.ceil(count / d.perRow));
+    var depth = Math.floor(i / d.perRow) * d.depth * scale;
+    var faceDepth = d.th * scale;
+    return {
+      x: z.x + along * z.alongX + depth * z.outX,
+      y: z.y + along * z.alongY + depth * z.outY,
+      w: z.alongY ? faceDepth : d.tw,
+      h: z.alongY ? d.tw : faceDepth,
+      rot: z.rot, scale: scale
+    };
+  }
+
+  function discardBounds(seat, count) {
+    var d = LAYOUT.disc;
+    count = count || d.perRow * d.rows;
+    var a = discardPos(seat, 0, count), b = discardPos(seat, count - 1, count);
+    return { name: "disc" + seat, x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+      w: Math.abs(a.x - b.x) + a.w, h: Math.abs(a.y - b.y) + a.h + d.thickness };
   }
   function drawSeatPlate(g, seat, label, sub, active) {
     var pos = SEAT_POS[seat], pw = seat === 0 ? 118 : 124, ph = 30, x = pos.x, y = pos.y;
@@ -4097,7 +4126,7 @@
     var tile = p.discards[p.discards.length - 1];              // ← 唯一数据源：牌河
     if (expect && String(expect) !== tile) VOICE_STAT.mismatch++;
     var at = Date.now(), f = voiceFile(tile);
-    G.anim.disc = { seat: seat, tile: tile, at: at };          // 落河动画起点（渲染层按它滑入）
+    G.anim.disc = { seat: seat, tile: tile, index: p.discards.length - 1, at: at };          // 落河动画起点（渲染层按它滑入）
     VOICE_STAT.discN++;
     var rec = { seat: seat, tile: tile, file: f, landAt: at, sayAt: 0, said: false };
     VOICE_STAT.disc.push(rec);
@@ -4199,14 +4228,19 @@
 
 
   var CSS = [
-    ".mjm-wrap{position:relative;line-height:0;filter:drop-shadow(0 22px 54px rgba(0,0,0,.8))}",
+    ".mjm-shell{width:94vw;width:min(94vw,1180px,max(210px,calc((100vh - 164px) * 1.442)));",
+    "  max-width:1180px;min-width:0;margin:auto;filter:drop-shadow(0 22px 54px rgba(0,0,0,.8))}",
+    ".mjm-wrap{position:relative;line-height:0}",
     ".mjm-cv{display:block;width:min(94vw,1180px);height:auto;border-radius:16px;cursor:default}",
     ".mjm-cv.pick{cursor:pointer}",
     ".mjm-hud{position:absolute;left:0;right:0;top:1.1%;display:flex;justify-content:space-between;align-items:center;",
     "  padding:0 2.4%;font:12px/1.5 'Microsoft YaHei',sans-serif;color:#cbd6e6;pointer-events:none;",
     "  text-shadow:0 1px 3px #000,0 0 10px rgba(0,0,0,.9)}",
     ".mjm-hud b{color:#ffd76e;font-variant-numeric:tabular-nums}",
-    ".mjm-hud-c{font-weight:700;letter-spacing:1px;color:#ffd76e}",
+    ".mjm-hud-c{font-weight:700;letter-spacing:1px;color:#ffd76e;text-align:center}",
+    ".mjm-hud-l,.mjm-hud-r{flex:1;min-width:0}.mjm-hud-r{text-align:right}",
+    ".mjm-recent{position:absolute;left:50%;top:15.5%;transform:translateX(-50%);padding:4px 11px;border:1px solid #ae9456;border-radius:6px;background:#181b17f5;color:#ffe6a2;font:600 13px/1.5 'Microsoft YaHei',sans-serif;white-space:nowrap;pointer-events:none}",
+    ".mjm-recent[hidden]{display:none}",
     ".mjm-acts{position:absolute;left:50%;transform:translateX(-50%);bottom:16.5%;display:flex;flex-direction:column;",
     "  align-items:center;gap:6px;font-family:'Microsoft YaHei',sans-serif}",
     ".mjm-btns{display:flex;gap:10px;align-items:center}",
@@ -4220,11 +4254,12 @@
     ".mjm-bar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff7d9c,#ffd76e)}",
     ".mjm-bar.on{display:block}",
     ".mjm-ct{font-size:10.5px;color:#ffd76e;letter-spacing:1px}",
-    ".mjm-log{position:absolute;right:1.2%;bottom:2.2%;width:150px;border-radius:8px;overflow:hidden;",
-    "  background:rgba(6,8,14,.72);border:1px solid rgba(255,255,255,.14);font:11px/1.65 'Microsoft YaHei',sans-serif;color:#9fabbe}",
-    ".mjm-log-h{cursor:pointer;padding:4px 9px;color:#ffd76e;letter-spacing:2px;border-bottom:1px solid rgba(255,255,255,.08);",
-    "  user-select:none;display:flex;justify-content:space-between}",
-    ".mjm-log-b{padding:4px 9px;max-height:112px;overflow-y:auto}",
+    ".mjm-log{margin:6px 0 0;width:100%;max-width:330px;border-radius:8px;overflow:hidden;",
+    "  background:#111019;border:1px solid rgba(255,255,255,.18);font:12px/1.65 'Microsoft YaHei',sans-serif;color:#bec9da}",
+    ".mjm-log-h{width:100%;border:0;background:transparent;cursor:pointer;padding:5px 11px;color:#ffd76e;",
+    "  font:inherit;letter-spacing:1px;text-align:left;display:flex;align-items:center;justify-content:space-between}",
+    ".mjm-log-h:focus-visible{outline:2px solid #ffd76e;outline-offset:-3px}",
+    ".mjm-log-b{padding:4px 9px;height:98px;overflow-y:auto;overscroll-behavior:contain}",
     ".mjm-log.min .mjm-log-b{display:none}",
     ".mjm-res{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;",
     "  background:rgba(4,3,8,.66);border-radius:16px;font-family:'Microsoft YaHei',sans-serif}",
@@ -4241,7 +4276,7 @@
     "  border-top:1px solid rgba(255,255,255,.1);padding-top:8px;margin-top:6px}",
     ".mjm-card button{margin-top:14px;width:100%;padding:11px;border-radius:8px;border:1px solid rgba(255,215,110,.5);",
     "  background:linear-gradient(180deg,rgba(40,32,16,.96),rgba(18,14,26,.96));color:#ffd76e;font-size:14px;letter-spacing:4px;cursor:pointer}",
-    ".mjm-rule{position:absolute;left:1.6%;bottom:1.0%;font:11px/1.7 'Microsoft YaHei',sans-serif;color:rgba(203,214,230,.5)}",
+    ".mjm-rule{position:absolute;left:1.6%;bottom:13%;pointer-events:none;font:11px/1.7 'Microsoft YaHei',sans-serif;font-size:clamp(7px,.82vw,11px);color:rgba(203,214,230,.62)}",
     ".mjm-rule b{color:rgba(255,215,110,.75)}",
     /* ── 智脑提示 ── */
     ".mjm-brain{position:absolute;left:1.2%;top:1.0%;width:min(300px,32%);border-radius:10px;overflow:hidden;",
@@ -4251,7 +4286,7 @@
     ".mjm-brain-h{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 9px;",
     "  border-bottom:1px solid rgba(255,255,255,.08)}",
     ".mjm-brain-t{letter-spacing:2px;color:#ffd76e;font-weight:700;font-size:12px}",
-    ".mjm-brain-t::before{content:'\\\\25C6';margin-right:5px;color:#8ef2c0}",
+    ".mjm-brain-t::before{content:'◆';margin-right:5px;color:#8ef2c0}",
     ".mjm-tg{cursor:pointer;user-select:none;font-size:11px;padding:2px 8px;border-radius:999px;",
     "  border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#cbd6e6}",
     ".mjm-tg.on{border-color:rgba(90,240,170,.65);color:#7dffc0;box-shadow:0 0 10px rgba(90,240,170,.28)}",
@@ -4267,6 +4302,9 @@
     ".mjm-brain-b .l1.hit{color:#7dffc0;text-shadow:0 0 10px rgba(90,240,170,.35)}",
     ".mjm-brain-b .l2{color:#ffd76e}",
     ".mjm-brain-b .l3{color:#8a96ab;font-size:11px}",
+    "@media(max-width:480px){.mjm-brain{width:42%;max-height:52%;overflow:auto}",
+    ".mjm-brain-h{padding:3px 5px;gap:3px;flex-wrap:wrap}.mjm-brain-t,.mjm-tg,.mjm-brain-b,.mjm-brain-b .l3{font-size:9px}",
+    ".mjm-tg{padding:1px 5px}.mjm-brain-b{padding:3px 5px;max-height:none}}",
     ".mjm-hintmark{position:absolute;display:none;box-sizing:border-box;border:3px solid #ffd76e;border-radius:9px;",
     "  pointer-events:none;z-index:6;box-shadow:0 0 14px rgba(255,215,110,.85),inset 0 0 10px rgba(255,215,110,.35)}",
     ".mjm-hintmark.on{display:block;animation:mjmPulse 1.05s ease-in-out infinite}",
@@ -4362,16 +4400,15 @@
 
   function buildDom(host) {
     host.innerHTML = "";
+    var shell = mkEl("div", "mjm-shell");
     var wrap = mkEl("div", "mjm-wrap");
     var cv = mkEl("canvas", "mjm-cv");
     // 高清位图：devicePixelRatio 至少 2x（牌面细线/圆点才不糊）
     G.dpr = Math.max(2, Math.min(3, root.devicePixelRatio || 1));
     cv.width = Math.round(W * G.dpr); cv.height = Math.round(H * G.dpr);
-    // 显式 CSS 尺寸：IE11 不认 CSS 的 min()，否则会把 2480px 的位图按原尺寸铺出来
-    var cssW = Math.max(320, Math.min(1180, Math.round((root.innerWidth || W) * .94)));
-    cv.style.width = cssW + "px";
-    cv.style.height = Math.round(cssW * H / W) + "px";
-    cv.style.maxWidth = "100%";
+    // 牌桌和记录共用外层宽度，显示高度不足时优先给记录留空间。
+    cv.style.width = "100%";
+    cv.style.height = "auto";
     wrap.appendChild(cv);
 
     var hud = mkEl("div", "mjm-hud");
@@ -4380,6 +4417,10 @@
       '<div class="mjm-hud-c" id="mjmActor">开局</div>' +
       '<div class="mjm-hud-r" id="mjmHint">–</div>';
     wrap.appendChild(hud);
+    var recent = mkEl("div", "mjm-recent");
+    recent.id = "mjmRecent";
+    recent.hidden = true;
+    wrap.appendChild(recent);
 
     var brain = mkEl("div", "mjm-brain" + (G.hintOn ? "" : " off"));
     brain.innerHTML = '<div class="mjm-brain-h"><span class="mjm-brain-t">智脑提示</span>' +
@@ -4402,11 +4443,6 @@
       '<div class="mjm-ct" id="mjmCt"></div><div class="mjm-btns" id="mjmBtns"></div>';
     wrap.appendChild(acts);
 
-    var log = mkEl("div", "mjm-log");
-    log.innerHTML = '<div class="mjm-log-h" id="mjmLogH"><span>牌 局 记 录</span><span id="mjmLogT">▾</span></div>' +
-      '<div class="mjm-log-b" id="mjmLogB"></div>';
-    wrap.appendChild(log);
-
     var rule = mkEl("div", "mjm-rule");
     rule.id = "mjmRule";
     rule.innerHTML = '<b>赣麻</b> 无吃 · 无点炮 · 只能自摸<br>碰 / 杠 / 抢杠胡（暗杠不可抢）<br>' +
@@ -4417,7 +4453,14 @@
 
     wrap.appendChild(mkEl("div", "mjm-res", "")); var res = wrap.lastChild;
     res.id = "mjmRes"; res.style.display = "none";
-    host.appendChild(wrap);
+    // 牌局记录与牌桌分开排版，展开时仍然不会盖住任何牌。
+    var log = mkEl("div", "mjm-log");
+    log.innerHTML = '<button type="button" class="mjm-log-h" id="mjmLogH" aria-expanded="true" aria-controls="mjmLogB">' +
+      '<span>牌局记录</span><span id="mjmLogT" aria-hidden="true">▾</span></button>' +
+      '<div class="mjm-log-b" id="mjmLogB"></div>';
+    shell.appendChild(wrap);
+    shell.appendChild(log);
+    host.appendChild(shell);
     G.cv = cv; G.ctx = cv.getContext("2d");
     return cv;
   }
@@ -4462,17 +4505,18 @@
     /* 与 voiceHook / playNewSfx 同一口径的游标（累计事件数）：日志被 shift 截断也不会停更 */
     var total = E.logSeq || E.log.length, i = E.log.length - (total - G.logRendered);
     if (i < 0) i = 0;
+    var follow = box.scrollHeight - box.clientHeight - box.scrollTop < 12;
     for (; i < E.log.length; i++) {
       var d = mkEl("div");
       d.textContent = E.log[i].text;
       var k = E.log[i].kind;
       if (k === "win") d.style.color = "#5dffa0";
-      else if (k === "gang" || k === "peng") d.style.color = "#ffd76e";
+      else if (k === "gang" || k === "peng" || E.log[i].source === "kong") d.style.color = "#ffd76e";
       box.appendChild(d);
     }
     G.logRendered = total;
     while (box.children.length > 140) box.removeChild(box.firstChild);
-    box.scrollTop = box.scrollHeight;
+    if (follow) box.scrollTop = box.scrollHeight;
   }
   function playNewSfx() {
     var E = G.E; if (!E) return;
@@ -4493,17 +4537,15 @@
   }
 
   function humanHint() {
-    var p = G.E.P[0], hand = p.hand.slice();
-    if (p.drawn !== null && hand.length % 3 === 2) hand.pop();
-    if (hand.length % 3 !== 1) return "–";
-    var waits = waitsFor(hand, p.melds, G.E.honors);
-    if (waits.length) {
-      var n = 0, i, used;
-      for (i = 0; i < waits.length; i++) n += 4 - countIn(hand, waits[i]);
-      return "已听牌 · 听 " + waits.join(" / ") + "（" + n + " 张）";
-    }
-    var s = bestShanten(hand, p.melds.length);
-    return "未听牌 · " + s + " 向听" + (G.E.phase === "turn" && G.E.cur === 0 ? "（建议打 " + aiDiscard(hand, p.melds, G.E.seenBy(0), G.E.honors) + "）" : "");
+    if (!G.hintOn || G.hintLocked) return "";
+    var E = G.E, p = E.P[0], hand = p.hand;
+    if (hand.length % 3 !== 1 || E.phase === "over") return "";
+    var waits = waitsFor(hand, p.melds, E.honors);
+    if (!waits.length) return "未听牌";
+    var seen = hintSeen(0);
+    var n = 0;
+    for (var i = 0; i < waits.length; i++) n += Math.max(0, 4 - countIn(hand, waits[i]) - (seen[waits[i]] || 0));
+    return "听 " + waits.join(" / ") + " · 估计余 " + n + " 张";
   }
   function updateHud() {
     var E = G.E; if (!E) return;
@@ -4515,6 +4557,14 @@
     }
     el = byId("mjmWall"); if (el) el.textContent = E.wall.length;
     el = byId("mjmTurn"); if (el) el.textContent = E.turnNo;
+    el = byId("mjmRecent");
+    if (el) {
+      var last = G.anim.disc, event = E.log[E.log.length - 1];
+      var supplement = event && event.source === "kong";
+      el.hidden = !last && !supplement;
+      if (supplement) el.textContent = E.nameOf(event.seat) + " · 杠后已从牌墙尾补牌";
+      else if (last) el.textContent = E.nameOf(last.seat) + "打出 · " + last.tile;
+    }
     el = byId("mjmHint"); if (el) el.textContent = humanHint();
     el = byId("mjmActor");
     if (el) {
@@ -4573,8 +4623,9 @@
     var seen = {}, i, j, p;
     for (i = 0; i < 4; i++) {
       p = E.P[i];
-      if (i !== seat) for (j = 0; j < p.discards.length; j++) seen[p.discards[j]] = (seen[p.discards[j]] || 0) + 1;
+      for (j = 0; j < p.discards.length; j++) seen[p.discards[j]] = (seen[p.discards[j]] || 0) + 1;
       for (j = 0; j < p.melds.length; j++) {
+        if (i !== seat && p.melds[j].an) continue;
         var mt = p.melds[j].tiles || [];
         for (var q = 0; q < mt.length; q++) seen[mt[q]] = (seen[mt[q]] || 0) + 1;
       }
@@ -4860,7 +4911,7 @@
     if (!cv || typeof cv.getContext !== "function") return false;
 
     G.on = true; G.busy = true; G.finished = false; G.resultShown = false; G.result = null;
-    G.opts = opts; G.host = hostEl; G.hover = -1; G.handRects = []; G.wallSlots = null; G.wallSpan = null; G.noise = null;
+    G.opts = opts; G.host = hostEl; G.hover = -1; G.handRects = []; G.wallSlots = null; G.wallSpan = null; G.wallLayout = null; G.noise = null;
     G.logRendered = 0; G.sfxN = 0; G.uiLock = 0; G.anim.drawAt = 0; G.anim.disc = null; G.stat = null; G.overAt = 0; G.lastErr = ""; G.sheet = null; G.demo = null;
     G.pace = { n: 0, last: 0, min: 0, max: 0, list: [] };
     G.hint = null; G.hintIdx = -1; G.hintKey = ""; G.hintCalcN = 0; G.hintLastMs = 0; G.hintWorstMs = 0; G.view = null;
@@ -4895,7 +4946,10 @@
     if (h) h.onclick = function () {
       var box = h.parentNode, min = box.className.indexOf("min") >= 0;
       box.className = "mjm-log" + (min ? "" : " min");
+      h.setAttribute("aria-expanded", min ? "true" : "false");
       var t = byId("mjmLogT"); if (t) t.textContent = min ? "▾" : "▸";
+      var body = byId("mjmLogB");
+      if (min && body) body.scrollTop = body.scrollHeight;
     };
 
     var tg = byId("mjmHintToggle");

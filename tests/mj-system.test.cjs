@@ -459,3 +459,43 @@ test("旧档兼容：新 flag / 新邀约 id / 新字段都不判坏档；新 id
   assert.ok(poor.length > 0 && poor.every((x) => x.ok === false), "财富 30：全部禁用");
   assert.ok(poor[0].reason.includes("财富不足"), "禁用原因写明财富不足");
 });
+
+
+test("AI 明杠玩家打出的發：摸牌墙尾，再由同一座位出牌", () => {
+  const { Engine, createWall, tileAudit } = loadMahjong().test;
+  for (const seat of [1, 3]) {
+    const game = new Engine(10, { honors: true });
+    const wall = createWall(true);
+    const take = tile => {
+      const index = wall.indexOf(tile);
+      assert.ok(index >= 0, tile);
+      return wall.splice(index, 1)[0];
+    };
+    game.P[0].hand = ["發", "1万", "2万", "4万", "6万", "8万", "9万", "1筒", "4筒", "7筒", "2条", "6条", "东", "南"].map(take);
+    game.P[seat].hand = ["發", "發", "發", "1万", "3万", "5万", "8万", "1筒", "4筒", "7筒", "1条", "5条", "西"].map(take);
+    const tail = take("北");
+    for (let other = 1; other < 4; other++) {
+      if (other !== seat) game.P[other].hand = wall.splice(0, 13);
+    }
+    wall.push(tail);
+    game.wall = wall;
+    const front = wall[0], initialCount = wall.length;
+    game.setTurn(0);
+
+    assert.equal(game.discard(0, 0), true);
+    assert.equal(game.aiStep(), "gang");
+    assert.equal(game.cur, seat);
+    assert.equal(game.P[0].discards.length, 0);
+    assert.equal(game.P[seat].drawn, tail);
+    assert.equal(game.P[seat].hand.length, 11);
+    assert.equal(game.P[seat].melds[0].tiles.length, 4);
+    assert.equal(game.wall[0], front);
+    assert.equal(game.wall.length, initialCount - 1);
+    assert.equal(game.log[2].source, "kong");
+    assert.equal(game.aiStep(), "discard");
+    assert.equal(game.P[seat].hand.length, 10);
+    assert.equal(game.log[3].seat, seat);
+    assert.equal(game.log[3].tile, game.P[seat].discards[0]);
+    assert.equal(tileAudit(game).ok, true);
+  }
+});

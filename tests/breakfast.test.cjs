@@ -3285,3 +3285,28 @@ test("练手局④：对照 —— 不带 practice 的正常局照旧结算（+6
 });
 
 
+
+
+test("工位提示随订单、火候和上餐流转，并显示真正会收到餐点的顾客", () => {
+  const state = plateState();
+  const col = R.columnOf("egg");
+  const first = R.spawnCustomer(state, ["egg"]);
+  const urgent = R.spawnCustomer(state, ["egg"]);
+  first.patience = 12;
+  urgent.patience = 5;
+  assert.equal(R.kitchenCue(state, col).waiting, 2);
+  assert.equal(R.kitchenCue(state, col).action, "prep");
+
+  assert.equal(R.placeFoodEx(state, "egg", col).ok, true);
+  assert.equal(R.kitchenCue(state, col).action, "cooking");
+  assert.ok(advToWindow(state, col) >= 0);
+  assert.equal(R.kitchenCue(state, col).action, "lift");
+  assert.equal(R.takeOut(state, col).ok, true);
+
+  const cue = R.kitchenCue(state, col);
+  assert.equal(cue.action, "serve");
+  assert.equal(cue.target, urgent.id);
+  const result = R.serveFromColumn(state, col);
+  assert.equal(result.customer.id, cue.target);
+  assert.equal(R.kitchenCue(state, col).waiting, 1);
+});

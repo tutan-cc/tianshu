@@ -742,7 +742,7 @@
     go.addEventListener("click", function (e) { swallow(e); submit(); });
     exp.addEventListener("click", function (e) { swallow(e); download(); });
 
-    var anchor = doc.getElementById ? doc.getElementById("bfNote") : null;
+    var anchor = doc.getElementById ? (doc.getElementById("equipBtn") || doc.getElementById("bfNote")) : null;
     if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(box, anchor);
     else host.appendChild(box);
 
